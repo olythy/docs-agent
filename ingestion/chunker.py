@@ -29,7 +29,25 @@ def _split_words_into_chunks(
 
     Returns:
         A list of word-lists, each representing one chunk.
+
+    Raises:
+        ValueError: If ``chunk_size`` is not positive, ``chunk_overlap`` is
+            negative, or ``chunk_overlap >= chunk_size``. The last case would
+            make ``step`` zero or negative below, so the sliding window would
+            never advance past ``len(words)`` and this function would loop
+            forever.
     """
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be positive, got {chunk_size}.")
+    if chunk_overlap < 0:
+        raise ValueError(f"chunk_overlap must be non-negative, got {chunk_overlap}.")
+    if chunk_overlap >= chunk_size:
+        raise ValueError(
+            f"chunk_overlap ({chunk_overlap}) must be smaller than chunk_size "
+            f"({chunk_size}) — otherwise the sliding window never advances "
+            "and this function loops forever."
+        )
+
     if not words:
         return []
 
@@ -69,6 +87,10 @@ def chunk_pages(
             - ``content`` (str): The chunk text, ready for embedding.
             - ``metadata`` (dict): ``source_file``, ``page_number``,
               ``chunk_index`` (0-based, global across the whole document).
+
+    Raises:
+        ValueError: If the resolved ``chunk_overlap >= chunk_size`` (see
+            :func:`_split_words_into_chunks`).
     """
     size = chunk_size if chunk_size is not None else settings.CHUNK_SIZE
     overlap = chunk_overlap if chunk_overlap is not None else settings.CHUNK_OVERLAP
