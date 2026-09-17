@@ -25,3 +25,10 @@ dev = [
     "pytest>=8.0.0",
     "ruff>=0.9.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "db: tests requiring a real TEST_DATABASE_URL Postgres+pgvector instance",
+]
