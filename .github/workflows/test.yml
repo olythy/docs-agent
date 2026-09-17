@@ -1,0 +1,54 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # A single throwaway database is enough here — CI only ever runs the
+    # test suite, never the dev app, so there's no need to mirror the local
+    # docker-compose setup's dev+test split (see docker-compose.yml).
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: docs_agent_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Set directly as real env vars, not via .env.test (which is
+      # gitignored and never exists in CI) — this is exactly the case
+      # config.py's AGENT_ENV bootstrapping accounts for: a pre-set
+      # DATABASE_URL is accepted even without a .env.test file.
+      AGENT_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/docs_agent_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+
+      - name: Install the project
+        run: uv sync --locked
+
+      - name: Run tests
+        run: uv run pytest -v
+
+      - name: Lint
+        run: uv run ruff check .
