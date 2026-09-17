@@ -1,6 +1,7 @@
 """Tests for ingestion.pdf_loader: extract_pages and is_scanned_pdf."""
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -36,3 +37,29 @@ def test_extract_pages_raises_file_not_found(tmp_path: Path):
     missing = tmp_path / "does-not-exist.pdf"
     with pytest.raises(FileNotFoundError):
         extract_pages(missing)
+
+
+def test_extract_pages_strips_nul_characters(monkeypatch, tmp_path: Path):
+    """Regression test for a real bug found via a real PDF.
+
+    Some PDFs have malformed font/encoding data that makes pdfplumber emit
+    literal NUL characters for un-decodable glyphs. Postgres TEXT columns
+    reject NUL outright, so add_document() failed with
+    "string literal cannot contain NUL (0x00) characters" on that document.
+    """
+    pdf_path = tmp_path / "fake.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 fake")  # content unused, pdfplumber.open is mocked
+
+    fake_page = MagicMock()
+    fake_page.extract_text.return_value = "hello\x00world"
+
+    fake_pdf = MagicMock()
+    fake_pdf.pages = [fake_page]
+    fake_pdf.__enter__.return_value = fake_pdf
+
+    monkeypatch.setattr("pdfplumber.open", lambda path: fake_pdf)
+
+    pages = extract_pages(pdf_path)
+
+    assert pages[0]["text"] == "helloworld"
+    assert pages[0]["char_count"] == len("helloworld")

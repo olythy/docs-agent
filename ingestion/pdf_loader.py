@@ -26,7 +26,7 @@ def extract_pages(pdf_path: Path) -> list[dict]:
     Returns:
         A list of page dicts, each containing:
             - ``page_number`` (int): 1-based page index.
-            - ``text`` (str): Raw extracted text (empty string for image pages).
+            - ``text`` (str): Extracted text (empty string for image pages).
             - ``char_count`` (int): Number of characters extracted.
 
     Raises:
@@ -42,6 +42,13 @@ def extract_pages(pdf_path: Path) -> list[dict]:
         for page_number, page in enumerate(pdf.pages, start=1):
             # extract_text() returns None for scanned/image-only pages
             text = page.extract_text() or ""
+            # Malformed font/encoding data in some PDFs makes pdfplumber emit
+            # literal NUL characters for un-decodable glyphs. Postgres TEXT
+            # columns reject NUL outright ("string literal cannot contain
+            # NUL (0x00) characters"), so this must be stripped here, at the
+            # extraction source, rather than defensively re-checked by every
+            # downstream consumer (chunking, storage).
+            text = text.replace("\x00", "")
             pages.append(
                 {
                     "page_number": page_number,
