@@ -84,7 +84,8 @@ def add_document(file_path: str | Path) -> None:
     Raises:
         FileNotFoundError: If the PDF does not exist at ``file_path``.
         RuntimeError: If the database connection is not configured.
-        ValueError: If the PDF is scanned (no extractable text layer).
+        ValueError: If the PDF has no pages, or is scanned (no extractable
+            text layer).
     """
     pdf_path = Path(file_path)
     source_file = pdf_path.name
@@ -93,6 +94,10 @@ def add_document(file_path: str | Path) -> None:
 
     # Step 1: Extract text from every page
     pages = extract_pages(pdf_path)
+    if not pages:
+        raise ValueError(
+            f"'{source_file}' has no pages. The file may be empty or corrupted."
+        )
     if is_scanned_pdf(pages):
         raise ValueError(
             f"'{source_file}' appears to be a scanned PDF with no text layer. "

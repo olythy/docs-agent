@@ -56,13 +56,23 @@ def extract_pages(pdf_path: Path) -> list[dict]:
 def is_scanned_pdf(pages: list[dict]) -> bool:
     """Return True if the PDF appears to be image-based (no extractable text).
 
-    A PDF is considered scanned when every page returns zero characters.
-    In this case OCR (e.g. Tesseract) would be required to extract content.
+    A PDF is considered scanned when it has at least one page and every page
+    returns zero characters. In this case OCR (e.g. Tesseract) would be
+    required to extract content.
+
+    An empty ``pages`` list (e.g. a 0-page or corrupted PDF) is deliberately
+    *not* considered scanned: ``all()`` on an empty iterable is vacuously
+    ``True``, which would otherwise misreport an empty/corrupt file as a
+    scanning problem. Callers should check for an empty ``pages`` list
+    separately if that case needs its own handling.
 
     Args:
         pages: The list of page dicts returned by :func:`extract_pages`.
 
     Returns:
-        True if no text was found across all pages, False otherwise.
+        True if the PDF has pages but no text was found on any of them,
+        False otherwise (including when ``pages`` is empty).
     """
+    if not pages:
+        return False
     return all(p["char_count"] == 0 for p in pages)
