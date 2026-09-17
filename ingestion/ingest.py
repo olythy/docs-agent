@@ -18,7 +18,7 @@ from pathlib import Path
 
 from config import settings
 from drivers.embedding import get_embedding_driver
-from ingestion.chunker import chunk_pages, validate_chunk_size_against_model
+from ingestion.chunker import chunk_pages, get_chunk_overflow_strategy
 from ingestion.pdf_loader import extract_pages, is_scanned_pdf
 from store import VectorStore
 
@@ -67,7 +67,13 @@ def add_document(file_path: str | Path) -> None:
     driver = get_embedding_driver()
     store = VectorStore()
     store.assert_dimension_matches(driver.dimension)
-    validate_chunk_size_against_model(settings.CHUNK_SIZE, driver.max_sequence_length())
+    pre_overflow_count = len(chunks)
+    chunks = get_chunk_overflow_strategy().apply(chunks, driver)
+    if len(chunks) != pre_overflow_count:
+        print(
+            f"[ingest] CHUNK_OVERFLOW_STRATEGY=split corrected "
+            f"{pre_overflow_count} chunk(s) into {len(chunks)}."
+        )
     texts = [c["content"] for c in chunks]
     print(f"[ingest] Embedding with driver='{settings.EMBEDDING_DRIVER}' ...")
     embeddings = driver.embed_batch(texts)

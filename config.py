@@ -68,6 +68,19 @@ class Settings:
                               Morphologically rich languages (e.g. Hungarian)
                               often tokenize worse than this — lower it if the
                               truncation warning under-fires for your content.
+                              Only used by the ``warn`` overflow strategy.
+        CHUNK_OVERFLOW_STRATEGY
+                              What to do when a chunk likely/actually exceeds
+                              the embedding model's token limit: ``warn``
+                              (default) estimates via WORDS_PER_TOKEN and logs
+                              a warning, but still truncates silently at
+                              embed time; ``split`` measures each chunk's
+                              real token count with the driver's own
+                              tokenizer and re-splits any chunk that overflows
+                              so nothing is ever silently truncated. ``split``
+                              requires the active driver to support real
+                              token counting (currently only the ``local``
+                              driver) — falls back to ``warn`` otherwise.
 
     LLM (answer generation):
         LLM_DRIVER            Driver to use: ``openrouter`` (default) or ``openai``.
@@ -117,6 +130,7 @@ class Settings:
     CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "500"))
     CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "50"))
     WORDS_PER_TOKEN: float = float(os.getenv("WORDS_PER_TOKEN", "0.75"))
+    CHUNK_OVERFLOW_STRATEGY: str = os.getenv("CHUNK_OVERFLOW_STRATEGY", "warn")
 
     # --- LLM (answer generation) ---
     LLM_DRIVER: str = os.getenv("LLM_DRIVER", "openrouter")

@@ -76,6 +76,21 @@ class EmbeddingDriver(ABC):
         """
         return None
 
+    def count_tokens(self, text: str) -> int | None:
+        """Return the real (untruncated) token count for ``text``, if this driver can.
+
+        Used by ``CHUNK_OVERFLOW_STRATEGY=split`` to decide whether a chunk
+        actually overflows :meth:`max_sequence_length`, instead of the
+        ``warn`` strategy's word-count estimate. This is ground truth, not
+        an approximation — so it only makes sense for drivers that expose
+        their own tokenizer.
+
+        Returns:
+            The exact token count, or ``None`` if this driver has no local
+            tokenizer to count with (the default; e.g. remote APIs).
+        """
+        return None
+
 
 class LocalSentenceTransformerDriver(EmbeddingDriver):
     """Embedding driver using a locally downloaded sentence-transformer model.
@@ -136,6 +151,19 @@ class LocalSentenceTransformerDriver(EmbeddingDriver):
         model load on its own.
         """
         return self._get_model().max_seq_length
+
+    def count_tokens(self, text: str) -> int | None:
+        """Return the real token count from the model's own tokenizer.
+
+        Calls the underlying HuggingFace tokenizer directly, with no
+        ``truncation``/``max_length`` argument — confirmed empirically that
+        ``model.tokenize()`` (the method ``encode()`` uses internally)
+        already truncates to ``max_seq_length``, which would make overflow
+        undetectable. Calling the raw tokenizer instead reports the true,
+        untruncated length.
+        """
+        model = self._get_model()
+        return len(model.tokenizer(text)["input_ids"])
 
 
 class OpenAIEmbeddingDriver(EmbeddingDriver):

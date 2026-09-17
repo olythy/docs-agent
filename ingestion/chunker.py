@@ -25,11 +25,15 @@ driver's limit.
 Key exports:
     chunk_pages  -- Convert a list of page dicts into a flat list of chunk dicts.
     validate_chunk_size_against_model  -- Warn if chunks likely get truncated.
+    get_chunk_overflow_strategy  -- Factory for the active CHUNK_OVERFLOW_STRATEGY.
 """
 
 import warnings
+from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 from config import settings
+from drivers.embedding import EmbeddingDriver
 
 
 def _split_words_into_chunks(
@@ -180,3 +184,142 @@ def chunk_pages(
             global_chunk_index += 1
 
     return chunks
+
+
+def _split_oversized_text(
+    text: str,
+    count_tokens: Callable[[str], int],
+    max_seq_length: int,
+) -> list[str]:
+    """Split ``text`` into pieces that each fit within ``max_seq_length`` real tokens.
+
+    Binary-searches, per piece, for the longest word-prefix whose real token
+    count (via ``count_tokens``) still fits, then recurses on the remainder.
+    Unlike the word-count chunking above, this checks ground truth after
+    every guess instead of estimating — it's only affordable here because
+    it only runs on the rare chunk that actually overflows.
+
+    Args:
+        text: The oversized chunk's text.
+        count_tokens: Returns the real token count for a given string
+            (e.g. :meth:`drivers.embedding.EmbeddingDriver.count_tokens`).
+        max_seq_length: The token budget each returned piece must fit within.
+
+    Returns:
+        One or more pieces whose concatenation (with single spaces) equals
+        ``text``. A single word longer than ``max_seq_length`` tokens on its
+        own is returned as its own (still-oversized) piece — word-level
+        granularity can't split it any finer.
+    """
+    words = text.split()
+    if not words:
+        return []
+    if count_tokens(text) <= max_seq_length:
+        return [text]
+
+    lo, hi, fit = 1, len(words), 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if count_tokens(" ".join(words[:mid])) <= max_seq_length:
+            fit = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    head = " ".join(words[:fit])
+    rest = words[fit:]
+    if not rest:
+        return [head]
+    return [head, *_split_oversized_text(" ".join(rest), count_tokens, max_seq_length)]
+
+
+class ChunkOverflowStrategy(ABC):
+    """Strategy for handling chunks that may exceed the embedding model's token limit.
+
+    Selected at runtime via ``settings.CHUNK_OVERFLOW_STRATEGY`` (see
+    :func:`get_chunk_overflow_strategy`) — same Strategy/Driver pattern as
+    :class:`drivers.embedding.EmbeddingDriver`.
+    """
+
+    @abstractmethod
+    def apply(self, chunks: list[dict], driver: EmbeddingDriver) -> list[dict]:
+        """Return the (possibly modified) list of chunks to actually store.
+
+        Args:
+            chunks: Chunk dicts as produced by :func:`chunk_pages`.
+            driver: The active embedding driver, queried for its token limit
+                (and, for strategies that need it, real token counts).
+        """
+
+
+class WarnOverflowStrategy(ChunkOverflowStrategy):
+    """Default, backward-compatible behavior: estimate and warn, don't correct.
+
+    Chunks that overflow are still stored and silently truncated at embed
+    time — this strategy only makes that risk visible via a log warning.
+    """
+
+    def apply(self, chunks: list[dict], driver: EmbeddingDriver) -> list[dict]:
+        validate_chunk_size_against_model(settings.CHUNK_SIZE, driver.max_sequence_length())
+        return chunks
+
+
+class SplitOverflowStrategy(ChunkOverflowStrategy):
+    """Corrective strategy: re-split any chunk that actually overflows.
+
+    Uses the driver's real tokenizer (:meth:`EmbeddingDriver.count_tokens`)
+    rather than the ``WORDS_PER_TOKEN`` estimate, so nothing is ever
+    silently truncated — at the cost of an extra tokenizer call per chunk.
+    Falls back to :class:`WarnOverflowStrategy` when the active driver can't
+    report real token counts (e.g. ``OpenAIEmbeddingDriver``): there's no
+    ground truth to split against, so correction isn't possible, only the
+    same estimate-based warning is.
+    """
+
+    def apply(self, chunks: list[dict], driver: EmbeddingDriver) -> list[dict]:
+        max_seq_length = driver.max_sequence_length()
+        if max_seq_length is None:
+            return chunks
+
+        if chunks and driver.count_tokens(chunks[0]["content"]) is None:
+            warnings.warn(
+                "CHUNK_OVERFLOW_STRATEGY=split requires the active embedding "
+                f"driver ({type(driver).__name__}) to support real token "
+                "counting, which it doesn't. Falling back to the "
+                "WORDS_PER_TOKEN-estimate warning instead.",
+                stacklevel=2,
+            )
+            return WarnOverflowStrategy().apply(chunks, driver)
+
+        corrected: list[dict] = []
+        next_index = 0
+        for chunk in chunks:
+            for piece in _split_oversized_text(
+                chunk["content"], driver.count_tokens, max_seq_length
+            ):
+                corrected.append(
+                    {
+                        "content": piece,
+                        "metadata": {**chunk["metadata"], "chunk_index": next_index},
+                    }
+                )
+                next_index += 1
+        return corrected
+
+
+def get_chunk_overflow_strategy() -> ChunkOverflowStrategy:
+    """Factory function: return the active strategy from ``settings.CHUNK_OVERFLOW_STRATEGY``.
+
+    Raises:
+        ValueError: If ``CHUNK_OVERFLOW_STRATEGY`` is set to an unknown value.
+    """
+    name = settings.CHUNK_OVERFLOW_STRATEGY.lower()
+
+    if name == "warn":
+        return WarnOverflowStrategy()
+    if name == "split":
+        return SplitOverflowStrategy()
+
+    raise ValueError(
+        f"Unknown CHUNK_OVERFLOW_STRATEGY: '{name}'. Valid options are: 'warn', 'split'."
+    )

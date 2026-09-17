@@ -37,6 +37,10 @@ def test_default_max_sequence_length_is_none():
     assert _FakeDriver().max_sequence_length() is None
 
 
+def test_default_count_tokens_is_none():
+    assert _FakeDriver().count_tokens("hello") is None
+
+
 def test_default_embed_text_delegates_to_embed_batch():
     """embed_text has no per-subclass override — it must come from the ABC."""
     assert _FakeDriver().embed_text("abc") == [3.0]
@@ -44,6 +48,10 @@ def test_default_embed_text_delegates_to_embed_batch():
 
 def test_openai_driver_max_sequence_length_is_none():
     assert OpenAIEmbeddingDriver().max_sequence_length() is None
+
+
+def test_openai_driver_count_tokens_is_none():
+    assert OpenAIEmbeddingDriver().count_tokens("hello") is None
 
 
 def test_local_driver_max_sequence_length_reads_from_model(monkeypatch):
@@ -55,6 +63,26 @@ def test_local_driver_max_sequence_length_reads_from_model(monkeypatch):
 
     driver = LocalSentenceTransformerDriver()
     assert driver.max_sequence_length() == 128
+
+
+def test_local_driver_count_tokens_uses_raw_tokenizer_without_truncation(monkeypatch):
+    """count_tokens must call the tokenizer directly, not model.tokenize().
+
+    Confirmed empirically against the real sentence-transformers 3.x API:
+    model.tokenize() (what encode() uses internally) already truncates to
+    max_seq_length, which would make overflow undetectable. The raw
+    model.tokenizer(text) call has no such truncation.
+    """
+    fake_model = MagicMock()
+    fake_model.tokenizer.return_value = {"input_ids": list(range(999))}
+    monkeypatch.setattr(
+        "sentence_transformers.SentenceTransformer", lambda name: fake_model
+    )
+
+    driver = LocalSentenceTransformerDriver()
+    assert driver.count_tokens("a very long text") == 999
+    fake_model.tokenizer.assert_called_once_with("a very long text")
+    fake_model.tokenize.assert_not_called()
 
 
 def test_local_driver_loads_model_only_once(monkeypatch):
