@@ -34,7 +34,9 @@ def add_document(file_path: str | Path) -> None:
 
     Raises:
         FileNotFoundError: If the PDF does not exist at ``file_path``.
-        RuntimeError: If the database connection is not configured.
+        RuntimeError: If the database connection is not configured, or if
+            the active embedding driver's dimension doesn't match the
+            existing document_chunks.embedding column.
         ValueError: If the PDF has no pages, or is scanned (no extractable
             text layer).
     """
@@ -63,6 +65,8 @@ def add_document(file_path: str | Path) -> None:
 
     # Step 3: Embed all chunks in one batched call
     driver = get_embedding_driver()
+    store = VectorStore()
+    store.assert_dimension_matches(driver.dimension)
     validate_chunk_size_against_model(settings.CHUNK_SIZE, driver.max_sequence_length())
     texts = [c["content"] for c in chunks]
     print(f"[ingest] Embedding with driver='{settings.EMBEDDING_DRIVER}' ...")
@@ -70,5 +74,5 @@ def add_document(file_path: str | Path) -> None:
     print(f"[ingest] Embeddings ready. Dimension: {len(embeddings[0])}.")
 
     # Step 4: Store in Postgres
-    inserted = VectorStore().save(chunks, embeddings)
+    inserted = store.save(chunks, embeddings)
     print(f"[ingest] Stored {inserted} row(s) in document_chunks. Done! ✅")

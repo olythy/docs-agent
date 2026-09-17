@@ -106,3 +106,63 @@ class VectorStore:
                 metadata = json.loads(metadata)
             results.append({"content": content, "metadata": metadata, "score": score})
         return results
+
+    def get_embedding_dimension(self) -> int | None:
+        """Read the declared dimension of the document_chunks.embedding column.
+
+        pgvector encodes a ``vector(N)`` column's dimension directly in
+        ``atttypmod``, with no offset (unlike e.g. ``varchar``'s typmod) —
+        confirmed empirically against a real pgvector column.
+        ``to_regclass`` returns NULL (not an error) for a table that
+        doesn't exist yet, so this returns None cleanly if migrations
+        haven't run.
+
+        Returns:
+            The column's declared dimension, or ``None`` if document_chunks
+            doesn't exist yet.
+        """
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT atttypmod FROM pg_attribute
+                    WHERE attrelid = to_regclass('document_chunks')
+                      AND attname = 'embedding'
+                      AND NOT attisdropped;
+                    """
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        return row[0] if row else None
+
+    def assert_dimension_matches(self, expected_dimension: int) -> None:
+        """Raise a clear error if ``expected_dimension`` disagrees with the DB column.
+
+        A fresh database always gets a matching column (the dimension is
+        embedded directly into the CREATE TABLE in
+        ``migrations/0001_create_document_chunks_table.py``), so this only
+        fires when someone switches ``EMBEDDING_DRIVER``/``EMBEDDING_DIMENSION``
+        on a database that already has data from a different embedding model.
+        Widening the column alone would not fix that case — embeddings from
+        different models aren't comparable regardless of vector size, so the
+        real fix is a new migration plus re-embedding every document.
+
+        Args:
+            expected_dimension: The active embedding driver's output dimension.
+
+        Raises:
+            RuntimeError: If document_chunks exists with a different dimension.
+        """
+        actual = self.get_embedding_dimension()
+        if actual is not None and actual != expected_dimension:
+            raise RuntimeError(
+                f"Embedding dimension mismatch: the active embedding driver "
+                f"produces {expected_dimension}-dim vectors, but "
+                f"document_chunks.embedding is declared vector({actual}). "
+                "Switching embedding drivers on an existing database requires "
+                "re-embedding every document, not just widening the column — "
+                "add a new migration (or run `migrate fresh` if you don't need "
+                "the existing data) once you've decided which dimension to use."
+            )

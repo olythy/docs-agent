@@ -64,3 +64,37 @@ def test_search_filters_by_min_score_and_parses_json_metadata(monkeypatch):
     assert results[0]["metadata"] == {"page_number": 1}
     assert results[0]["score"] == 0.9
     conn.close.assert_called_once()
+
+
+def test_get_embedding_dimension_returns_atttypmod(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (384,)
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    assert VectorStore().get_embedding_dimension() == 384
+
+
+def test_get_embedding_dimension_returns_none_when_table_missing(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = None
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    assert VectorStore().get_embedding_dimension() is None
+
+
+def test_assert_dimension_matches_passes_when_equal(monkeypatch):
+    monkeypatch.setattr(VectorStore, "get_embedding_dimension", lambda self: 384)
+    VectorStore().assert_dimension_matches(384)  # must not raise
+
+
+def test_assert_dimension_matches_passes_when_table_missing(monkeypatch):
+    monkeypatch.setattr(VectorStore, "get_embedding_dimension", lambda self: None)
+    VectorStore().assert_dimension_matches(1536)  # must not raise
+
+
+def test_assert_dimension_matches_raises_on_mismatch(monkeypatch):
+    monkeypatch.setattr(VectorStore, "get_embedding_dimension", lambda self: 384)
+    with pytest.raises(RuntimeError, match="dimension mismatch"):
+        VectorStore().assert_dimension_matches(1536)

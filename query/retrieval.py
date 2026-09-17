@@ -51,16 +51,23 @@ def query_knowledge_base(
     Returns:
         A string answer grounded in the retrieved chunks, or
         :data:`NO_RESULTS_MESSAGE` if no relevant chunks were found.
+
+    Raises:
+        RuntimeError: If the active embedding driver's dimension doesn't
+            match the existing document_chunks.embedding column.
     """
     k = top_k if top_k is not None else settings.RETRIEVAL_TOP_K
     threshold = min_score if min_score is not None else settings.RETRIEVAL_MIN_SCORE
 
-    print("[query] Embedding question ...")
     embedding_driver = get_embedding_driver()
+    store = VectorStore()
+    store.assert_dimension_matches(embedding_driver.dimension)
+
+    print("[query] Embedding question ...")
     query_vector = embedding_driver.embed_text(question)
 
     print(f"[query] Searching top-{k} chunks (min_score={threshold}) ...")
-    chunks = VectorStore().search(query_vector, top_k=k, min_score=threshold)
+    chunks = store.search(query_vector, top_k=k, min_score=threshold)
 
     if not chunks:
         print("[query] No relevant chunks found — returning fallback message.")
