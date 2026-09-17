@@ -1,7 +1,7 @@
 """Tests for scripts.migrate's pure logic (no DB required).
 
 Anything that actually runs a migration's up()/down() against Postgres is
-covered separately in tests/db/, gated on TEST_DATABASE_URL.
+covered separately in tests/db/, gated on AGENT_ENV=test.
 """
 
 from pathlib import Path

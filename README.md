@@ -42,9 +42,13 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 │   ├── make_migration.py     # Scaffold a new migration file
 │   ├── db_flush.py           # Truncate document_chunks
 │   └── extract_text.py       # PDF extraction diagnostic CLI
+├── docker-compose.yml       # Local Postgres+pgvector (dev + test databases)
+├── docker/
+│   └── init-test-db.sql      # Creates the "docs_agent_test" database on first startup
 ├── pyproject.toml           # Project metadata, dependencies, pytest config
 ├── uv.lock                  # Locked, reproducible dependency versions
-└── .env.example             # Environment variable template
+├── .env.example             # Environment variable template
+└── .env.test.example        # .env.test template — see AGENT_ENV below
 ```
 
 > **Coming soon:** `agent.py` (the function-calling dispatch layer, Step 6), `tools/`
@@ -65,18 +69,30 @@ uv sync
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in your EMBEDDING_API_KEY (if using openai driver),
-# LLM_API_KEY (required), and DATABASE_URL
+cp .env.test.example .env.test
+# Edit .env and fill in your EMBEDDING_API_KEY (if using openai driver)
+# and LLM_API_KEY (required). DATABASE_URL already matches the local
+# Docker setup below — no edit needed for that one. .env.test only
+# overrides DATABASE_URL for tests/db/ — see AGENT_ENV below.
 ```
 
-### 3. Run database migrations
+### 3. Start the local database and run migrations
 
 ```bash
-uv run python scripts/migrate.py up
-# or: make db-migrate
+make setup
 ```
 
-Output should look like:
+This one command: starts a local Postgres+pgvector via `docker-compose.yml` (no account/signup needed — see [Local Database (Docker)](#local-database-docker) below), waits for it to be healthy, and runs migrations against **both** `docs_agent` (dev) and `docs_agent_test` (test, a genuinely separate database — see [AGENT_ENV](#agent_env-and-envtest) below).
+
+Equivalent manual steps, if you'd rather run them one at a time:
+
+```bash
+make docker-up          # starts Postgres, waits until healthy
+make db-migrate         # migrates docs_agent (DATABASE_URL from .env)
+make db-migrate-test    # migrates docs_agent_test (AGENT_ENV=test -> .env.test)
+```
+
+Migration output should look like:
 
 ```
 Running migrations (Batch 1):
@@ -90,11 +106,44 @@ Running it again is safe — already-applied migrations are skipped:
 Nothing to migrate. Database schema is up to date.
 ```
 
+## Local Database (Docker)
+
+`docker-compose.yml` runs a single local Postgres+pgvector server (`pgvector/pgvector:pg16`) that hosts **two separate databases**:
+
+| Database | Used by | Created by |
+|---|---|---|
+| `docs_agent` | `DATABASE_URL` in `.env` — the app itself | `POSTGRES_DB` in `docker-compose.yml` |
+| `docs_agent_test` | `DATABASE_URL` in `.env.test` — `tests/db/` | `docker/init-test-db.sql`, run once on first startup |
+
+They're genuinely separate databases, not the same one reused — `tests/db/` runs real `INSERT`/`DELETE`/`TRUNCATE`, and migration tests even `CREATE`/`DROP TABLE`, so running the test suite must never touch data you're actually using. Neither the init script nor `docker-compose.yml` creates any tables or the `vector` extension — that stays owned by `migrations/`, so there's one canonical source of truth for the schema regardless of which database it's applied to.
+
+Data persists in a named Docker volume (`docs_agent_pgdata`) across restarts. If you ever want a completely clean slate (re-runs the test-database init script too):
+
+```bash
+make docker-down-clean   # stops the container AND deletes the data volume
+make setup                # starts fresh and re-migrates both databases
+```
+
+A managed Postgres (e.g. Supabase) still works too — see the commented-out alternative in `.env.example`. `db.py`'s connection logic doesn't care whether `DATABASE_URL` points at Docker or a managed instance.
+
+## AGENT_ENV and `.env.test`
+
+`config.py` always loads `.env` first. If `AGENT_ENV=test` (a real shell/CI variable — `make test` sets it automatically), it also loads `.env.test` **on top**, overriding just the keys that differ (in practice, only `DATABASE_URL`) — everything else (`LLM_API_KEY`, `EMBEDDING_DRIVER`, ...) is inherited unchanged from `.env`.
+
+`AGENT_ENV` itself must **never** be set inside `.env`/`.env.test` — deciding which file(s) to load requires already knowing `AGENT_ENV`, so putting it inside a conditionally-loaded file is circular. It only ever comes from the real process environment, with `local` as the default when unset. You shouldn't normally need to set it by hand; `make test`/`make db-migrate-test` already do.
+
+If `AGENT_ENV=test` but no `.env.test` exists, `config.py` raises immediately with a clear error rather than silently falling back to `.env`'s `DATABASE_URL` — otherwise `tests/db/` could truncate whichever database `DATABASE_URL` happens to point at.
+
 ## Makefile Shortcuts
 
 | Command | Equivalent |
 |---|---|
-| `make db-migrate` | `uv run python scripts/migrate.py up` |
+| `make setup` | `docker-up` + `db-migrate` + `db-migrate-test` — one-shot onboarding |
+| `make docker-up` | `docker compose up -d --wait` — start local Postgres, wait until healthy |
+| `make docker-down` | `docker compose down` — stop the container, keep its data |
+| `make docker-down-clean` | `docker compose down -v` — stop the container **and delete its data** |
+| `make db-migrate` | `uv run python scripts/migrate.py up` — migrates `DATABASE_URL` (`.env`) |
+| `make db-migrate-test` | `AGENT_ENV=test uv run python scripts/migrate.py up` — migrates `DATABASE_URL` from `.env.test` instead |
 | `make db-flush` | `uv run python scripts/db_flush.py` — truncates `document_chunks` (rows only, keeps the schema) |
 | `make db-refresh` | `db-flush` then `db-migrate` — empty the table and re-apply any pending migrations in one command |
 | `make migrate-status` | `uv run python scripts/migrate.py status` — applied vs. pending migrations |
@@ -104,10 +153,10 @@ Nothing to migrate. Database schema is up to date.
 | `make migrate-reset` | `uv run python scripts/migrate.py reset` — revert every applied migration |
 | `make migrate-refresh` | `uv run python scripts/migrate.py refresh` — `reset` then `up` |
 | `make make-migration name=<snake_case_name>` | `uv run python scripts/make_migration.py <snake_case_name>` — scaffold a new migration file |
-| `make test` | `uv run pytest -v` |
+| `make test` | `AGENT_ENV=test uv run pytest -v` — a session-scoped pytest fixture (`tests/db/conftest.py`) migrates and truncates the test DB itself, so this works regardless of how pytest gets invoked |
 | `make lint` | `uv run ruff check .` |
 
-⚠️ Every `db-*` and `migrate-*` command acts on whatever `DATABASE_URL` is currently set to — there's no separate local database yet, so double-check `.env` before running them.
+Every `db-*` and `migrate-*` command (except `db-migrate-test`, and `test`) acts on whatever `DATABASE_URL` is currently set to in `.env` — with the local Docker setup that's the separate `docs_agent` database, so this is safe by default; if you point `DATABASE_URL` at a shared/managed database, double-check `.env` before running them.
 
 ## Embedding Drivers
 

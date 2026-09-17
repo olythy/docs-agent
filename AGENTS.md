@@ -20,6 +20,7 @@ Decided 2026-09-17 after explicit discussion — don't reintroduce these without
   - `db.py` — only the Postgres connection factory (`get_connection()`). Nothing else.
   - `store.py` — the `VectorStore` class: owns all `document_chunks` persistence (save/search). Any change to how chunks are stored or queried belongs here, not in `ingest.py`/`retrieval.py`.
   - `migrations/base.py` — the `Migration` ABC stays inside `migrations/`, alongside the migrations that implement it (same one-cohesive-concept reasoning as the Strategy-pattern files above).
+- **`docker/init-test-db.sql` only creates the `docs_agent_test` database — nothing else.** No tables, no `CREATE EXTENSION`. Schema/extension setup stays owned exclusively by `migrations/`, so there's one canonical source of truth for the schema regardless of which database (local Docker or a managed Postgres) it's applied to.
 
 ## Documentation Standards
 
@@ -33,6 +34,7 @@ Decided 2026-09-17 after explicit discussion — don't reintroduce these without
 ### Configuration (`config.py`)
 - The `Settings` class docstring is the **single source of truth** for all supported environment variables.
 - Every new env variable must be documented in the `Settings` docstring **before** the corresponding field is added.
+- **`AGENT_ENV` must never be set inside `.env` or `.env.test`.** It selects *which* file(s) to load, so it must come from the real process/shell environment only (`make test` sets it automatically) — putting it inside a file that's conditionally loaded based on its own value is a circular bootstrapping bug. `.env` always loads first; `.env.test` is layered on top (`override=True`) only when `AGENT_ENV=test`, and only needs to contain the keys that actually differ (mainly `DATABASE_URL`).
 
 ### Migrations (`migrations/`)
 - Each migration is a Python file (e.g. `0001_create_document_chunks_table.py`) defining exactly one class that subclasses `migrations.base.Migration`, with `up()`/`down()` methods running raw SQL directly (no ORM). See `migrations/base.py`.

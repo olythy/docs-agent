@@ -1,9 +1,31 @@
-.PHONY: db-migrate db-flush db-refresh \
+.PHONY: docker-up docker-down docker-down-clean \
+        db-migrate db-migrate-test db-flush db-refresh setup \
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
         make-migration test lint
 
+docker-up:
+	docker compose up -d --wait
+
+docker-down:
+	docker compose down
+
+# Also deletes the data volume — full reset, re-runs docker/init-test-db.sql
+# on next docker-up.
+docker-down-clean:
+	docker compose down -v
+
 db-migrate:
 	uv run python scripts/migrate.py up
+
+# Runs migrations with AGENT_ENV=test, so config.py loads .env.test on top
+# of .env and settings.DATABASE_URL resolves to the test database for this
+# one process — same mechanism `test` below uses.
+db-migrate-test:
+	AGENT_ENV=test uv run python scripts/migrate.py up
+
+# One-shot onboarding: start the local Postgres, migrate both databases.
+setup: docker-up db-migrate db-migrate-test
+	@echo "Ready — dev and test databases are both migrated."
 
 db-flush:
 	uv run python scripts/db_flush.py
@@ -38,8 +60,13 @@ migrate-refresh:
 make-migration:
 	uv run python scripts/make_migration.py $(name)
 
+# No db-migrate-test prerequisite here on purpose: schema setup is handled
+# by a session-scoped autouse pytest fixture (tests/db/conftest.py) instead
+# of a Make-level dependency, so the test database is ready regardless of
+# how pytest gets invoked — this target, a bare `AGENT_ENV=test uv run
+# pytest`, or an IDE's "run test" button, which bypasses Make entirely.
 test:
-	uv run pytest -v
+	AGENT_ENV=test uv run pytest -v
 
 lint:
 	uv run ruff check .
