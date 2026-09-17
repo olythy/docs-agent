@@ -19,18 +19,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import psycopg2
-
-from config import settings
+from db import get_connection
 
 
 def flush_document_chunks() -> None:
     """Truncate the document_chunks table, resetting its identity sequence."""
-    if not settings.DATABASE_URL:
-        print("ERROR: DATABASE_URL is not set in environment or .env file.")
+    try:
+        conn = get_connection()
+    except RuntimeError as e:
+        print(f"ERROR: {e}")
         sys.exit(1)
 
-    conn = psycopg2.connect(settings.DATABASE_URL)
     try:
         with conn.cursor() as cur:
             cur.execute("TRUNCATE document_chunks RESTART IDENTITY;")

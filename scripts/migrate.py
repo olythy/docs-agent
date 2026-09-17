@@ -35,18 +35,10 @@ if str(PROJECT_ROOT) not in sys.path:
 import psycopg2
 from psycopg2.extensions import connection as PgConnection
 
-from config import settings
+from db import get_connection
 from migrations.base import Migration
 
 MIGRATIONS_DIR = PROJECT_ROOT / "migrations"
-
-
-def get_connection() -> PgConnection:
-    """Establish and return a database connection."""
-    if not settings.DATABASE_URL:
-        print("ERROR: DATABASE_URL is not set in environment or .env file.")
-        sys.exit(1)
-    return psycopg2.connect(settings.DATABASE_URL)
 
 
 def ensure_migrations_table(conn: PgConnection) -> None:
@@ -310,7 +302,12 @@ def main() -> None:
         print(f"Available commands: {', '.join(COMMANDS)}")
         sys.exit(1)
 
-    conn = get_connection()
+    try:
+        conn = get_connection()
+    except RuntimeError as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
+
     try:
         ensure_migrations_table(conn)
         COMMANDS[command](conn)

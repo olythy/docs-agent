@@ -14,62 +14,13 @@ Usage::
     add_document("/path/to/document.pdf")
 """
 
-import json
 from pathlib import Path
-
-import psycopg2
 
 from config import settings
 from drivers.embedding import get_embedding_driver
 from ingestion.chunker import chunk_pages
 from ingestion.pdf_loader import extract_pages, is_scanned_pdf
-
-
-def _get_connection():
-    """Open and return a new Postgres connection using settings.DATABASE_URL.
-
-    Returns:
-        A ``psycopg2`` connection object.
-
-    Raises:
-        RuntimeError: If ``DATABASE_URL`` is not configured.
-    """
-    if not settings.DATABASE_URL:
-        raise RuntimeError(
-            "DATABASE_URL is not configured. "
-            "Set DATABASE_URL in your .env file."
-        )
-    return psycopg2.connect(settings.DATABASE_URL)
-
-
-def _store_chunks(conn, chunks: list[dict], embeddings: list[list[float]]) -> int:
-    """Insert chunk rows into the ``document_chunks`` table.
-
-    Args:
-        conn: An open psycopg2 connection.
-        chunks: Chunk dicts from :func:`ingestion.chunker.chunk_pages`.
-        embeddings: Parallel list of float vectors — one per chunk.
-
-    Returns:
-        The number of rows inserted.
-    """
-    insert_sql = """
-        INSERT INTO document_chunks (content, metadata, embedding)
-        VALUES (%s, %s, %s);
-    """
-    with conn.cursor() as cur:
-        for chunk, embedding in zip(chunks, embeddings, strict=True):
-            cur.execute(
-                insert_sql,
-                (
-                    chunk["content"],
-                    json.dumps(chunk["metadata"]),
-                    # pgvector expects a literal like '[0.1, 0.2, ...]'
-                    "[" + ",".join(str(v) for v in embedding) + "]",
-                ),
-            )
-    conn.commit()
-    return len(chunks)
+from store import VectorStore
 
 
 def add_document(file_path: str | Path) -> None:
@@ -118,9 +69,5 @@ def add_document(file_path: str | Path) -> None:
     print(f"[ingest] Embeddings ready. Dimension: {len(embeddings[0])}.")
 
     # Step 4: Store in Postgres
-    conn = _get_connection()
-    try:
-        inserted = _store_chunks(conn, chunks, embeddings)
-        print(f"[ingest] Stored {inserted} row(s) in document_chunks. Done! ✅")
-    finally:
-        conn.close()
+    inserted = VectorStore().save(chunks, embeddings)
+    print(f"[ingest] Stored {inserted} row(s) in document_chunks. Done! ✅")

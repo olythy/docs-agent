@@ -17,13 +17,10 @@ Usage::
     print(answer)
 """
 
-import json
-
-import psycopg2
-
 from config import settings
 from drivers.embedding import get_embedding_driver
 from drivers.llm import get_answer_driver
+from store import VectorStore
 
 # Returned when no chunk clears the relevance threshold.
 # Using a constant avoids scatter: every caller sees the same wording,
@@ -31,78 +28,6 @@ from drivers.llm import get_answer_driver
 NO_RESULTS_MESSAGE = (
     "I could not find relevant information about this in the provided documents."
 )
-
-
-def _get_connection():
-    """Open and return a new Postgres connection using settings.DATABASE_URL.
-
-    Returns:
-        A ``psycopg2`` connection object.
-
-    Raises:
-        RuntimeError: If ``DATABASE_URL`` is not configured.
-    """
-    if not settings.DATABASE_URL:
-        raise RuntimeError(
-            "DATABASE_URL is not configured. Set DATABASE_URL in your .env file."
-        )
-    return psycopg2.connect(settings.DATABASE_URL)
-
-
-def _retrieve_chunks(
-    query_embedding: list[float],
-    top_k: int,
-    min_score: float,
-) -> list[dict]:
-    """Query the vector store for the most similar chunks.
-
-    Uses pgvector's ``<=>`` operator, which computes cosine *distance*
-    (0 = identical, 2 = opposite). We convert to similarity with ``1 - distance``
-    so that higher is better, matching the ``min_score`` threshold convention.
-
-    Args:
-        query_embedding: The embedded question vector (length = EMBEDDING_DIMENSION).
-        top_k: Maximum number of results to consider before filtering.
-        min_score: Minimum cosine similarity (0–1). Chunks below this are dropped.
-
-    Returns:
-        A list of chunk dicts ordered by descending similarity, each containing:
-            - ``content`` (str): The chunk text.
-            - ``metadata`` (dict): ``source_file``, ``page_number``, ``chunk_index``.
-            - ``score`` (float): Cosine similarity score (0–1).
-    """
-    # Format vector as pgvector literal: '[0.1, 0.2, ...]'
-    vector_literal = "[" + ",".join(str(v) for v in query_embedding) + "]"
-
-    sql = """
-        SELECT
-            content,
-            metadata,
-            1 - (embedding <=> %s::vector) AS score
-        FROM document_chunks
-        ORDER BY embedding <=> %s::vector
-        LIMIT %s;
-    """
-
-    conn = _get_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(sql, (vector_literal, vector_literal, top_k))
-            rows = cur.fetchall()
-    finally:
-        conn.close()
-
-    chunks = []
-    for content, metadata, score in rows:
-        # Skip chunks that are too distant to be relevant
-        if score < min_score:
-            continue
-        # metadata arrives as a dict when psycopg2 uses jsonb; ensure it is one
-        if isinstance(metadata, str):
-            metadata = json.loads(metadata)
-        chunks.append({"content": content, "metadata": metadata, "score": score})
-
-    return chunks
 
 
 def query_knowledge_base(
@@ -135,7 +60,7 @@ def query_knowledge_base(
     query_vector = embedding_driver.embed_text(question)
 
     print(f"[query] Searching top-{k} chunks (min_score={threshold}) ...")
-    chunks = _retrieve_chunks(query_vector, top_k=k, min_score=threshold)
+    chunks = VectorStore().search(query_vector, top_k=k, min_score=threshold)
 
     if not chunks:
         print("[query] No relevant chunks found — returning fallback message.")
