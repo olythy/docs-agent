@@ -4,16 +4,23 @@ Splits extracted page-level text into smaller, overlapping chunks suitable
 for embedding and vector storage. Uses a simple word-count approximation
 instead of a full tokenizer to avoid extra dependencies in a learning project.
 
-A commonly cited rule of thumb: 1 token ≈ 0.75 words (English/Hungarian
-average), i.e. ~1.33 tokens per word — subword tokenizers usually produce
-*more* tokens than words, not fewer. So CHUNK_SIZE=500 words is roughly
-500 / 0.75 ≈ 667 tokens, not 500. There is no single "typical" token limit
-across sentence-transformer models to size against: the actual default
-local model (paraphrase-multilingual-MiniLM-L12-v2) truncates at only 128
-tokens, confirmed empirically. Text beyond a model's limit is truncated
-silently during embedding, not rejected — see
-:func:`validate_chunk_size_against_model`, which warns when the configured
-chunk size likely exceeds the active driver's limit.
+A commonly cited rule of thumb: 1 token ≈ 0.75 words on average, i.e. ~1.33
+tokens per word — subword tokenizers usually produce *more* tokens than
+words, not fewer. So CHUNK_SIZE=500 words is roughly 500 / 0.75 ≈ 667
+tokens, not 500. This 0.75 ratio (``settings.WORDS_PER_TOKEN``) is only an
+English average — it varies per text, and morphologically rich languages
+like Hungarian typically tokenize *worse* (fewer words per token) than this,
+since subword tokenizer vocabularies are shared across many languages and
+long inflected/compound words don't match existing vocab pieces as cleanly.
+Lower ``WORDS_PER_TOKEN`` for that kind of content.
+
+There is also no single "typical" token limit across sentence-transformer
+models to size against: the actual default local model
+(paraphrase-multilingual-MiniLM-L12-v2) truncates at only 128 tokens,
+confirmed empirically. Text beyond a model's limit is truncated silently
+during embedding, not rejected — see :func:`validate_chunk_size_against_model`,
+which warns when the configured chunk size likely exceeds the active
+driver's limit.
 
 Key exports:
     chunk_pages  -- Convert a list of page dicts into a flat list of chunk dicts.
@@ -23,8 +30,6 @@ Key exports:
 import warnings
 
 from config import settings
-
-WORDS_PER_TOKEN = 0.75
 
 
 def _split_words_into_chunks(
@@ -75,25 +80,35 @@ def _split_words_into_chunks(
 
 
 def validate_chunk_size_against_model(
-    chunk_size: int, max_seq_length: int | None
+    chunk_size: int,
+    max_seq_length: int | None,
+    words_per_token: float | None = None,
 ) -> None:
     """Warn if ``chunk_size`` (in words) likely exceeds the model's token limit.
 
-    Uses the ``WORDS_PER_TOKEN`` approximation documented at the top of this
-    module. Purely advisory — does not raise, since exceeding the limit
-    degrades retrieval quality rather than crashing anything, and some
-    drivers (e.g. OpenAI) have no meaningful limit at realistic chunk sizes.
+    Uses a words-per-token approximation (see module docstring) — purely
+    advisory, does not raise, since exceeding the limit degrades retrieval
+    quality rather than crashing anything, and some drivers (e.g. OpenAI)
+    have no meaningful limit at realistic chunk sizes.
 
     Args:
         chunk_size: The configured chunk size, in words.
         max_seq_length: The active embedding driver's max sequence length in
             tokens, or ``None`` if the driver has no practical limit to check
             (see :meth:`drivers.embedding.EmbeddingDriver.max_sequence_length`).
+        words_per_token: Override for ``settings.WORDS_PER_TOKEN``.
+
+    Raises:
+        ValueError: If the resolved ``words_per_token`` is not positive.
     """
     if max_seq_length is None:
         return
 
-    estimated_tokens = round(chunk_size / WORDS_PER_TOKEN)
+    ratio = words_per_token if words_per_token is not None else settings.WORDS_PER_TOKEN
+    if ratio <= 0:
+        raise ValueError(f"words_per_token must be positive, got {ratio}.")
+
+    estimated_tokens = round(chunk_size / ratio)
     if estimated_tokens > max_seq_length:
         warnings.warn(
             f"CHUNK_SIZE={chunk_size} words (~{estimated_tokens} estimated "

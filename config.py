@@ -31,6 +31,13 @@ class Settings:
     Chunking:
         CHUNK_SIZE            Target word count per chunk (default: 500).
         CHUNK_OVERLAP         Word overlap between adjacent chunks (default: 50).
+        WORDS_PER_TOKEN       Approximate words-per-token ratio used to estimate
+                              token count from word count when checking chunk
+                              size against an embedding model's token limit
+                              (default: 0.75, an English-average heuristic).
+                              Morphologically rich languages (e.g. Hungarian)
+                              often tokenize worse than this — lower it if the
+                              truncation warning under-fires for your content.
 
     LLM (answer generation):
         LLM_DRIVER            Driver to use: ``openrouter`` (default) or ``openai``.
@@ -65,6 +72,7 @@ class Settings:
     # --- Chunking ---
     CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "500"))
     CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "50"))
+    WORDS_PER_TOKEN: float = float(os.getenv("WORDS_PER_TOKEN", "0.75"))
 
     # --- LLM (answer generation) ---
     LLM_DRIVER: str = os.getenv("LLM_DRIVER", "openrouter")

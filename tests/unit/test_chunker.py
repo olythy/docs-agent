@@ -132,3 +132,32 @@ def test_validate_chunk_size_warns_for_the_actual_default_config():
     """
     with pytest.warns(UserWarning, match="CHUNK_SIZE=500"):
         validate_chunk_size_against_model(chunk_size=500, max_seq_length=128)
+
+
+def test_validate_chunk_size_uses_settings_default_ratio(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        chunker_module, "settings", settings_override(WORDS_PER_TOKEN=0.75)
+    )
+    # 100 words / 0.75 ~= 133 tokens > 128 -> warns
+    with pytest.warns(UserWarning, match="CHUNK_SIZE"):
+        validate_chunk_size_against_model(chunk_size=100, max_seq_length=128)
+
+
+def test_validate_chunk_size_explicit_ratio_overrides_settings(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        chunker_module, "settings", settings_override(WORDS_PER_TOKEN=0.75)
+    )
+    # A worse (lower) ratio makes the same chunk_size look larger in tokens.
+    with pytest.warns(UserWarning, match="CHUNK_SIZE"):
+        validate_chunk_size_against_model(
+            chunk_size=50, max_seq_length=128, words_per_token=0.3
+        )
+
+
+def test_validate_chunk_size_raises_on_non_positive_ratio():
+    with pytest.raises(ValueError, match="words_per_token"):
+        validate_chunk_size_against_model(
+            chunk_size=50, max_seq_length=128, words_per_token=0
+        )
