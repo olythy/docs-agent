@@ -1,6 +1,0 @@
-pdfplumber>=0.11.0
-psycopg2-binary>=2.9.0
-openai>=3.0.0
-python-dotenv>=1.0.0
-sentence-transformers>=3.0.0,<3.4.0
-numpy<2
