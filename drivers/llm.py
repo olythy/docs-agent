@@ -26,18 +26,33 @@ from config import settings
 class AnswerDriver(ABC):
     """Abstract base class for all LLM answer-generation backends.
 
-    Subclasses must implement :meth:`answer`.
-    The driver receives the user's question and a list of relevant text chunks
-    retrieved from the vector store, and returns a grounded answer string.
+    Both concrete drivers use the ``openai`` Python SDK (OpenRouter exposes
+    an OpenAI-compatible API), so the only real difference between them is
+    how the client is constructed — this base class owns everything else
+    as a template method: build the prompt, get the client, call the chat
+    completion, return the text. Subclasses only implement
+    :meth:`_get_client`.
     """
 
+    def __init__(self, model: str) -> None:
+        """Store the model identifier; the client is created lazily.
+
+        Args:
+            model: The chat-completion model identifier to use.
+        """
+        self._model = model
+        self._client = None  # Lazy initialisation — avoids cost at import time
+
     @abstractmethod
+    def _get_client(self):
+        """Lazily create and cache the provider-specific OpenAI-compatible client."""
+
     def answer(self, question: str, context_chunks: list[dict]) -> str:
         """Generate a grounded answer from retrieved context chunks.
 
-        The implementation must instruct the model to base its answer only on
-        the provided context, and to state clearly when the answer cannot be
-        found — never fabricate information.
+        Instructs the model to base its answer only on the provided
+        context, and to state clearly when the answer cannot be found —
+        never fabricate information.
 
         Args:
             question: The user's natural-language question.
@@ -51,6 +66,18 @@ class AnswerDriver(ABC):
             A string containing the answer, ideally citing the source document
             and page number for each piece of information used.
         """
+        system_prompt, user_message = _build_prompt(question, context_chunks)
+        client = self._get_client()
+
+        response = client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0.2,  # Low temperature → more factual, less creative
+        )
+        return response.choices[0].message.content or ""
 
 
 def _build_prompt(question: str, context_chunks: list[dict]) -> tuple[str, str]:
@@ -105,8 +132,7 @@ class OpenAIAnswerDriver(AnswerDriver):
         Args:
             model: OpenAI model identifier. Defaults to ``settings.LLM_MODEL``.
         """
-        self._model = model or settings.LLM_MODEL
-        self._client = None  # Lazy initialisation — avoids cost at import time
+        super().__init__(model or settings.LLM_MODEL)
 
     def _get_client(self):
         """Lazily create and cache the OpenAI client.
@@ -119,29 +145,6 @@ class OpenAIAnswerDriver(AnswerDriver):
 
             self._client = OpenAI(api_key=settings.LLM_API_KEY)
         return self._client
-
-    def answer(self, question: str, context_chunks: list[dict]) -> str:
-        """Generate an answer via the OpenAI Chat Completions API.
-
-        Args:
-            question: The user's question.
-            context_chunks: Retrieved chunks from the vector store.
-
-        Returns:
-            The model's answer string.
-        """
-        system_prompt, user_message = _build_prompt(question, context_chunks)
-        client = self._get_client()
-
-        response = client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.2,  # Low temperature → more factual, less creative
-        )
-        return response.choices[0].message.content or ""
 
 
 class OpenRouterAnswerDriver(AnswerDriver):
@@ -168,8 +171,7 @@ class OpenRouterAnswerDriver(AnswerDriver):
                 which is ``openrouter/free`` by default — this auto-routes to
                 an available free model that supports chat completions.
         """
-        self._model = model or settings.LLM_MODEL
-        self._client = None  # Lazy initialisation
+        super().__init__(model or settings.LLM_MODEL)
 
     def _get_client(self):
         """Lazily create and cache the OpenRouter client.
@@ -190,29 +192,6 @@ class OpenRouterAnswerDriver(AnswerDriver):
                 default_headers={"HTTP-Referer": "https://github.com/docs-agent"},
             )
         return self._client
-
-    def answer(self, question: str, context_chunks: list[dict]) -> str:
-        """Generate an answer via the OpenRouter Chat Completions API.
-
-        Args:
-            question: The user's question.
-            context_chunks: Retrieved chunks from the vector store.
-
-        Returns:
-            The model's answer string.
-        """
-        system_prompt, user_message = _build_prompt(question, context_chunks)
-        client = self._get_client()
-
-        response = client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.2,
-        )
-        return response.choices[0].message.content or ""
 
 
 def get_answer_driver() -> AnswerDriver:

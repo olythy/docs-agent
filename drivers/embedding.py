@@ -32,9 +32,13 @@ class EmbeddingDriver(ABC):
     def dimension(self) -> int:
         """Output vector dimension (must match the pgvector column size)."""
 
-    @abstractmethod
     def embed_text(self, text: str) -> list[float]:
         """Embed a single string into a dense float vector.
+
+        Default implementation delegates to :meth:`embed_batch` — every
+        driver's real work happens there, so subclasses only need to
+        override this if they can do meaningfully better for a single
+        string (none currently do).
 
         Args:
             text: The input text to embed.
@@ -42,6 +46,7 @@ class EmbeddingDriver(ABC):
         Returns:
             A list of floats with length equal to :attr:`dimension`.
         """
+        return self.embed_batch([text])[0]
 
     @abstractmethod
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
@@ -108,17 +113,6 @@ class LocalSentenceTransformerDriver(EmbeddingDriver):
         """Return the embedding dimension from settings."""
         return settings.EMBEDDING_DIMENSION
 
-    def embed_text(self, text: str) -> list[float]:
-        """Embed a single string using the local model.
-
-        Args:
-            text: The input text to embed.
-
-        Returns:
-            A float vector of length :attr:`dimension`.
-        """
-        return self.embed_batch([text])[0]
-
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a list of strings in one batched inference call.
 
@@ -163,17 +157,6 @@ class OpenAIEmbeddingDriver(EmbeddingDriver):
     def dimension(self) -> int:
         """Return the embedding dimension from settings."""
         return settings.EMBEDDING_DIMENSION
-
-    def embed_text(self, text: str) -> list[float]:
-        """Embed a single string via the OpenAI API.
-
-        Args:
-            text: The input text to embed.
-
-        Returns:
-            A float vector of length :attr:`dimension`.
-        """
-        return self.embed_batch([text])[0]
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a list of strings in one OpenAI API call.
