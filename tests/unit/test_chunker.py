@@ -1,9 +1,15 @@
 """Tests for ingestion.chunker: word-based chunking with overlap."""
 
+import warnings
+
 import pytest
 
 import ingestion.chunker as chunker_module
-from ingestion.chunker import _split_words_into_chunks, chunk_pages
+from ingestion.chunker import (
+    _split_words_into_chunks,
+    chunk_pages,
+    validate_chunk_size_against_model,
+)
 
 
 def test_split_empty_words_returns_empty_list():
@@ -97,3 +103,32 @@ def test_chunk_pages_propagates_invalid_overlap_error():
     pages = [{"page_number": 1, "text": "one two three"}]
     with pytest.raises(ValueError, match="chunk_overlap"):
         chunk_pages(pages, source_file="doc.pdf", chunk_size=3, chunk_overlap=3)
+
+
+def test_validate_chunk_size_no_warning_when_max_seq_length_unknown():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        validate_chunk_size_against_model(chunk_size=99999, max_seq_length=None)
+
+
+def test_validate_chunk_size_no_warning_when_within_limit():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        validate_chunk_size_against_model(chunk_size=50, max_seq_length=128)
+
+
+def test_validate_chunk_size_warns_when_exceeding_limit():
+    with pytest.warns(UserWarning, match="CHUNK_SIZE"):
+        validate_chunk_size_against_model(chunk_size=100, max_seq_length=128)
+
+
+def test_validate_chunk_size_warns_for_the_actual_default_config():
+    """Regression test for the real bug this guard exists for.
+
+    The default CHUNK_SIZE=500 vs. the default local model's real
+    max_seq_length=128 — confirmed empirically:
+    SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2').max_seq_length
+    is 128, not the 512 the old chunker.py docstring assumed.
+    """
+    with pytest.warns(UserWarning, match="CHUNK_SIZE=500"):
+        validate_chunk_size_against_model(chunk_size=500, max_seq_length=128)

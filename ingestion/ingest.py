@@ -18,7 +18,7 @@ from pathlib import Path
 
 from config import settings
 from drivers.embedding import get_embedding_driver
-from ingestion.chunker import chunk_pages
+from ingestion.chunker import chunk_pages, validate_chunk_size_against_model
 from ingestion.pdf_loader import extract_pages, is_scanned_pdf
 from store import VectorStore
 
@@ -63,6 +63,7 @@ def add_document(file_path: str | Path) -> None:
 
     # Step 3: Embed all chunks in one batched call
     driver = get_embedding_driver()
+    validate_chunk_size_against_model(settings.CHUNK_SIZE, driver.max_sequence_length())
     texts = [c["content"] for c in chunks]
     print(f"[ingest] Embedding with driver='{settings.EMBEDDING_DRIVER}' ...")
     embeddings = driver.embed_batch(texts)

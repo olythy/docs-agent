@@ -57,6 +57,20 @@ class EmbeddingDriver(ABC):
             A list of float vectors, one per input string.
         """
 
+    def max_sequence_length(self) -> int | None:
+        """Return this driver's maximum input length in tokens, if known.
+
+        Text beyond this length is silently truncated during embedding —
+        the truncated tail is invisible to similarity search, which can
+        badly hurt retrieval quality without ever raising an error.
+
+        Returns:
+            The model's max sequence length in tokens, or ``None`` if this
+            driver has no practical limit worth checking against (the
+            default; e.g. remote APIs with very generous limits).
+        """
+        return None
+
 
 class LocalSentenceTransformerDriver(EmbeddingDriver):
     """Embedding driver using a locally downloaded sentence-transformer model.
@@ -118,6 +132,16 @@ class LocalSentenceTransformerDriver(EmbeddingDriver):
         # convert_to_python=True returns plain Python lists instead of tensors
         embeddings = model.encode(texts, convert_to_numpy=True)
         return [e.tolist() for e in embeddings]
+
+    def max_sequence_length(self) -> int | None:
+        """Return the loaded model's max sequence length in tokens.
+
+        Loads the model if it isn't already loaded — but this is only ever
+        called right before :meth:`embed_batch` in the ingestion pipeline,
+        which was going to load it anyway, so this never triggers an extra
+        model load on its own.
+        """
+        return self._get_model().max_seq_length
 
 
 class OpenAIEmbeddingDriver(EmbeddingDriver):
