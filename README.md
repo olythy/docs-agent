@@ -46,7 +46,8 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 │   ├── make_migration.py     # Scaffold a new migration file
 │   ├── db_flush.py           # Truncate document_chunks
 │   ├── extract_text.py       # PDF extraction diagnostic CLI
-│   └── inspect_chunks.py     # Chunking diagnostic CLI: full strategy comparison matrix, with bars
+│   ├── inspect_chunks.py     # Chunking diagnostic CLI: full strategy comparison matrix, with bars
+│   └── evaluate_retrieval.py # Retrieval-quality eval: vector-only vs hybrid+rerank
 ├── docker-compose.yml       # Local Postgres+pgvector (dev + test databases)
 ├── docker/
 │   └── init-test-db.sql      # Creates the "docs_agent_test" database on first startup
@@ -235,6 +236,45 @@ Model choice: **`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`**, a multilingual c
 
 Controlled by `RERANKER_DRIVER` (`.env`, default `none`) — a Strategy pattern like every other driver in this project. `none` (`NoopRerankerDriver`) passes the RRF-fused order through unchanged; `cross_encoder` (`CrossEncoderRerankerDriver`) reorders by the model's score. Defaulting to `none` was a deliberate choice, not a placeholder: the cross-encoder model must be downloaded and loaded (real latency, real memory) on every process that queries the knowledge base, and hybrid search's own fusion is already a reasonable ranking on its own — reranking is an *optional* quality lever, not a required part of the pipeline.
 
+### How quality is measured
+
+`scripts/evaluate_retrieval.py` + `tests/data/eval_questions.json` — 13 hand-written questions (10 answerable, 3 deliberately unanswerable) against the two real, committed fixtures (`tests/data/sample.md`, `tests/data/sample.pdf`). It runs every question through `retrieve_chunks()` with each `RetrievalStrategy` swapped in explicitly — **vector-only** (`VectorRetrievalStrategy`) and **hybrid+rerank** (`HybridRetrievalStrategy`, with whatever `RERANKER_DRIVER` is currently configured) — through the exact same production code path, not a hand-rolled duplicate, and reports:
+
+- **Recall@k**: did a chunk from the expected source file appear anywhere in the top-k?
+- **MRR** (Mean Reciprocal Rank): how high up was the first correct chunk?
+- **Fallback rate**: for the unanswerable questions, did the retrieval-layer relevance gate correctly return nothing?
+
+Run it with `uv run python scripts/evaluate_retrieval.py`. It's safe to run against any configured `DATABASE_URL`, including a populated dev database: it never deletes anything, only adds the two fixtures if they're not already present (`VectorStore.has_chunks_from_source`), and prints which database it's about to touch. Run with `AGENT_ENV=test` instead for a fully controlled corpus (no other documents mixed in).
+
+**Honesty about what these numbers mean**: this corpus is two documents. Recall@k and MRR come out identical (**1.00**) for both configurations here, and that's an honest, expected result of the corpus being this small — with only two possible source documents, hybrid fusion and reranking don't have much room to change an already-easy ranking. These are *our own, repeatable* numbers for comparing configurations against each other as the corpus grows, not a statistically meaningful benchmark.
+
+**A more interesting, honest finding** came from the fallback-rate metric: it measured **0.33** — 1 of the 3 deliberately unanswerable questions was correctly caught by the retrieval-layer gate alone, the other 2 weren't. Inspecting the real scores explained why: a question that stays *topically* on-subject but asks for a fact the document never states can still score above `RETRIEVAL_MIN_SCORE` (0.25) — e.g. 0.438 for "what is the founder's phone number?" and 0.370 for "what is the project's annual revenue?" — because cosine similarity reflects "is this about the same topic", not "does this contain the specific fact asked for". The one that *was* caught ("what programming language is the backend written in?", scoring 0.249) shows how close this can run either way — a hair's width under the 0.25 threshold, not a clean rejection. That's a genuine limitation of similarity-threshold gating, not a bug, and it's exactly why the system doesn't rely on that gate alone (see below).
+
+### What happens when there's no reliable source
+
+Two independent layers, not one:
+
+1. **Retrieval-layer gate** (`query/retrieval.py`'s `_passes_relevance_gate`): if *nothing* in the vector-search candidate pool clears `RETRIEVAL_MIN_SCORE`, `query_knowledge_base()` returns `NO_RESULTS_MESSAGE` immediately — no LLM call at all. This deliberately checks pure vector similarity only, never the fused RRF/reranker score, since those live on scales with no equivalent calibrated "irrelevant" cutoff. This catches questions genuinely unrelated to anything in the knowledge base.
+2. **Prompt-level grounding instruction** (`drivers/llm.py`'s `_build_prompt`): the system prompt explicitly instructs the model to answer strictly from the provided excerpts and respond with an exact "I could not find this information in the provided documents" if the excerpts don't answer the question. This catches the case the eval script's fallback-rate finding demonstrated above — a topically-relevant chunk that still doesn't contain the specific fact asked for — which a similarity threshold structurally cannot distinguish from a genuine answer.
+
+**Verifying layer 2 actually works — and a real caveat found doing it**: `scripts/evaluate_retrieval.py --with-llm` (see below) generates a real answer for the 3 unanswerable questions specifically to check this. Running it surfaced something worth knowing before trusting any number out of it: with the default `LLM_MODEL=openrouter/free`, which auto-routes to *whichever* free model is available per call (not a fixed one), some calls — for **both** answerable and unanswerable questions, so it isn't tied to retrieval quality at all — came back with a broken, non-answer string (`"User Safety: safe"`/`"User Safety: unsafe"`) instead of a real completion, apparently a moderation-layer artifact from whichever free model got auto-selected that call. That's real, useful signal about `openrouter/free`'s reliability for this kind of measurement, but it also means a `--with-llm` run's raw decline-rate number can't be trusted as reproducible evidence by itself — it's confounded by which random free model happened to answer. Pin `LLM_MODEL` to a fixed, non-`:free` model before drawing any real conclusion from this layer.
+
+## Local Diagnostic & Evaluation Scripts
+
+Three hand-runnable scripts, no test framework involved — point them at a real document (or the committed fixtures) and read the output. Each one uses the exact same production code the real pipeline does (extractors, `chunk_document()`, `retrieve_chunks()`), never a reimplementation, so what they show is what `add_document()`/`query_knowledge_base()` would actually do.
+
+| Script | What it's for | Run it |
+|---|---|---|
+| `scripts/extract_text.py` | Sanity-check a document *before* ingesting it — did text actually come out, grouped by page/section? Catches e.g. a scanned (image-only) PDF with no text layer early. | `uv run python scripts/extract_text.py /path/to/file.pdf` |
+| `scripts/inspect_chunks.py` | Compare every `PDF_EXTRACTION_MODE` x `CHUNKING_STRATEGY` x `CHUNK_OVERFLOW_STRATEGY` combination for one document side by side — chunk count, token size vs. the embedding model's real limit (as a bar), processing time. See "Chunking & Token Limits" above. | `uv run python scripts/inspect_chunks.py /path/to/file.pdf` |
+| `scripts/evaluate_retrieval.py` | Compare **vector-only vs. hybrid+rerank** retrieval quality — Recall@k, MRR, Fallback rate, plus a per-question breakdown and (with `--with-llm`) real generated answers. See "How quality is measured" above. | `uv run python scripts/evaluate_retrieval.py` |
+
+All three fall back to `TEST_DOC_PATH` (`.env`) when no path is given, except `evaluate_retrieval.py`, which always runs against the two committed fixtures (`tests/data/sample.md`/`sample.pdf`) — see its own "Which database?" note above for why it's safe to run against a real, populated database.
+
+**`evaluate_retrieval.py`'s per-question breakdown**, specifically: the aggregate Recall@k/MRR/Fallback rate numbers can land on identical values for both configurations purely because the corpus is small — that hides whether the two strategies actually behave differently on any *individual* question. Every run also prints a row per question, `vector` vs. `hybrid`, with a `<- differs` marker wherever the two disagree, so a difference is visible even when the averages coincide. A real example from this project's own fixtures: both configs score `1.00`/`1.00`/`0.33` in aggregate, and yet the breakdown shows the "what is the project's annual revenue?" question keeps 1 chunk under `vector` but 2 under `hybrid` — a real, if small, difference the averages alone completely hid.
+
+**`--with-llm`**: none of the above touches the LLM — Recall@k/MRR/Fallback rate are all retrieval-layer-only, deliberately, to stay fast and free to run. Passing `--with-llm` additionally generates a real answer (real network call, `LLM_DRIVER`) for every question under both configurations, and for the 3 deliberately unanswerable ones, checks whether the answer actually reads like a decline — this is what closes the gap "What happens when there's no reliable source" describes above: Fallback rate alone only proves the *retrieval* gate didn't catch these three, not whether the *system* as a whole still ends up hallucinating. Run once with `--with-llm` and read the printed answers to find out — but see that same section's caveat about `LLM_MODEL=openrouter/free` before trusting the decline-rate number itself.
+
 ## Database Schema
 
 The `document_chunks` table stores chunked document text alongside its vector embedding:
@@ -266,6 +306,6 @@ An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast appro
 - [x] Step 3 — PDF text extraction (`pdfplumber`)
 - [x] Step 4 — Chunking + embedding + storage (`add_document` logic)
 - [x] Step 5 — Query: embedding + top-k retrieval + answer generation
-- [x] Hybrid search (vector + keyword, RRF-fused) and optional cross-encoder reranking — see "Retrieval" above (beyond the original steps, added in response to external evaluation criteria)
+- [x] Hybrid search (vector + keyword, RRF-fused), optional cross-encoder reranking, and a retrieval-quality eval script — see "Retrieval" above (beyond the original steps, added in response to external evaluation criteria)
 - [ ] Step 6 — Function-calling agent (`add_document` vs `query_knowledge_base`)
 - [ ] Step 7 *(stretch)* — Wrap tools as an MCP server

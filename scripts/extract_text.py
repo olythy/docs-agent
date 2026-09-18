@@ -31,6 +31,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from scripts.format_utils import truncate
+
 # ---------------------------------------------------------------------------
 # TEST_DOC_PATH is intentionally NOT hardcoded here.
 # Personal or client-specific filenames must never be committed to git.
@@ -77,8 +79,7 @@ def print_report(doc_path: Path, full_text: str, word_page_map: list[int]) -> No
     for page in section_order:
         text = " ".join(section_words[page])
         print(f"\n--- Page/section {page} ({len(text)} chars) ---")
-        preview = text[:PREVIEW_CHARS]
-        print(preview)
+        print(truncate(text, PREVIEW_CHARS))
         if len(text) > PREVIEW_CHARS:
             print(f"  ... [{len(text) - PREVIEW_CHARS} more characters]")
 

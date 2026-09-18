@@ -1,0 +1,57 @@
+[
+  {
+    "question": "Which database and extension does Docs Agent use to store chunks?",
+    "expected_source_file": "sample.md"
+  },
+  {
+    "question": "How many chunking strategies does Docs Agent have, and which one is built on the langchain_text_splitters package?",
+    "expected_source_file": "sample.md"
+  },
+  {
+    "question": "What command runs the full test suite in AGENT_ENV=test mode?",
+    "expected_source_file": "sample.md"
+  },
+  {
+    "question": "Why must a # comment inside a code block not be mistaken for a Markdown section header?",
+    "expected_source_file": "sample.md"
+  },
+  {
+    "question": "What's the difference between the word-based sliding window and the langchain-based chunking strategy?",
+    "expected_source_file": "sample.md"
+  },
+  {
+    "question": "What technology stack does the Player Central MVP use?",
+    "expected_source_file": "sample.pdf"
+  },
+  {
+    "question": "What is the subscription fee for clubs with 3-6 courts at Player Central?",
+    "expected_source_file": "sample.pdf"
+  },
+  {
+    "question": "How does the check-in process work in the Player Central system?",
+    "expected_source_file": "sample.pdf"
+  },
+  {
+    "question": "What target audience does the Player Central MVP aim for?",
+    "expected_source_file": "sample.pdf"
+  },
+  {
+    "question": "What payment methods are available in the Player Central MVP?",
+    "expected_source_file": "sample.pdf"
+  },
+  {
+    "question": "What is the phone number of Player Central's founder?",
+    "expected_source_file": null,
+    "note": "Deliberately unanswerable — no contact information appears in either fixture."
+  },
+  {
+    "question": "What is the Docs Agent project's annual revenue?",
+    "expected_source_file": null,
+    "note": "Deliberately unanswerable — the fixtures describe a personal learning project, not a commercial one with revenue figures."
+  },
+  {
+    "question": "What programming language is the Player Central backend API written in (Python or Java)?",
+    "expected_source_file": null,
+    "note": "Deliberately unanswerable — the PDF names Nuxt 3 and Supabase at a high level, but never states a backend language."
+  }
+]

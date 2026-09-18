@@ -40,6 +40,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from scripts.format_utils import wrap
+
 BAR_WIDTH = 30  # Character width representing max_sequence_length
 
 #: Every CHUNK_OVERFLOW_STRATEGY, applied on top of each chunking combination
@@ -177,16 +179,19 @@ def print_comparison_matrix(doc_path: Path, driver, max_seq_length: int) -> None
             )
 
     print(
-        "\nRead this top to bottom: 'word' relies entirely on CHUNK_OVERFLOW_STRATEGY=split "
-        "to avoid truncation (its 'warn' row is often OVERFLOW); 'langchain' sizes chunks in "
-        "tokens from the start, so its 'warn' and 'split' rows are usually identical — split "
-        "has nothing left to correct. For a PDF, 'blocks' vs 'flat' shows whether "
-        "paragraph-aware extraction changed anything; Markdown has no extraction mode at all "
-        "('native' — it's already structured), so only the strategy varies. 'ms' is real "
-        "pipeline time (model load excluded) — 'split' costs more than 'warn' by design, the "
-        "question is whether that cost is worth paying for this document. Single-run timing, "
-        "not a rigorous benchmark: for a PDF, the first row to open the file pays a bit of "
-        "one-time OS file-cache warm-up too, so treat 'ms' as indicative, not exact."
+        "\n"
+        + wrap(
+            "Read this top to bottom: 'word' relies entirely on CHUNK_OVERFLOW_STRATEGY=split "
+            "to avoid truncation (its 'warn' row is often OVERFLOW); 'langchain' sizes chunks in "
+            "tokens from the start, so its 'warn' and 'split' rows are usually identical — split "
+            "has nothing left to correct. For a PDF, 'blocks' vs 'flat' shows whether "
+            "paragraph-aware extraction changed anything; Markdown has no extraction mode at all "
+            "('native' — it's already structured), so only the strategy varies. 'ms' is real "
+            "pipeline time (model load excluded) — 'split' costs more than 'warn' by design, the "
+            "question is whether that cost is worth paying for this document. Single-run timing, "
+            "not a rigorous benchmark: for a PDF, the first row to open the file pays a bit of "
+            "one-time OS file-cache warm-up too, so treat 'ms' as indicative, not exact."
+        )
     )
 
 
