@@ -14,9 +14,41 @@ Usage::
     vector = driver.embed_text("Mennyi az SZJA tartozásom?")
 """
 
+import logging
 from abc import ABC, abstractmethod
 
 from config import settings
+
+_TOKEN_LENGTH_WARNING_SUPPRESSED = False
+
+
+class _SuppressTokenLengthWarning(logging.Filter):
+    """Drops transformers' "Token indices sequence length is longer than..." log line."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "Token indices sequence length is longer" not in record.getMessage()
+
+
+def _suppress_token_length_warning() -> None:
+    """Silence one specific, known-benign transformers warning, once.
+
+    ``LocalSentenceTransformerDriver.count_tokens()`` deliberately tokenizes
+    without truncation to detect real overflow (see its docstring) — the
+    warning's "will result in indexing errors" caveat doesn't apply here,
+    since the over-length result is only ever used for counting, never fed
+    through the model. Left unsuppressed, it clutters any script that calls
+    ``count_tokens()`` a lot (e.g. ``scripts/inspect_chunks.py``): it's
+    emitted via ``logging`` straight to stderr rather than raised as a
+    catchable ``warnings.warn()``, so it interleaves with normal stdout
+    output instead of being collectible in one place.
+    """
+    global _TOKEN_LENGTH_WARNING_SUPPRESSED
+    if _TOKEN_LENGTH_WARNING_SUPPRESSED:
+        return
+    logging.getLogger("transformers.tokenization_utils_base").addFilter(
+        _SuppressTokenLengthWarning()
+    )
+    _TOKEN_LENGTH_WARNING_SUPPRESSED = True
 
 
 class EmbeddingDriver(ABC):
@@ -177,6 +209,7 @@ class LocalSentenceTransformerDriver(EmbeddingDriver):
         undetectable. Calling the raw tokenizer instead reports the true,
         untruncated length.
         """
+        _suppress_token_length_warning()
         model = self._get_model()
         return len(model.tokenizer(text)["input_ids"])
 

@@ -93,6 +93,64 @@ def test_local_driver_count_tokens_uses_raw_tokenizer_without_truncation(monkeyp
     fake_model.tokenize.assert_not_called()
 
 
+def test_suppress_token_length_warning_filter_drops_only_that_message():
+    """The filter must drop transformers' known-benign overflow warning —
+    and only that one, not unrelated log records that happen to pass
+    through the same logger.
+    """
+    import logging
+
+    from drivers.embedding import _SuppressTokenLengthWarning
+
+    token_warning = logging.LogRecord(
+        name="transformers.tokenization_utils_base",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=1,
+        msg="Token indices sequence length is longer than the specified "
+        "maximum sequence length for this model (999 > 128). Running this "
+        "sequence through the model will result in indexing errors",
+        args=(),
+        exc_info=None,
+    )
+    unrelated = logging.LogRecord(
+        name="transformers.tokenization_utils_base",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=1,
+        msg="some unrelated warning",
+        args=(),
+        exc_info=None,
+    )
+
+    log_filter = _SuppressTokenLengthWarning()
+    assert log_filter.filter(token_warning) is False
+    assert log_filter.filter(unrelated) is True
+
+
+def test_local_driver_count_tokens_registers_the_suppression_filter(monkeypatch):
+    """count_tokens() must install the filter on transformers' own logger —
+    otherwise the "Token indices sequence length..." warning interleaves
+    with normal stdout output in scripts like inspect_chunks.py, since
+    it's emitted via logging straight to stderr, not a catchable
+    warnings.warn().
+    """
+    import logging
+
+    from drivers.embedding import _SuppressTokenLengthWarning
+
+    fake_model = MagicMock()
+    fake_model.tokenizer.return_value = {"input_ids": [1, 2, 3]}
+    monkeypatch.setattr(
+        "sentence_transformers.SentenceTransformer", lambda name: fake_model
+    )
+
+    LocalSentenceTransformerDriver().count_tokens("hello")
+
+    target_logger = logging.getLogger("transformers.tokenization_utils_base")
+    assert any(isinstance(f, _SuppressTokenLengthWarning) for f in target_logger.filters)
+
+
 def test_local_driver_supports_token_counting_is_true():
     assert LocalSentenceTransformerDriver().supports_token_counting() is True
 
