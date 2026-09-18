@@ -7,14 +7,26 @@ import pytest
 
 import ingestion.chunker as chunker_module
 from ingestion.chunker import (
+    LangChainChunkingStrategy,
     SplitOverflowStrategy,
     WarnOverflowStrategy,
+    WordChunkingStrategy,
     _split_oversized_text,
     _split_words_into_chunks,
+    chunk_document,
     chunk_pages,
     get_chunk_overflow_strategy,
+    get_chunking_strategy,
     validate_chunk_size_against_model,
 )
+
+
+def _fake_driver(max_seq_length=None, supports_tokens=False):
+    driver = MagicMock()
+    driver.max_sequence_length.return_value = max_seq_length
+    driver.supports_token_counting.return_value = supports_tokens
+    driver.count_tokens.side_effect = lambda t: len(t.split())
+    return driver
 
 
 def test_split_empty_words_returns_empty_list():
@@ -198,6 +210,31 @@ def test_split_oversized_text_single_word_over_budget_returned_as_is():
     assert result == ["supercalifragilisticexpialidocious"]
 
 
+def test_split_oversized_text_balances_pieces_instead_of_a_tiny_straggler():
+    """Regression test for a real finding: greedily maxing out each piece up to
+    max_seq_length left a near-empty trailing piece when a chunk was only
+    slightly over the limit (a real document produced 128 + 6 tokens from
+    a 50-word/132-token chunk). Aiming each piece at an even share of the
+    total instead should produce two comparably-sized pieces.
+    """
+    words = [f"w{i}" for i in range(50)]
+    # Position-aware weights, like a real tokenizer's uneven density:
+    # the first 40 words cost 3 tokens each, the last 10 cost 1 each.
+    weights = {f"w{i}": (3 if i < 40 else 1) for i in range(50)}
+
+    def count_tokens(text: str) -> int:
+        return sum(weights[w] for w in text.split())
+
+    pieces = _split_oversized_text(" ".join(words), count_tokens, max_seq_length=90)
+
+    token_counts = [count_tokens(p) for p in pieces]
+    assert all(t <= 90 for t in token_counts)
+    assert len(pieces) == 2
+    # The old greedy-max algorithm would produce 90 + 40 here (maxing the
+    # first piece to the hard limit); balancing keeps both pieces close.
+    assert min(token_counts) >= 0.9 * max(token_counts)
+
+
 # --- WarnOverflowStrategy ---
 
 
@@ -275,7 +312,7 @@ def test_split_strategy_falls_back_to_warn_when_driver_lacks_real_token_counts(
     )
     driver = MagicMock()
     driver.max_sequence_length.return_value = 128
-    driver.count_tokens.return_value = None
+    driver.supports_token_counting.return_value = False
     chunks = [{"content": "x", "metadata": {"chunk_index": 0}}]
 
     with pytest.warns(UserWarning) as record:
@@ -311,3 +348,178 @@ def test_get_chunk_overflow_strategy_raises_on_unknown(monkeypatch, settings_ove
     )
     with pytest.raises(ValueError, match="Unknown CHUNK_OVERFLOW_STRATEGY"):
         get_chunk_overflow_strategy()
+
+
+# --- WordChunkingStrategy ---
+
+
+def test_word_chunking_strategy_returns_indexed_chunks(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        chunker_module, "settings", settings_override(CHUNK_SIZE=3, CHUNK_OVERLAP=1)
+    )
+    full_text = "a b c d e f g"
+
+    result = WordChunkingStrategy().split(full_text, driver=MagicMock())
+
+    assert result == [("a b c", 0), ("c d e", 2), ("e f g", 4), ("g", 6)]
+
+
+def test_word_chunking_strategy_operates_on_the_whole_document_not_per_page():
+    """The whole point of chunk_document: no page loop, so a chunk can span
+    what used to be a page boundary — confirmed by CHUNK_SIZE spanning the
+    "page1 page2" join point below with no truncation.
+    """
+    full_text = "end of page one start of page two"
+    words = full_text.split()
+
+    result = WordChunkingStrategy().split(full_text, driver=MagicMock())
+
+    # With default CHUNK_SIZE/CHUNK_OVERLAP (500/50), everything fits in
+    # a single chunk, proving the boundary in the middle isn't special.
+    assert len(result) == 1
+    assert result[0][0].split() == words
+
+
+# --- LangChainChunkingStrategy ---
+
+
+def test_langchain_chunking_strategy_splits_on_paragraph_marker(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(chunker_module, "settings", settings_override(CHUNK_SIZE=60))
+    full_text = (
+        "one two three four five six seven eight nine ten"
+        "\n\neleven twelve thirteen fourteen fifteen"
+    )
+    driver = _fake_driver(max_seq_length=None, supports_tokens=False)
+
+    result = LangChainChunkingStrategy().split(full_text, driver)
+
+    assert result == [
+        ("one two three four five six seven eight nine ten", 0),
+        ("eleven twelve thirteen fourteen fifteen", 10),
+    ]
+
+
+def test_langchain_chunking_strategy_uses_driver_token_length_when_supported():
+    """When the driver supports real token counting, chunk_size is measured
+    in tokens (via count_tokens), not characters — and max_sequence_length
+    (not settings.CHUNK_SIZE) sets the budget.
+    """
+    driver = _fake_driver(max_seq_length=3, supports_tokens=True)
+    full_text = "one two three\n\nfour five six"
+
+    result = LangChainChunkingStrategy().split(full_text, driver)
+
+    assert result == [("one two three", 0), ("four five six", 3)]
+    driver.count_tokens.assert_called()
+
+
+def test_langchain_chunking_strategy_start_indices_are_correct_even_with_stray_punctuation():
+    """Regression test for a real finding: a piece can start with a bare
+    "." left over from a ". " separator split, which is not a word-boundary
+    split as far as str.split() is concerned. Character-offset tracking
+    (not word-count tracking) must still get every start index right.
+    """
+    driver = _fake_driver(max_seq_length=None, supports_tokens=False)
+    full_text = "Sentence one here. Sentence two follows. Sentence three ends."
+
+    result = LangChainChunkingStrategy().split(full_text, driver)
+
+    words = full_text.split()
+    for text, start in result:
+        # Whatever the piece's own tokenization looks like, the start index
+        # must point at a real position within the original word list.
+        assert 0 <= start <= len(words)
+    # Pieces are produced in non-decreasing start order (chunk_overlap=0).
+    starts = [start for _, start in result]
+    assert starts == sorted(starts)
+
+
+# --- get_chunking_strategy ---
+
+
+def test_get_chunking_strategy_returns_word_by_default(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        chunker_module, "settings", settings_override(CHUNKING_STRATEGY="word")
+    )
+    assert isinstance(get_chunking_strategy(), WordChunkingStrategy)
+
+
+def test_get_chunking_strategy_returns_langchain(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        chunker_module, "settings", settings_override(CHUNKING_STRATEGY="langchain")
+    )
+    assert isinstance(get_chunking_strategy(), LangChainChunkingStrategy)
+
+
+def test_get_chunking_strategy_raises_on_unknown(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        chunker_module, "settings", settings_override(CHUNKING_STRATEGY="bogus")
+    )
+    with pytest.raises(ValueError, match="Unknown CHUNKING_STRATEGY"):
+        get_chunking_strategy()
+
+
+# --- chunk_document ---
+
+
+def test_chunk_document_builds_metadata_from_strategy_output(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        chunker_module,
+        "settings",
+        settings_override(CHUNKING_STRATEGY="word", CHUNK_SIZE=3, CHUNK_OVERLAP=0),
+    )
+    full_text = "a b c d e f"
+    word_page_map = [1, 1, 1, 2, 2, 2]
+
+    chunks = chunk_document(full_text, word_page_map, source_file="doc.pdf", driver=MagicMock())
+
+    assert [c["content"] for c in chunks] == ["a b c", "d e f"]
+    assert [c["metadata"]["page_number"] for c in chunks] == [1, 2]
+    assert [c["metadata"]["chunk_index"] for c in chunks] == [0, 1]
+    assert all(c["metadata"]["source_file"] == "doc.pdf" for c in chunks)
+
+
+def test_chunk_document_page_number_is_majority_vote_across_a_page_boundary(
+    monkeypatch, settings_override
+):
+    """A chunk whose words straddle a page boundary gets the page that
+    contributed the most words — the accepted tradeoff (see chunk_document's
+    docstring) instead of a page range.
+    """
+    monkeypatch.setattr(
+        chunker_module,
+        "settings",
+        settings_override(CHUNKING_STRATEGY="word", CHUNK_SIZE=5, CHUNK_OVERLAP=0),
+    )
+    full_text = "a b c d e"
+    word_page_map = [1, 1, 1, 2, 2]  # 3 words from page 1, 2 from page 2
+
+    chunks = chunk_document(full_text, word_page_map, source_file="doc.pdf", driver=MagicMock())
+
+    assert len(chunks) == 1
+    assert chunks[0]["metadata"]["page_number"] == 1
+
+
+def test_chunk_document_uses_langchain_strategy_when_configured(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        chunker_module, "settings", settings_override(CHUNKING_STRATEGY="langchain", CHUNK_SIZE=60)
+    )
+    full_text = "one two three four five six seven eight nine ten\n\neleven twelve"
+    word_page_map = [1] * 10 + [2] * 2
+
+    chunks = chunk_document(
+        full_text,
+        word_page_map,
+        source_file="doc.pdf",
+        driver=_fake_driver(max_seq_length=None, supports_tokens=False),
+    )
+
+    assert [c["content"] for c in chunks] == [
+        "one two three four five six seven eight nine ten",
+        "eleven twelve",
+    ]
+    assert [c["metadata"]["page_number"] for c in chunks] == [1, 2]

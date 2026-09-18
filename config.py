@@ -81,6 +81,21 @@ class Settings:
                               requires the active driver to support real
                               token counting (currently only the ``local``
                               driver) — falls back to ``warn`` otherwise.
+        PDF_EXTRACTION_MODE   ``flat`` (default) joins each page's text with a
+                              single space — fast, but paragraph structure is
+                              lost. ``blocks`` additionally detects paragraph
+                              breaks from word coordinates and preserves them,
+                              so ``CHUNKING_STRATEGY=langchain`` can split on
+                              them. See ``ingestion/pdf_loader.extract_document_text``.
+        CHUNKING_STRATEGY     ``word`` (default) is the sliding word-count
+                              window (unchanged behavior, applied document-wide
+                              instead of per-page — this alone fixes chunks
+                              being truncated at page boundaries).
+                              ``langchain`` uses
+                              ``langchain_text_splitters.RecursiveCharacterTextSplitter``
+                              to split on paragraph/sentence boundaries first,
+                              falling back to smaller units only if a piece
+                              still doesn't fit.
 
     LLM (answer generation):
         LLM_DRIVER            Driver to use: ``openrouter`` (default) or ``openai``.
@@ -131,6 +146,8 @@ class Settings:
     CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "50"))
     WORDS_PER_TOKEN: float = float(os.getenv("WORDS_PER_TOKEN", "0.75"))
     CHUNK_OVERFLOW_STRATEGY: str = os.getenv("CHUNK_OVERFLOW_STRATEGY", "warn")
+    PDF_EXTRACTION_MODE: str = os.getenv("PDF_EXTRACTION_MODE", "flat")
+    CHUNKING_STRATEGY: str = os.getenv("CHUNKING_STRATEGY", "word")
 
     # --- LLM (answer generation) ---
     LLM_DRIVER: str = os.getenv("LLM_DRIVER", "openrouter")

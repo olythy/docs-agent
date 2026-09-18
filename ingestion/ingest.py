@@ -1,10 +1,14 @@
 """Document ingestion pipeline.
 
 Orchestrates the full add_document flow:
-    1. Extract text page by page from a PDF (``pdf_loader``).
-    2. Split each page's text into overlapping word-based chunks (``chunker``).
-    3. Embed every chunk with the active embedding driver (``drivers.embedding``).
-    4. Store chunks + embeddings in the ``document_chunks`` Postgres table.
+    1. Extract text page by page from a PDF (``pdf_loader``), for validation.
+    2. Extract the whole document as one string + a word-to-page map
+       (``pdf_loader.extract_document_text``) — concatenating pages *before*
+       chunking is what avoids truncating a paragraph that spans a page break.
+    3. Split the document into chunks (``chunker.chunk_document``), per
+       ``settings.CHUNKING_STRATEGY``.
+    4. Embed every chunk with the active embedding driver (``drivers.embedding``).
+    5. Store chunks + embeddings in the ``document_chunks`` Postgres table.
 
 This module exposes a single public function: :func:`add_document`.
 
@@ -18,8 +22,8 @@ from pathlib import Path
 
 from config import settings
 from drivers.embedding import get_embedding_driver
-from ingestion.chunker import chunk_pages, get_chunk_overflow_strategy
-from ingestion.pdf_loader import extract_pages, is_scanned_pdf
+from ingestion.chunker import chunk_document, get_chunk_overflow_strategy
+from ingestion.pdf_loader import extract_document_text, extract_pages, is_scanned_pdf
 from store import VectorStore
 
 
@@ -58,15 +62,20 @@ def add_document(file_path: str | Path) -> None:
         )
     print(f"[ingest] Extracted text from {len(pages)} page(s).")
 
-    # Step 2: Chunk the extracted text
-    chunks = chunk_pages(pages, source_file=source_file)
-    print(f"[ingest] Created {len(chunks)} chunk(s) "
-          f"(~{settings.CHUNK_SIZE} words each, {settings.CHUNK_OVERLAP} overlap).")
-
-    # Step 3: Embed all chunks in one batched call
+    # Step 2: Get the driver up front — CHUNKING_STRATEGY=langchain needs it
+    # (token limit/counting) *during* chunking, not just for embedding after.
     driver = get_embedding_driver()
     store = VectorStore()
     store.assert_dimension_matches(driver.dimension)
+
+    # Step 3: Concatenate the whole document, then chunk it document-wide
+    full_text, word_page_map = extract_document_text(
+        pdf_path, mode=settings.PDF_EXTRACTION_MODE
+    )
+    chunks = chunk_document(full_text, word_page_map, source_file=source_file, driver=driver)
+    print(f"[ingest] Created {len(chunks)} chunk(s) via CHUNKING_STRATEGY="
+          f"'{settings.CHUNKING_STRATEGY}'.")
+
     pre_overflow_count = len(chunks)
     chunks = get_chunk_overflow_strategy().apply(chunks, driver)
     if len(chunks) != pre_overflow_count:
@@ -74,11 +83,13 @@ def add_document(file_path: str | Path) -> None:
             f"[ingest] CHUNK_OVERFLOW_STRATEGY=split corrected "
             f"{pre_overflow_count} chunk(s) into {len(chunks)}."
         )
+
+    # Step 4: Embed all chunks in one batched call
     texts = [c["content"] for c in chunks]
     print(f"[ingest] Embedding with driver='{settings.EMBEDDING_DRIVER}' ...")
     embeddings = driver.embed_batch(texts)
     print(f"[ingest] Embeddings ready. Dimension: {len(embeddings[0])}.")
 
-    # Step 4: Store in Postgres
+    # Step 5: Store in Postgres
     inserted = store.save(chunks, embeddings)
     print(f"[ingest] Stored {inserted} row(s) in document_chunks. Done! ✅")

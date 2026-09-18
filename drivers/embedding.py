@@ -91,6 +91,21 @@ class EmbeddingDriver(ABC):
         """
         return None
 
+    def supports_token_counting(self) -> bool:
+        """Return True if :meth:`count_tokens` gives a real, non-None result.
+
+        A capability check, not a side-effecting probe — callers (e.g.
+        :class:`ingestion.chunker.SplitOverflowStrategy`) used to detect this
+        by calling ``count_tokens()`` on a sample chunk and checking for
+        ``None``, which meant no answer at all for an empty chunk list, and
+        an unnecessary tokenizer call just to check a capability.
+
+        Returns:
+            False by default; overridden by drivers whose :meth:`count_tokens`
+            actually works.
+        """
+        return False
+
 
 class LocalSentenceTransformerDriver(EmbeddingDriver):
     """Embedding driver using a locally downloaded sentence-transformer model.
@@ -164,6 +179,10 @@ class LocalSentenceTransformerDriver(EmbeddingDriver):
         """
         model = self._get_model()
         return len(model.tokenizer(text)["input_ids"])
+
+    def supports_token_counting(self) -> bool:
+        """This driver's count_tokens() always works — see its docstring."""
+        return True
 
 
 class OpenAIEmbeddingDriver(EmbeddingDriver):

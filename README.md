@@ -29,8 +29,8 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 │   ├── embedding.py         # EmbeddingDriver strategy: local (sentence-transformers) vs openai
 │   └── llm.py                # AnswerDriver strategy: openrouter vs openai
 ├── ingestion/
-│   ├── pdf_loader.py         # PDF text extraction (pdfplumber)
-│   ├── chunker.py            # Word-based chunking with overlap
+│   ├── pdf_loader.py         # PDF text extraction (pdfplumber), flat/blocks modes
+│   ├── chunker.py            # Chunking strategies (word/langchain) + overflow correction
 │   └── ingest.py             # add_document orchestration
 ├── query/
 │   └── retrieval.py          # query_knowledge_base: retrieval + answer generation
@@ -41,7 +41,8 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 │   ├── migrate.py            # Migration runner: uv run python scripts/migrate.py [subcommand]
 │   ├── make_migration.py     # Scaffold a new migration file
 │   ├── db_flush.py           # Truncate document_chunks
-│   └── extract_text.py       # PDF extraction diagnostic CLI
+│   ├── extract_text.py       # PDF extraction diagnostic CLI
+│   └── inspect_chunks.py     # Chunking diagnostic CLI: full strategy comparison matrix, with bars
 ├── docker-compose.yml       # Local Postgres+pgvector (dev + test databases)
 ├── docker/
 │   └── init-test-db.sql      # Creates the "docs_agent_test" database on first startup
@@ -136,6 +137,8 @@ If `AGENT_ENV=test` but no `.env.test` exists, `config.py` raises immediately wi
 
 ## Makefile Shortcuts
 
+Run `make` or `make help` any time for this same list straight from the terminal — it's generated from each target's own `## ` comment, so it can't drift out of sync the way a hand-maintained table can.
+
 | Command | Equivalent |
 |---|---|
 | `make setup` | `docker-up` + `db-migrate` + `db-migrate-test` — one-shot onboarding |
@@ -176,11 +179,26 @@ Embedding models don't read arbitrarily long text — each one has a maximum inp
 Since `CHUNK_SIZE` (`chunker.py`) is configured in *words*, not tokens, what happens next depends on `CHUNK_OVERFLOW_STRATEGY` (`.env`, default `warn`) — a Strategy pattern in `ingestion/chunker.py`, same shape as the embedding/LLM drivers:
 
 - **`warn`** (default) estimates the token count using an approximate `WORDS_PER_TOKEN` ratio (default `0.75`, an English average) and **warns** — via `warnings.warn`, not an error — when a chunk is *likely* to get truncated. This ratio is only an approximation: subword tokenizers typically produce *more* tokens than words, and morphologically rich languages like Hungarian tend to tokenize *worse* (fewer words per token) than the English-based default. If the warning under-fires for your content, lower `WORDS_PER_TOKEN` in `.env`. It still doesn't correct anything — the chunk is stored and silently truncated at embed time regardless.
-- **`split`** measures each chunk's *real* token count with the active driver's own tokenizer (`EmbeddingDriver.count_tokens()` — only `LocalSentenceTransformerDriver` implements this, via its raw HuggingFace tokenizer, not `model.tokenize()`, which was confirmed empirically to already truncate) and, for any chunk that actually overflows, binary-searches a word-prefix that fits and recurses on the remainder — a hard guarantee, not an estimate. Falls back to `warn` (with a warning explaining why) if the active driver can't report real token counts, e.g. `EMBEDDING_DRIVER=openai`.
+- **`split`** measures each chunk's *real* token count with the active driver's own tokenizer (`EmbeddingDriver.count_tokens()` — only `LocalSentenceTransformerDriver` implements this, via its raw HuggingFace tokenizer, not `model.tokenize()`, which was confirmed empirically to already truncate) and, for any chunk that actually overflows, splits it into **balanced** pieces — a hard guarantee, not an estimate. It first estimates how many pieces are needed (`ceil(total_tokens / max_seq_length)`) and aims each one at an even share of that, binary-searching the real token count per piece to stay correct. Greedily maxing out each piece up to the hard limit instead (the first version of this) sounds optimal but isn't: a chunk only slightly over the limit (e.g. 132 tokens vs. a 128 limit) would produce one full 128-token piece and a near-empty ~4-token straggler — almost useless as its own embedding, too little semantic content for retrieval to ever match it well. Falls back to `warn` (with a warning explaining why) if the active driver can't report real token counts, e.g. `EMBEDDING_DRIVER=openai`.
 
-Verified against a real document: 21 word-based chunks, 4 of which actually exceeded the local model's 128-token limit, were corrected into 29 chunks with `split` — nothing silently truncated.
+Run `uv run python scripts/inspect_chunks.py` (uses `TEST_PDF_PATH` by default, or pass a path) to see all of this at once for your own documents: one table, every `PDF_EXTRACTION_MODE` x `CHUNKING_STRATEGY` x `CHUNK_OVERFLOW_STRATEGY` combination as its own row, each with a bar showing that row's *worst* chunk against the model's real token limit — so which combination actually needs the least correction is a glance, not six separate reports to compare by hand.
+
+Verified against a real document (`CHUNK_SIZE=50`, `WORDS_PER_TOKEN=0.4`): the `warn` heuristic estimates `50 / 0.4 = 125` tokens, just under the 128-token limit, so it **didn't warn at all** — yet 8 of the 21 actual chunks (38%) really did exceed 128 tokens (up to 198), because real token count varies a lot per chunk's content, not just per configured size. `split` caught and corrected all 8 (21 → 29 chunks), each landing between 53 and 127 tokens — no near-empty stragglers, and afterward zero chunks exceed the limit.
 
 **Known limitation:** the `CHUNK_OVERLAP` (an absolute word count) isn't reconsidered by either strategy. If `CHUNK_SIZE` were drastically lowered to match a tight token limit, a fixed `CHUNK_OVERLAP` could become a disproportionately large fraction of it. Not addressed yet.
+
+## Extraction Mode & Chunking Strategy
+
+Two independent settings control how a PDF becomes chunks, both in `.env`:
+
+- **`PDF_EXTRACTION_MODE`** (`flat` default, or `blocks`) — how page text is turned into one document-level string. `flat` just joins pages with a space; `blocks` additionally detects paragraph breaks from word coordinates (`pdfplumber`'s `extract_words()`, a per-page median line-spacing × 1.8 threshold) and preserves them, so a structure-aware chunker can split on them. `blocks` can't detect a break that happens to fall exactly at a page boundary — coordinates reset per page, so there's nothing to compare the gap against across it. Documented, accepted limitation (see `PLAN.md`).
+- **`CHUNKING_STRATEGY`** (`word` default, or `langchain`) — how the resulting text becomes chunks. `word` is the original sliding word-count window (`CHUNK_SIZE`/`CHUNK_OVERLAP`), unchanged in behavior. `langchain` uses `langchain_text_splitters.RecursiveCharacterTextSplitter` to try paragraph, then line, then sentence, then word boundaries in order — keeping whole paragraphs/sentences together whenever they fit, instead of cutting at a fixed word count regardless of structure.
+
+Both dimensions are independent and combinable (e.g. `blocks` + `langchain` for the most structure-aware result on well-formatted documents) and default to the original behavior for backward compatibility.
+
+**The real fix underneath both**: chunking used to run **per page** (`chunk_pages()`), with no overlap between pages — a paragraph that happened to span a page break was silently split into two truncated, unrelated chunks. `ingest.py` now concatenates the whole document first (`pdf_loader.extract_document_text()`) and chunks that (`chunker.chunk_document()`) — there's no page loop left to truncate anything at a page boundary. `chunk_pages()` itself is unchanged and still used by `scripts/extract_text.py`-adjacent tooling and its own tests.
+
+Since a chunk's words can now come from more than one page, `page_number` in its metadata is assigned by **majority vote** (whichever page contributed the most words) rather than a page range — simpler, backward-compatible with the existing single-number metadata shape, and the rare off-by-one-page citation is a negligible cost next to not having to change the prompt template and retrieval display for a page *range*.
 
 ## Database Schema
 

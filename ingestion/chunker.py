@@ -31,6 +31,7 @@ Key exports:
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from typing import ClassVar
 
 from config import settings
 from drivers.embedding import EmbeddingDriver
@@ -186,18 +187,49 @@ def chunk_pages(
     return chunks
 
 
+def _largest_fitting_prefix(
+    words: list[str],
+    count_tokens: Callable[[str], int],
+    budget: int,
+) -> int:
+    """Binary-search the largest word-prefix of ``words`` whose real token count fits ``budget``.
+
+    Always returns at least 1, even if the first word alone exceeds
+    ``budget`` — word-level granularity can't split a single word any
+    finer, so it's returned oversized rather than dropped or split further.
+    """
+    lo, hi, fit = 1, len(words), 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if count_tokens(" ".join(words[:mid])) <= budget:
+            fit = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return fit
+
+
 def _split_oversized_text(
     text: str,
     count_tokens: Callable[[str], int],
     max_seq_length: int,
 ) -> list[str]:
-    """Split ``text`` into pieces that each fit within ``max_seq_length`` real tokens.
+    """Split ``text`` into balanced pieces that each fit within ``max_seq_length`` real tokens.
 
-    Binary-searches, per piece, for the longest word-prefix whose real token
-    count (via ``count_tokens``) still fits, then recurses on the remainder.
-    Unlike the word-count chunking above, this checks ground truth after
-    every guess instead of estimating — it's only affordable here because
-    it only runs on the rare chunk that actually overflows.
+    Greedily maxing out each piece up to the hard token limit sounds
+    optimal but isn't: for a chunk only slightly over the limit (say 132
+    tokens vs. a 128 limit), it produces one full 128-token piece and a
+    near-empty ~4-token straggler. That straggler is nearly useless as its
+    own embedding — too little semantic content for retrieval to ever
+    match it well. Instead, this first estimates how many pieces are
+    actually needed (``ceil(total_tokens / max_seq_length)``) and aims
+    each piece at an even share of that, so e.g. 132 tokens over a 128
+    limit becomes two ~66-token pieces instead of 128 + 4.
+
+    Still checks ground truth via ``count_tokens`` after every guess
+    (binary search), same as a pure max-out approach would — the
+    balancing only changes the *target* each piece aims for, not the
+    correctness guarantee that no returned piece exceeds ``max_seq_length``.
 
     Args:
         text: The oversized chunk's text.
@@ -208,29 +240,36 @@ def _split_oversized_text(
     Returns:
         One or more pieces whose concatenation (with single spaces) equals
         ``text``. A single word longer than ``max_seq_length`` tokens on its
-        own is returned as its own (still-oversized) piece — word-level
-        granularity can't split it any finer.
+        own is returned as its own (still-oversized) piece.
     """
     words = text.split()
     if not words:
         return []
-    if count_tokens(text) <= max_seq_length:
+    total_tokens = count_tokens(text)
+    if total_tokens <= max_seq_length:
         return [text]
 
-    lo, hi, fit = 1, len(words), 1
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        if count_tokens(" ".join(words[:mid])) <= max_seq_length:
-            fit = mid
-            lo = mid + 1
-        else:
-            hi = mid - 1
+    pieces_left = -(-total_tokens // max_seq_length)  # ceil division
+    pieces: list[str] = []
+    remaining = words
 
-    head = " ".join(words[:fit])
-    rest = words[fit:]
-    if not rest:
-        return [head]
-    return [head, *_split_oversized_text(" ".join(rest), count_tokens, max_seq_length)]
+    while remaining and pieces_left > 0:
+        remaining_tokens = count_tokens(" ".join(remaining))
+        target = -(-remaining_tokens // pieces_left)  # ceil division
+        budget = min(target, max_seq_length)
+
+        fit = _largest_fitting_prefix(remaining, count_tokens, budget)
+        pieces.append(" ".join(remaining[:fit]))
+        remaining = remaining[fit:]
+        pieces_left -= 1
+
+    if remaining:
+        # Token density wasn't uniform enough for the balanced estimate to
+        # fully consume the text in the predicted number of pieces (rare).
+        # Finish correctly via the same algorithm, just less evenly.
+        pieces.extend(_split_oversized_text(" ".join(remaining), count_tokens, max_seq_length))
+
+    return pieces
 
 
 class ChunkOverflowStrategy(ABC):
@@ -281,7 +320,7 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
         if max_seq_length is None:
             return chunks
 
-        if chunks and driver.count_tokens(chunks[0]["content"]) is None:
+        if not driver.supports_token_counting():
             warnings.warn(
                 "CHUNK_OVERFLOW_STRATEGY=split requires the active embedding "
                 f"driver ({type(driver).__name__}) to support real token "
@@ -323,3 +362,164 @@ def get_chunk_overflow_strategy() -> ChunkOverflowStrategy:
     raise ValueError(
         f"Unknown CHUNK_OVERFLOW_STRATEGY: '{name}'. Valid options are: 'warn', 'split'."
     )
+
+
+class ChunkingStrategy(ABC):
+    """Strategy for turning a whole document's text into chunks.
+
+    A different responsibility from :class:`ChunkOverflowStrategy` — this is
+    about *how chunks are produced in the first place*, not what happens
+    when one turns out to be too big. Selected at runtime via
+    ``settings.CHUNKING_STRATEGY`` (see :func:`get_chunking_strategy`), same
+    Strategy/Driver pattern as :class:`drivers.embedding.EmbeddingDriver`.
+    """
+
+    @abstractmethod
+    def split(self, full_text: str, driver: EmbeddingDriver) -> list[tuple[str, int]]:
+        """Return (chunk_text, start_word_index) pairs, in document order.
+
+        ``start_word_index`` is this chunk's position in ``full_text.split()``
+        — :func:`chunk_document` uses it to look up which page(s) the chunk's
+        words came from. It must come from the strategy's own splitting
+        logic, not from searching for ``chunk_text`` inside ``full_text``:
+        overlapping chunks (e.g. a repeated word at the seam) make naive
+        substring search find the wrong occurrence.
+
+        Args:
+            full_text: The whole document's text, as produced by
+                :func:`ingestion.pdf_loader.extract_document_text`.
+            driver: The active embedding driver — strategies that size
+                chunks in tokens need :meth:`EmbeddingDriver.max_sequence_length`
+                and :meth:`EmbeddingDriver.count_tokens`.
+        """
+
+
+class WordChunkingStrategy(ChunkingStrategy):
+    """The original word-count sliding window, operating on the whole document.
+
+    Reuses :func:`_split_words_into_chunks` unchanged — same windowing math
+    as :func:`chunk_pages`, just applied to the whole document's words
+    instead of one page's at a time (which is what actually fixes the
+    page-boundary truncation problem: there's no page loop here at all).
+    """
+
+    def split(self, full_text: str, driver: EmbeddingDriver) -> list[tuple[str, int]]:
+        words = full_text.split()
+        groups = _split_words_into_chunks(words, settings.CHUNK_SIZE, settings.CHUNK_OVERLAP)
+        step = settings.CHUNK_SIZE - settings.CHUNK_OVERLAP
+        return [(" ".join(group), i * step) for i, group in enumerate(groups)]
+
+
+class LangChainChunkingStrategy(ChunkingStrategy):
+    """Paragraph-/sentence-aware chunking via ``langchain_text_splitters``.
+
+    Tries each separator in turn (paragraph, line, sentence, clause, word)
+    and only falls back to a cruder one when a piece still doesn't fit —
+    unlike the word strategy's blind fixed-size window, this keeps whole
+    paragraphs/sentences together whenever they fit the budget.
+
+    Uses ``chunk_overlap=0`` deliberately: paragraph/sentence-aware splits
+    already preserve more context per chunk than blind word-overlap did,
+    and non-overlapping pieces are what makes mapping each piece back to a
+    word-index range unambiguous (see :meth:`split`'s docstring on
+    :class:`ChunkingStrategy` for why that matters).
+    """
+
+    _SEPARATORS: ClassVar[list[str]] = ["\n\n", "\n", ". ", ", ", " ", ""]
+
+    def split(self, full_text: str, driver: EmbeddingDriver) -> list[tuple[str, int]]:
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+        length_function = driver.count_tokens if driver.supports_token_counting() else len
+        chunk_size = driver.max_sequence_length() or settings.CHUNK_SIZE
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=0,
+            length_function=length_function,
+            separators=self._SEPARATORS,
+        )
+        pieces = splitter.split_text(full_text)
+
+        # Pieces are non-overlapping substrings of full_text (chunk_overlap=0),
+        # but don't always start on a word boundary as .split() sees it (e.g.
+        # a piece can start with a bare "." left over from a ". " separator
+        # split) — confirmed empirically, so word-count alone can't track
+        # position. Character offsets are exact; converting the offset to a
+        # word-index via counting words in the text *before* it is exact too,
+        # since every observed split point lands on whitespace, never mid-word.
+        results = []
+        char_cursor = 0
+        for piece in pieces:
+            char_start = full_text.find(piece, char_cursor)
+            word_start = len(full_text[:char_start].split())
+            results.append((piece, word_start))
+            char_cursor = char_start + len(piece)
+        return results
+
+
+def get_chunking_strategy() -> ChunkingStrategy:
+    """Factory function: return the active strategy from ``settings.CHUNKING_STRATEGY``.
+
+    Raises:
+        ValueError: If ``CHUNKING_STRATEGY`` is set to an unknown value.
+    """
+    name = settings.CHUNKING_STRATEGY.lower()
+
+    if name == "word":
+        return WordChunkingStrategy()
+    if name == "langchain":
+        return LangChainChunkingStrategy()
+
+    raise ValueError(
+        f"Unknown CHUNKING_STRATEGY: '{name}'. Valid options are: 'word', 'langchain'."
+    )
+
+
+def chunk_document(
+    full_text: str,
+    word_page_map: list[int],
+    source_file: str,
+    driver: EmbeddingDriver,
+) -> list[dict]:
+    """Split a whole document's text into chunk dicts, using the active CHUNKING_STRATEGY.
+
+    The document-level counterpart to :func:`chunk_pages` — same chunk-dict
+    shape (``content``, ``metadata: {source_file, page_number, chunk_index}``),
+    but chunked from :func:`ingestion.pdf_loader.extract_document_text`'s
+    output instead of per-page text, which is what avoids splitting a
+    paragraph that spans a page break into two truncated chunks.
+
+    ``page_number`` is assigned by majority vote: whichever page contributed
+    the most words to a chunk. A chunk's words very rarely straddle more
+    than two pages, and an occasional off-by-one-page citation is a
+    negligible cost for not having to change the metadata shape (a page
+    *range* would ripple into the prompt template and retrieval display).
+
+    Args:
+        full_text: The whole document's text.
+        word_page_map: Page number per word in ``full_text.split()`` (same
+            length), as returned by ``extract_document_text``.
+        source_file: The basename of the source PDF, stored in metadata.
+        driver: The active embedding driver, passed through to the strategy.
+
+    Returns:
+        A flat list of chunk dicts, in document order.
+    """
+    from collections import Counter
+
+    chunks = []
+    for i, (content, start_word) in enumerate(get_chunking_strategy().split(full_text, driver)):
+        n_words = len(content.split())
+        pages_in_chunk = word_page_map[start_word : start_word + n_words]
+        page_number = Counter(pages_in_chunk).most_common(1)[0][0] if pages_in_chunk else None
+        chunks.append(
+            {
+                "content": content,
+                "metadata": {
+                    "source_file": source_file,
+                    "page_number": page_number,
+                    "chunk_index": i,
+                },
+            }
+        )
+    return chunks

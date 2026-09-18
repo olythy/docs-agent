@@ -41,6 +41,10 @@ def test_default_count_tokens_is_none():
     assert _FakeDriver().count_tokens("hello") is None
 
 
+def test_default_supports_token_counting_is_false():
+    assert _FakeDriver().supports_token_counting() is False
+
+
 def test_default_embed_text_delegates_to_embed_batch():
     """embed_text has no per-subclass override — it must come from the ABC."""
     assert _FakeDriver().embed_text("abc") == [3.0]
@@ -52,6 +56,10 @@ def test_openai_driver_max_sequence_length_is_none():
 
 def test_openai_driver_count_tokens_is_none():
     assert OpenAIEmbeddingDriver().count_tokens("hello") is None
+
+
+def test_openai_driver_supports_token_counting_is_false():
+    assert OpenAIEmbeddingDriver().supports_token_counting() is False
 
 
 def test_local_driver_max_sequence_length_reads_from_model(monkeypatch):
@@ -83,6 +91,10 @@ def test_local_driver_count_tokens_uses_raw_tokenizer_without_truncation(monkeyp
     assert driver.count_tokens("a very long text") == 999
     fake_model.tokenizer.assert_called_once_with("a very long text")
     fake_model.tokenize.assert_not_called()
+
+
+def test_local_driver_supports_token_counting_is_true():
+    assert LocalSentenceTransformerDriver().supports_token_counting() is True
 
 
 def test_local_driver_loads_model_only_once(monkeypatch):

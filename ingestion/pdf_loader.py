@@ -6,11 +6,25 @@ script (``scripts/extract_text.py``) and the ingestion pipeline
 (``ingestion/ingest.py``).
 
 Key exports:
-    extract_pages   -- Extract page-level text dicts from a PDF file.
-    is_scanned_pdf  -- Detect whether a PDF is image-based (no text layer).
+    extract_pages          -- Extract page-level text dicts from a PDF file.
+    extract_document_text  -- Extract one document-level string (see below)
+                               plus a word-to-page-number map, for chunking
+                               that isn't blind to page boundaries.
+    is_scanned_pdf         -- Detect whether a PDF is image-based (no text layer).
 """
 
+import statistics
+from itertools import pairwise
 from pathlib import Path
+
+#: A line-to-line vertical gap larger than this multiple of a page's median
+#: line spacing is treated as a paragraph break in PDF_EXTRACTION_MODE="blocks".
+#: Empirically tuned against two real documents (see PLAN.md "Ismert
+#: korlátok") — not perfect on every document, since pdfplumber's coordinate
+#: system is per-page, so a paragraph break that happens to fall exactly at
+#: a page boundary can never be detected this way (nothing to compare the
+#: gap against on the other side of the boundary).
+PARAGRAPH_GAP_MULTIPLIER = 1.8
 
 
 def extract_pages(pdf_path: Path) -> list[dict]:
@@ -58,6 +72,96 @@ def extract_pages(pdf_path: Path) -> list[dict]:
             )
 
     return pages
+
+
+def extract_document_text(pdf_path: Path, mode: str = "flat") -> tuple[str, list[int]]:
+    """Extract a whole document as one string, plus a per-word page-number map.
+
+    Concatenating pages *before* chunking (rather than chunking each page
+    separately, as :func:`extract_pages`-based callers used to) fixes a real
+    problem: a paragraph that runs across a page break used to become two
+    independent, truncated chunks, with no overlap between them.
+
+    Args:
+        pdf_path: Path to the PDF file to process.
+        mode: ``"flat"`` (default) joins each page's plain-text words with a
+            single space — fast, but paragraph structure is lost. ``"blocks"``
+            additionally detects paragraph breaks from word coordinates and
+            preserves them as ``"\\n\\n"``, so a structure-aware chunking
+            strategy (see :class:`ingestion.chunker.LangChainChunkingStrategy`)
+            can split on them.
+
+    Returns:
+        A ``(full_text, word_page_map)`` tuple. ``word_page_map[i]`` is the
+        1-based page number that ``full_text.split()[i]`` came from — the two
+        are always the same length, even in ``"blocks"`` mode where
+        ``full_text`` also contains ``"\\n\\n"`` markers: those are appended
+        onto the *previous* word's own string rather than added as separate
+        list entries, so ``str.split()`` (which treats any whitespace run,
+        including embedded newlines, as a single separator) never produces
+        an extra token for them.
+
+    Raises:
+        FileNotFoundError: If ``pdf_path`` does not point to an existing file.
+        ValueError: If ``mode`` is not ``"flat"`` or ``"blocks"``.
+    """
+    if mode == "flat":
+        pages = extract_pages(pdf_path)
+        word_texts: list[str] = []
+        word_page_map: list[int] = []
+        for page in pages:
+            words = page["text"].split()
+            word_texts.extend(words)
+            word_page_map.extend([page["page_number"]] * len(words))
+        return " ".join(word_texts), word_page_map
+
+    if mode == "blocks":
+        return _extract_blocks_text(pdf_path)
+
+    raise ValueError(f"Unknown PDF_EXTRACTION_MODE: '{mode}'. Valid options are: 'flat', 'blocks'.")
+
+
+def _extract_blocks_text(pdf_path: Path) -> tuple[str, list[int]]:
+    """Coordinate-based variant of :func:`extract_document_text` (mode="blocks").
+
+    Reasoning for the threshold and the page-boundary limitation lives on
+    :data:`PARAGRAPH_GAP_MULTIPLIER`.
+    """
+    import pdfplumber
+
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
+
+    word_texts: list[str] = []
+    word_page_map: list[int] = []
+
+    with pdfplumber.open(str(pdf_path)) as pdf:
+        for page_number, page in enumerate(pdf.pages, start=1):
+            words = page.extract_words()
+            if not words:
+                continue
+
+            unique_tops = sorted({round(w["top"], 1) for w in words})
+            gaps = [b - a for a, b in pairwise(unique_tops)]
+            median_gap = statistics.median(gaps) if gaps else 0
+            threshold = median_gap * PARAGRAPH_GAP_MULTIPLIER if median_gap else float("inf")
+
+            prev_top: float | None = None
+            for w in words:
+                text = w["text"].replace("\x00", "")
+                if not text:
+                    continue
+                if prev_top is not None and (w["top"] - prev_top) > threshold and word_texts:
+                    word_texts[-1] += "\n\n"
+                word_texts.append(text)
+                word_page_map.append(page_number)
+                prev_top = w["top"]
+            # No paragraph-break check across the page boundary itself:
+            # pdfplumber's "top" coordinate resets per page, so the gap
+            # between the last word of this page and the first word of the
+            # next isn't meaningful to compare against this page's threshold.
+
+    return " ".join(word_texts), word_page_map
 
 
 def is_scanned_pdf(pages: list[dict]) -> bool:
