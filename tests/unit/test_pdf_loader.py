@@ -65,6 +65,33 @@ def test_extract_pages_strips_nul_characters(monkeypatch, tmp_path: Path):
     assert pages[0]["char_count"] == len("helloworld")
 
 
+def test_extract_pages_strips_unmapped_glyph_markers(monkeypatch, tmp_path: Path):
+    """Regression test for a real bug found via a real PDF.
+
+    Some PDFs have a font with a broken/missing ToUnicode mapping for
+    certain glyphs (here: bullet points in a list) — pdfplumber falls back
+    to rendering them as literal "(cid:N)" text instead of the actual
+    character. Left in, this becomes garbage stored (and embedded)
+    verbatim, e.g. "(cid:127) 1-2 courts" instead of "1-2 courts".
+    """
+    pdf_path = tmp_path / "fake.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 fake")
+
+    fake_page = MagicMock()
+    fake_page.extract_text.return_value = "Pricing:\n(cid:127) Starter\n(cid:127) Pro"
+
+    fake_pdf = MagicMock()
+    fake_pdf.pages = [fake_page]
+    fake_pdf.__enter__.return_value = fake_pdf
+
+    monkeypatch.setattr("pdfplumber.open", lambda path: fake_pdf)
+
+    pages = extract_pages(pdf_path)
+
+    assert "(cid:" not in pages[0]["text"]
+    assert pages[0]["text"] == "Pricing:\n Starter\n Pro"
+
+
 def _fake_page_with_words(words: list[dict]):
     """Build a MagicMock page whose extract_words() returns the given word dicts."""
     page = MagicMock()

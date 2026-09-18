@@ -13,9 +13,20 @@ Key exports:
     is_scanned_pdf         -- Detect whether a PDF is image-based (no text layer).
 """
 
+import re
 import statistics
 from itertools import pairwise
 from pathlib import Path
+
+#: Matches pdfplumber/pdfminer's fallback rendering for a glyph whose font
+#: has no (or a broken) ToUnicode mapping — e.g. "(cid:127)" instead of the
+#: bullet character it's actually drawing. Confirmed empirically against a
+#: real PDF (a bullet-point list rendered entirely as "(cid:127)" markers).
+#: Since the mapping is broken, there's no way to recover what character it
+#: was *supposed* to be — could be a bullet in one font, something else
+#: entirely in another — so, like the NUL-byte case below, this strips the
+#: artifact rather than guessing.
+_UNMAPPED_GLYPH_PATTERN = re.compile(r"\(cid:\d+\)")
 
 #: A line-to-line vertical gap larger than this multiple of a page's median
 #: line spacing is treated as a paragraph break in PDF_EXTRACTION_MODE="blocks".
@@ -63,6 +74,7 @@ def extract_pages(pdf_path: Path) -> list[dict]:
             # extraction source, rather than defensively re-checked by every
             # downstream consumer (chunking, storage).
             text = text.replace("\x00", "")
+            text = _UNMAPPED_GLYPH_PATTERN.sub("", text)
             pages.append(
                 {
                     "page_number": page_number,
