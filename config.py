@@ -109,6 +109,34 @@ class Settings:
         RETRIEVAL_MIN_SCORE   Cosine similarity threshold (0–1). Chunks below this
                               score are considered too distant and ignored
                               (default: 0.25).
+        RETRIEVAL_STRATEGY    ``hybrid`` (default) fuses vector + keyword
+                              search via Reciprocal Rank Fusion, then
+                              optionally reranks (see RERANKER_DRIVER
+                              below). ``vector`` skips keyword search and
+                              fusion, returning pure cosine-similarity
+                              results only — the pre-hybrid-search
+                              behavior, kept as a selectable strategy
+                              mainly for comparison (see
+                              ``scripts/evaluate_retrieval.py``); there's
+                              little reason to prefer it in production,
+                              since hybrid search only adds recall over
+                              vector-only at negligible extra cost. See
+                              ``query/retrieval.py``.
+        RERANKER_DRIVER       ``none`` (default, backward compatible) skips
+                              reranking entirely. ``cross_encoder`` reorders
+                              the hybrid-search candidate list with a local
+                              cross-encoder model before truncating to
+                              RETRIEVAL_TOP_K. Only applies when
+                              RETRIEVAL_STRATEGY=hybrid. See
+                              ``drivers/reranker.py``.
+        RERANKER_MODEL        Model name/id for the cross_encoder reranker.
+        RETRIEVAL_CANDIDATE_POOL_SIZE
+                              Candidate pool size for the vector + full-text
+                              searches feeding RRF fusion (and, if enabled,
+                              reranking) — always at least RETRIEVAL_TOP_K,
+                              but wider by default so fusion/reranking has
+                              something to actually reorder (default: 20).
+                              See ``query/retrieval.py``.
 
     Database (REQUIRED):
         DATABASE_URL          PostgreSQL connection URL with pgvector enabled.
@@ -160,6 +188,14 @@ class Settings:
     # --- Retrieval ---
     RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "4"))
     RETRIEVAL_MIN_SCORE: float = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.25"))
+    RETRIEVAL_STRATEGY: str = os.getenv("RETRIEVAL_STRATEGY", "hybrid")
+    RERANKER_DRIVER: str = os.getenv("RERANKER_DRIVER", "none")
+    RERANKER_MODEL: str = os.getenv(
+        "RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    )
+    RETRIEVAL_CANDIDATE_POOL_SIZE: int = int(
+        os.getenv("RETRIEVAL_CANDIDATE_POOL_SIZE", "20")
+    )
 
     # --- Database ---
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")

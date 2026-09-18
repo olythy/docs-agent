@@ -88,3 +88,19 @@ def test_real_migration_0001_up_and_down_use_only_cursor():
     instance.down(fake_conn)
 
     assert fake_conn.cursor.called
+
+
+def test_real_migration_0002_up_and_down_use_only_cursor():
+    """Same sanity check as 0001, for the full-text-search migration."""
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "migrations"
+        / "0002_add_fulltext_search.py"
+    )
+    instance = load_migration(path)
+    fake_conn = MagicMock()
+
+    instance.up(fake_conn)
+    instance.down(fake_conn)
+
+    assert fake_conn.cursor.called

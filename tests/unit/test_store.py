@@ -51,8 +51,8 @@ def test_save_raises_on_mismatched_lengths(monkeypatch):
 def test_search_filters_by_min_score_and_parses_json_metadata(monkeypatch):
     cursor = MagicMock()
     cursor.fetchall.return_value = [
-        ("above threshold", '{"page_number": 1}', 0.9),
-        ("below threshold", '{"page_number": 2}', 0.1),
+        (1, "above threshold", '{"page_number": 1}', 0.9),
+        (2, "below threshold", '{"page_number": 2}', 0.1),
     ]
     conn = _fake_conn_with_cursor(cursor)
     monkeypatch.setattr(store, "get_connection", lambda: conn)
@@ -60,10 +60,81 @@ def test_search_filters_by_min_score_and_parses_json_metadata(monkeypatch):
     results = VectorStore().search([0.1, 0.2], top_k=5, min_score=0.5)
 
     assert len(results) == 1
+    assert results[0]["id"] == 1
     assert results[0]["content"] == "above threshold"
     assert results[0]["metadata"] == {"page_number": 1}
     assert results[0]["score"] == 0.9
     conn.close.assert_called_once()
+
+
+def test_search_fulltext_parses_json_metadata(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [
+        (7, "Player Central tennis booking", '{"page_number": 1}', 0.42),
+    ]
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    results = VectorStore().search_fulltext("tennis booking", top_k=5)
+
+    assert len(results) == 1
+    assert results[0]["id"] == 7
+    assert results[0]["content"] == "Player Central tennis booking"
+    assert results[0]["metadata"] == {"page_number": 1}
+    assert results[0]["score"] == 0.42
+    conn.close.assert_called_once()
+
+
+def test_search_fulltext_or_joins_query_words(monkeypatch):
+    """A raw natural-language question must be OR-joined before querying.
+
+    Without this, websearch_to_tsquery ANDs every word together, and since
+    the 'simple' config has no stopword list, a question's grammar words
+    (e.g. "milyen"/"used"/"is") would almost always fail to appear verbatim
+    in a matching chunk — silently returning nothing for most real
+    questions. See store.search_fulltext's docstring.
+    """
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    VectorStore().search_fulltext("What tennis system is this?", top_k=5)
+
+    query_arg, top_k_arg = cursor.execute.call_args[0][1][0], cursor.execute.call_args[0][1][2]
+    assert query_arg == "What or tennis or system or is or this?"
+    assert top_k_arg == 5
+
+
+def test_search_fulltext_returns_empty_list_for_no_matches(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    assert VectorStore().search_fulltext("nothing matches this", top_k=5) == []
+
+
+def test_has_chunks_from_source_returns_true_when_found(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (1,)
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    assert VectorStore().has_chunks_from_source("sample.pdf") is True
+    cursor.execute.assert_called_once_with(
+        "SELECT 1 FROM document_chunks WHERE metadata->>'source_file' = %s LIMIT 1;",
+        ("sample.pdf",),
+    )
+
+
+def test_has_chunks_from_source_returns_false_when_missing(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = None
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    assert VectorStore().has_chunks_from_source("missing.pdf") is False
 
 
 def test_get_embedding_dimension_returns_atttypmod(monkeypatch):

@@ -71,8 +71,65 @@ def test_search_filters_below_min_score(db_conn):
     assert results == []
 
 
+def test_has_chunks_from_source_true_after_insert_and_false_before(db_conn):
+    driver = get_embedding_driver()
+    assert VectorStore().has_chunks_from_source("t.pdf") is False
+
+    _insert_chunk(db_conn, "some content", driver.embed_text("some content"))
+
+    assert VectorStore().has_chunks_from_source("t.pdf") is True
+    assert VectorStore().has_chunks_from_source("other.pdf") is False
+
+
 def test_get_embedding_dimension_matches_real_column(db_conn):
     assert VectorStore().get_embedding_dimension() == 384
+
+
+def test_search_fulltext_finds_keyword_match(db_conn):
+    driver = get_embedding_driver()
+    on_topic = "Player Central is a tennis and squash booking MVP."
+    off_topic = "Completely unrelated sentence about cooking pasta."
+
+    _insert_chunk(db_conn, on_topic, driver.embed_text(on_topic))
+    _insert_chunk(db_conn, off_topic, driver.embed_text(off_topic))
+
+    results = VectorStore().search_fulltext("tennis booking", top_k=5)
+
+    assert len(results) == 1
+    assert results[0]["content"] == on_topic
+
+
+def test_search_fulltext_finds_keyword_match_in_a_natural_language_question(db_conn):
+    """Regression guard for the AND-vs-OR tsquery bug found during the
+    hybrid-search eval run: a real question is full of grammar words
+    ("what", "is", "this") that never appear in the matched chunk, and
+    websearch_to_tsquery's default AND-together-every-word behavior would
+    make this return nothing. OR-joining (store.search_fulltext) fixes it.
+    """
+    driver = get_embedding_driver()
+    on_topic = "Player Central is a tennis and squash booking MVP."
+    off_topic = "Completely unrelated sentence about cooking pasta."
+
+    _insert_chunk(db_conn, on_topic, driver.embed_text(on_topic))
+    _insert_chunk(db_conn, off_topic, driver.embed_text(off_topic))
+
+    results = VectorStore().search_fulltext(
+        "What tennis and squash booking system is this?", top_k=5
+    )
+
+    assert len(results) == 1
+    assert results[0]["content"] == on_topic
+
+
+def test_search_fulltext_returns_empty_when_no_keyword_match(db_conn):
+    driver = get_embedding_driver()
+    _insert_chunk(
+        db_conn, "Bananas are yellow fruit.", driver.embed_text("Bananas are yellow fruit.")
+    )
+
+    results = VectorStore().search_fulltext("quantum computing blockchain", top_k=5)
+
+    assert results == []
 
 
 class _StubAnswerDriver:

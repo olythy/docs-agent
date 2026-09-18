@@ -27,17 +27,20 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 ├── store.py                # VectorStore: all document_chunks persistence (save/search)
 ├── drivers/
 │   ├── embedding.py         # EmbeddingDriver strategy: local (sentence-transformers) vs openai
-│   └── llm.py                # AnswerDriver strategy: openrouter vs openai
+│   ├── llm.py                # AnswerDriver strategy: openrouter vs openai
+│   └── reranker.py           # RerankerDriver strategy: none vs cross_encoder
 ├── ingestion/
 │   ├── extractors.py         # Extractor strategy: PDF vs Markdown, chosen by file extension
 │   ├── pdf_loader.py         # PDF text extraction (pdfplumber), flat/blocks modes
 │   ├── chunker.py            # Chunking strategies (word/langchain) + overflow correction
 │   └── ingest.py             # add_document orchestration
 ├── query/
-│   └── retrieval.py          # query_knowledge_base: retrieval + answer generation
+│   ├── retrieval.py          # query_knowledge_base: hybrid retrieval + answer generation
+│   └── hybrid.py             # reciprocal_rank_fusion: pure RRF fusion logic
 ├── migrations/              # Python migrations (Laravel-artisan-style runner)
 │   ├── base.py                # Migration ABC: up()/down() run raw SQL, no ORM
-│   └── 0001_create_document_chunks_table.py
+│   ├── 0001_create_document_chunks_table.py
+│   └── 0002_add_fulltext_search.py
 ├── scripts/
 │   ├── migrate.py            # Migration runner: uv run python scripts/migrate.py [subcommand]
 │   ├── make_migration.py     # Scaffold a new migration file
@@ -207,6 +210,31 @@ Both dimensions are independent and combinable (e.g. `blocks` + `langchain` for 
 
 Since a chunk's words can now come from more than one page, `page_number` in its metadata is assigned by **majority vote** (whichever page contributed the most words) rather than a page range — simpler, backward-compatible with the existing single-number metadata shape, and the rare off-by-one-page citation is a negligible cost next to not having to change the prompt template and retrieval display for a page *range*.
 
+## Retrieval: Hybrid Search, Reranking & Quality Evaluation
+
+The retrieval side went through the same "own numbers, not just intuition" treatment as the chunking side above. This section is a direct answer to four things worth knowing about it: how search combines vector and keyword matching, how (and whether) results get reranked, how quality is actually measured, and what happens when nothing relevant exists.
+
+### Hybrid search (vector + keyword, fused by rank)
+
+Pure cosine-similarity search (the original design) misses one common case: an exact name, number, or code-like token can score poorly on embedding similarity even when it's a perfect keyword match — the embedding "smooths over" exact tokens that a keyword search finds trivially. `query/retrieval.py`'s `retrieve_chunks()` runs **both**, by default:
+
+- `VectorStore.search()` — pgvector cosine similarity (unchanged).
+- `VectorStore.search_fulltext()` — Postgres full-text search over a generated `tsvector` column (`migrations/0002_add_fulltext_search.py`), using the `simple` text-search configuration deliberately, not `english`/`hungarian` — the corpus mixes both languages, and a single language-specific configuration (with its stemming and stopword list) would only serve one of them well.
+
+The two ranked lists are combined with **Reciprocal Rank Fusion** (`query/hybrid.py`'s `reciprocal_rank_fusion()`): every chunk's fused score is `Σ 1/(rank + k)` across whichever list(s) it appears in (`k=60`, the standard default). RRF fuses by **rank position**, not raw score — cosine similarity (0–1) and `ts_rank` (unbounded) live on incompatible scales, so averaging or weighting the raw numbers directly would be comparing apples to oranges. This is the same technique Elasticsearch/OpenSearch's built-in hybrid search uses: simple, no training, no extra model.
+
+**A real bug this surfaced**, found while building the eval script below, not by inspection: `search_fulltext()` originally passed the raw question straight into `websearch_to_tsquery('simple', question)`. Because `simple` has no stopword list (that's exactly why it was chosen — see above), every word of the question — including grammar words like "milyen"/"used"/"is" — became a **mandatory** term (`websearch_to_tsquery` ANDs bare words together). A real chunk almost never contains a question's grammar words verbatim, so keyword search was silently returning **zero results for nearly every natural-language question**, undetected until the eval script's real numbers showed `0 keyword result(s)` on every single run. The fix: the question's words are OR-joined (`" or ".join(query_text.split())`) before being passed to `websearch_to_tsquery`, so a chunk matching *any* of the question's content words now contributes to the fusion, ranked by how many/how prominently they matched. Covered by both a unit test (asserts the OR-joined string reaches the query) and a DB test (a real sentence full of grammar words that would have failed pre-fix).
+
+Which retrieval path runs is itself a Strategy (`query/retrieval.py`'s `RetrievalStrategy` ABC, same shape as every other driver/strategy in this project), controlled by `RETRIEVAL_STRATEGY` (`.env`, default `hybrid`): `hybrid` (`HybridRetrievalStrategy`) is everything described above; `vector` (`VectorRetrievalStrategy`) skips keyword search and fusion entirely, reproducing the pre-hybrid-search behavior exactly (same `min_score` filtering, same ordering). Kept as a real, selectable strategy rather than a one-off comparison hack specifically so `scripts/evaluate_retrieval.py` measures the actual production code path, not a hand-rolled stand-in that could quietly drift out of sync with it. In practice there's little reason to prefer `vector` day-to-day — hybrid search only ever adds recall on top of it, at negligible extra cost (one more indexed Postgres query and a pure fusion function, no model involved) — its main use is exactly that eval/debug comparison.
+
+### Reranking (optional, off by default)
+
+Hybrid search produces a wide, cheap candidate pool (`RETRIEVAL_CANDIDATE_POOL_SIZE`, default 20). `drivers/reranker.py` adds an optional second stage: a **cross-encoder** scores each `(question, chunk)` pair *jointly* (not independently, like an embedding) — more accurate, but too expensive to run over a whole corpus, so it only ever reranks that already-small candidate pool. This is the standard "retrieve-then-rerank" architecture.
+
+Model choice: **`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`**, a multilingual cross-encoder (MS MARCO machine-translated into 14 languages), instead of the far more common English-only `cross-encoder/ms-marco-MiniLM-L-6-v2` — this project's content and embedding model are both multilingual (Hungarian + English), and an English-only reranker would be a regression on Hungarian content specifically. Verified empirically, not just by model-card description: given the Hungarian sentence *"Magyarországon a személyi jövedelemadó (SZJA) mértéke egységesen 15 százalék"* against the question *"Mennyi az SZJA kulcsa Magyarországon?"*, it scored **+6.39** — clearly separated from an unrelated Hungarian sentence (**-6.13**) and an unrelated English one (**-9.24**).
+
+Controlled by `RERANKER_DRIVER` (`.env`, default `none`) — a Strategy pattern like every other driver in this project. `none` (`NoopRerankerDriver`) passes the RRF-fused order through unchanged; `cross_encoder` (`CrossEncoderRerankerDriver`) reorders by the model's score. Defaulting to `none` was a deliberate choice, not a placeholder: the cross-encoder model must be downloaded and loaded (real latency, real memory) on every process that queries the knowledge base, and hybrid search's own fusion is already a reasonable ranking on its own — reranking is an *optional* quality lever, not a required part of the pipeline.
+
 ## Database Schema
 
 The `document_chunks` table stores chunked document text alongside its vector embedding:
@@ -217,9 +245,10 @@ The `document_chunks` table stores chunked document text alongside its vector em
 | `content` | `TEXT` | The raw text chunk |
 | `metadata` | `JSONB` | File name, page number, chunk index, etc. |
 | `embedding` | `vector(384)` | Embedding vector for similarity search |
+| `content_tsv` | `tsvector` (generated) | Full-text search vector, derived automatically from `content` — see "Retrieval" above |
 | `created_at` | `TIMESTAMPTZ` | Insertion timestamp |
 
-An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast approximate nearest-neighbour search.
+An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast approximate nearest-neighbour search, and a **GIN index** on `content_tsv` for full-text search.
 
 ## Code Conventions
 
@@ -237,5 +266,6 @@ An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast appro
 - [x] Step 3 — PDF text extraction (`pdfplumber`)
 - [x] Step 4 — Chunking + embedding + storage (`add_document` logic)
 - [x] Step 5 — Query: embedding + top-k retrieval + answer generation
+- [x] Hybrid search (vector + keyword, RRF-fused) and optional cross-encoder reranking — see "Retrieval" above (beyond the original steps, added in response to external evaluation criteria)
 - [ ] Step 6 — Function-calling agent (`add_document` vs `query_knowledge_base`)
 - [ ] Step 7 *(stretch)* — Wrap tools as an MCP server
