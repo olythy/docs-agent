@@ -423,6 +423,22 @@ class LangChainChunkingStrategy(ChunkingStrategy):
     and non-overlapping pieces are what makes mapping each piece back to a
     word-index range unambiguous (see :meth:`split`'s docstring on
     :class:`ChunkingStrategy` for why that matters).
+
+    Also uses ``keep_separator=False``: confirmed empirically that the
+    default (``True``) leaves a piece starting with a bare leftover
+    separator when a split happens at ``". "``/``", "`` (e.g. a piece
+    reading ``". word6 word7"`` instead of ``"word6 word7"``) — ugly in
+    the embedded text, and the reason :meth:`split` below needs
+    character-offset tracking instead of plain word-counting.
+    ``keep_separator=False`` was confirmed (same empirical check) to make
+    every split land cleanly on a word boundary for every separator in
+    ``_SEPARATORS`` except the last, empty-string fallback, which only
+    kicks in for a single "word" longer than the whole chunk budget — the
+    same rare, accepted edge case :func:`_split_oversized_text` documents
+    for the word strategy. Character-offset tracking (below) stays in
+    place as the correct, general answer either way — this isn't a
+    "fixed it, remove the safety net" situation, it just shrinks how
+    often that net is the thing doing the work.
     """
 
     _SEPARATORS: ClassVar[list[str]] = ["\n\n", "\n", ". ", ", ", " ", ""]
@@ -430,23 +446,36 @@ class LangChainChunkingStrategy(ChunkingStrategy):
     def split(self, full_text: str, driver: EmbeddingDriver) -> list[tuple[str, int]]:
         from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-        length_function = driver.count_tokens if driver.supports_token_counting() else len
+        if driver.supports_token_counting():
+            length_function = driver.count_tokens
+        else:
+            length_function = len
+            warnings.warn(
+                f"CHUNKING_STRATEGY=langchain with {type(driver).__name__}, which has no "
+                "real tokenizer: chunk_size is measured in raw characters instead of "
+                "tokens, and falls back to settings.CHUNK_SIZE if the driver also has no "
+                "max_sequence_length() — CHUNK_SIZE is documented in *words*, so chunks "
+                "will likely come out far smaller than intended.",
+                stacklevel=2,
+            )
         chunk_size = driver.max_sequence_length() or settings.CHUNK_SIZE
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=0,
             length_function=length_function,
             separators=self._SEPARATORS,
+            keep_separator=False,
         )
         pieces = splitter.split_text(full_text)
 
-        # Pieces are non-overlapping substrings of full_text (chunk_overlap=0),
-        # but don't always start on a word boundary as .split() sees it (e.g.
-        # a piece can start with a bare "." left over from a ". " separator
-        # split) — confirmed empirically, so word-count alone can't track
-        # position. Character offsets are exact; converting the offset to a
-        # word-index via counting words in the text *before* it is exact too,
-        # since every observed split point lands on whitespace, never mid-word.
+        # Pieces are non-overlapping substrings of full_text (chunk_overlap=0)
+        # that, with keep_separator=False, land on a word boundary as
+        # .split() sees it in every observed case except the rare
+        # single-oversized-word fallback (see class docstring) — so
+        # word-count alone still can't be trusted in general. Character
+        # offsets are exact; converting the offset to a word-index via
+        # counting words in the text *before* it is exact too, since the
+        # split point is on whitespace whenever that assumption holds.
         results = []
         char_cursor = 0
         for piece in pieces:

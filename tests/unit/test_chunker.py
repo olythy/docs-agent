@@ -393,12 +393,35 @@ def test_langchain_chunking_strategy_splits_on_paragraph_marker(
     )
     driver = _fake_driver(max_seq_length=None, supports_tokens=False)
 
-    result = LangChainChunkingStrategy().split(full_text, driver)
+    with pytest.warns(UserWarning, match="no real tokenizer"):
+        result = LangChainChunkingStrategy().split(full_text, driver)
 
     assert result == [
         ("one two three four five six seven eight nine ten", 0),
         ("eleven twelve thirteen fourteen fifteen", 10),
     ]
+
+
+def test_langchain_chunking_strategy_warns_when_driver_lacks_token_counting():
+    """Regression test for a real finding: falling back to len() means
+    chunk_size ends up measured in characters, and — if the driver also has
+    no max_sequence_length() — defaults to settings.CHUNK_SIZE, which is
+    documented in *words*, not characters. Silently mismatching units would
+    produce chunks far smaller than the user configured, with no signal
+    that anything is off.
+    """
+    driver = _fake_driver(max_seq_length=None, supports_tokens=False)
+
+    with pytest.warns(UserWarning, match="raw characters instead of tokens"):
+        LangChainChunkingStrategy().split("some text", driver)
+
+
+def test_langchain_chunking_strategy_no_warning_when_driver_supports_token_counting():
+    driver = _fake_driver(max_seq_length=128, supports_tokens=True)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        LangChainChunkingStrategy().split("some text", driver)
 
 
 def test_langchain_chunking_strategy_uses_driver_token_length_when_supported():
@@ -415,19 +438,44 @@ def test_langchain_chunking_strategy_uses_driver_token_length_when_supported():
     driver.count_tokens.assert_called()
 
 
-def test_langchain_chunking_strategy_start_indices_are_correct_even_with_stray_punctuation():
-    """Regression test for a real finding: a piece can start with a bare
-    "." left over from a ". " separator split, which is not a word-boundary
-    split as far as str.split() is concerned. Character-offset tracking
-    (not word-count tracking) must still get every start index right.
+def test_langchain_chunking_strategy_no_bare_separator_leftover(
+    monkeypatch, settings_override
+):
+    """Regression test for a real finding: without keep_separator=False, a
+    piece can start with a bare "." left over from a ". " separator split
+    (e.g. ". Sentence two" instead of "Sentence two") — confirmed
+    empirically, and ugly in the embedded text on top of anything else.
     """
+    monkeypatch.setattr(chunker_module, "settings", settings_override(CHUNK_SIZE=20))
     driver = _fake_driver(max_seq_length=None, supports_tokens=False)
     full_text = "Sentence one here. Sentence two follows. Sentence three ends."
 
-    result = LangChainChunkingStrategy().split(full_text, driver)
+    with pytest.warns(UserWarning, match="no real tokenizer"):
+        result = LangChainChunkingStrategy().split(full_text, driver)
+
+    assert len(result) > 1, "text must actually have been split for this test to mean anything"
+    for text, _start in result:
+        assert not text.startswith(('.', ',')), f"piece starts with a bare separator: {text!r}"
+
+
+def test_langchain_chunking_strategy_start_indices_are_correct_even_with_stray_punctuation(
+    monkeypatch, settings_override
+):
+    """Character-offset tracking (not word-count tracking) must get every
+    start index right even in the one case keep_separator=False can't
+    prevent: a single "word" longer than the whole chunk budget, which
+    forces the last-resort "" separator and can land mid-word (see the
+    class docstring's note on this accepted edge case).
+    """
+    monkeypatch.setattr(chunker_module, "settings", settings_override(CHUNK_SIZE=5))
+    driver = _fake_driver(max_seq_length=None, supports_tokens=False)
+    full_text = "a " + ("x" * 50) + " b c d e"
+
+    with pytest.warns(UserWarning, match="no real tokenizer"):
+        result = LangChainChunkingStrategy().split(full_text, driver)
 
     words = full_text.split()
-    for text, start in result:
+    for _text, start in result:
         # Whatever the piece's own tokenization looks like, the start index
         # must point at a real position within the original word list.
         assert 0 <= start <= len(words)
@@ -511,12 +559,13 @@ def test_chunk_document_uses_langchain_strategy_when_configured(
     full_text = "one two three four five six seven eight nine ten\n\neleven twelve"
     word_page_map = [1] * 10 + [2] * 2
 
-    chunks = chunk_document(
-        full_text,
-        word_page_map,
-        source_file="doc.pdf",
-        driver=_fake_driver(max_seq_length=None, supports_tokens=False),
-    )
+    with pytest.warns(UserWarning, match="no real tokenizer"):
+        chunks = chunk_document(
+            full_text,
+            word_page_map,
+            source_file="doc.pdf",
+            driver=_fake_driver(max_seq_length=None, supports_tokens=False),
+        )
 
     assert [c["content"] for c in chunks] == [
         "one two three four five six seven eight nine ten",

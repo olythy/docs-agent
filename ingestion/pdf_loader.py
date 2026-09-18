@@ -117,6 +117,9 @@ def extract_document_text(pdf_path: Path, mode: str = "flat") -> tuple[str, list
         FileNotFoundError: If ``pdf_path`` does not point to an existing file.
         ValueError: If ``mode`` is not ``"flat"`` or ``"blocks"``.
     """
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
+
     if mode == "flat":
         pages = extract_pages(pdf_path)
         word_texts: list[str] = []
@@ -136,13 +139,14 @@ def extract_document_text(pdf_path: Path, mode: str = "flat") -> tuple[str, list
 def _extract_blocks_text(pdf_path: Path) -> tuple[str, list[int]]:
     """Coordinate-based variant of :func:`extract_document_text` (mode="blocks").
 
+    Private helper, only reachable via :func:`extract_document_text`, which
+    already checked ``pdf_path.exists()`` before calling this — no need to
+    repeat it here.
+
     Reasoning for the threshold and the page-boundary limitation lives on
     :data:`PARAGRAPH_GAP_MULTIPLIER`.
     """
     import pdfplumber
-
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     word_texts: list[str] = []
     word_page_map: list[int] = []
