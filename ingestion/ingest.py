@@ -1,10 +1,10 @@
 """Document ingestion pipeline.
 
 Orchestrates the full add_document flow:
-    1. Extract text page by page from a PDF (``pdf_loader``), for validation.
-    2. Extract the whole document as one string + a word-to-page map
-       (``pdf_loader.extract_document_text``) — concatenating pages *before*
-       chunking is what avoids truncating a paragraph that spans a page break.
+    1. Validate the source document (``ingestion.extractors.Extractor.validate``).
+    2. Extract the whole document as one string + a word-to-page/section map
+       (``Extractor.extract``) — concatenating pages *before* chunking is
+       what avoids truncating a paragraph that spans a page break.
     3. Split the document into chunks (``chunker.chunk_document``), per
        ``settings.CHUNKING_STRATEGY``.
     4. Embed every chunk with the active embedding driver (``drivers.embedding``).
@@ -16,6 +16,7 @@ Usage::
 
     from ingestion.ingest import add_document
     add_document("/path/to/document.pdf")
+    add_document("/path/to/notes.md")
 """
 
 from pathlib import Path
@@ -23,44 +24,37 @@ from pathlib import Path
 from config import settings
 from drivers.embedding import get_embedding_driver
 from ingestion.chunker import chunk_document, get_chunk_overflow_strategy
-from ingestion.pdf_loader import extract_document_text, extract_pages, is_scanned_pdf
+from ingestion.extractors import get_extractor
 from store import VectorStore
 
 
 def add_document(file_path: str | Path) -> None:
-    """Ingest a PDF document into the RAG knowledge base.
+    """Ingest a document into the RAG knowledge base.
 
     This is the main tool exposed to the agent. It runs the full pipeline:
-    extract → chunk → embed → store.
+    extract → chunk → embed → store. The document's format is detected from
+    its extension (see :func:`ingestion.extractors.get_extractor`).
 
     Args:
-        file_path: Path to the PDF file to ingest (str or Path).
+        file_path: Path to the source document (str or Path).
 
     Raises:
-        FileNotFoundError: If the PDF does not exist at ``file_path``.
+        FileNotFoundError: If the file does not exist at ``file_path``.
         RuntimeError: If the database connection is not configured, or if
             the active embedding driver's dimension doesn't match the
             existing document_chunks.embedding column.
-        ValueError: If the PDF has no pages, or is scanned (no extractable
+        ValueError: If the file's extension is unsupported, or the file has
+            no extractable content (e.g. empty, or a scanned PDF with no
             text layer).
     """
-    pdf_path = Path(file_path)
-    source_file = pdf_path.name
+    doc_path = Path(file_path)
+    source_file = doc_path.name
 
     print(f"[ingest] Starting ingestion: {source_file}")
 
-    # Step 1: Extract text from every page
-    pages = extract_pages(pdf_path)
-    if not pages:
-        raise ValueError(
-            f"'{source_file}' has no pages. The file may be empty or corrupted."
-        )
-    if is_scanned_pdf(pages):
-        raise ValueError(
-            f"'{source_file}' appears to be a scanned PDF with no text layer. "
-            "OCR support is not implemented in this version."
-        )
-    print(f"[ingest] Extracted text from {len(pages)} page(s).")
+    # Step 1: Pick the extractor for this file's format and validate it
+    extractor = get_extractor(doc_path)
+    extractor.validate(doc_path)
 
     # Step 2: Get the driver up front — CHUNKING_STRATEGY=langchain needs it
     # (token limit/counting) *during* chunking, not just for embedding after.
@@ -69,9 +63,7 @@ def add_document(file_path: str | Path) -> None:
     store.assert_dimension_matches(driver.dimension)
 
     # Step 3: Concatenate the whole document, then chunk it document-wide
-    full_text, word_page_map = extract_document_text(
-        pdf_path, mode=settings.PDF_EXTRACTION_MODE
-    )
+    full_text, word_page_map = extractor.extract(doc_path, mode=settings.PDF_EXTRACTION_MODE)
     chunks = chunk_document(full_text, word_page_map, source_file=source_file, driver=driver)
     print(f"[ingest] Created {len(chunks)} chunk(s) via CHUNKING_STRATEGY="
           f"'{settings.CHUNKING_STRATEGY}'.")

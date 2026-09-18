@@ -114,9 +114,12 @@ class Settings:
         DATABASE_URL          PostgreSQL connection URL with pgvector enabled.
 
     Development / Testing:
-        TEST_PDF_PATH         Path to a local PDF used by
-                              ``scripts/extract_text.py`` and the tests/db/
-                              add_document() end-to-end test.
+        TEST_DOC_PATH         Path to a local document (PDF or Markdown) used
+                              by ``scripts/extract_text.py``,
+                              ``scripts/inspect_chunks.py``, and the tests/db/
+                              add_document() end-to-end test. The format is
+                              detected from the extension, same as
+                              add_document() itself.
         AGENT_ENV             ``local`` (default) or ``test``. Read from the
                               real process environment only — never from
                               .env/.env.test themselves (see module
@@ -162,7 +165,7 @@ class Settings:
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
     # --- Development / Testing ---
-    TEST_PDF_PATH: str = os.getenv("TEST_PDF_PATH", "")
+    TEST_DOC_PATH: str = os.getenv("TEST_DOC_PATH", "")
 
 
 #: Singleton settings instance — import this everywhere in the application.

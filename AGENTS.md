@@ -21,6 +21,7 @@ Decided 2026-09-17 after explicit discussion — don't reintroduce these without
   - `store.py` — the `VectorStore` class: owns all `document_chunks` persistence (save/search). Any change to how chunks are stored or queried belongs here, not in `ingest.py`/`retrieval.py`.
   - `migrations/base.py` — the `Migration` ABC stays inside `migrations/`, alongside the migrations that implement it (same one-cohesive-concept reasoning as the Strategy-pattern files above).
 - **`docker/init-test-db.sql` only creates the `docs_agent_test` database — nothing else.** No tables, no `CREATE EXTENSION`. Schema/extension setup stays owned exclusively by `migrations/`, so there's one canonical source of truth for the schema regardless of which database (local Docker or a managed Postgres) it's applied to.
+- **`ingestion/extractors.py`'s `Extractor` is the one deliberate exception to "Strategy is selected from `settings`."** Every other Strategy here (`EmbeddingDriver`, `AnswerDriver`, `ChunkingStrategy`, `ChunkOverflowStrategy`) is chosen from an `.env` preference. `get_extractor(file_path)` instead dispatches on the file's extension — which extractor applies is a fact about the file, not a preference, so there's nothing to configure. Don't try to "fix" this into a `DOCUMENT_EXTRACTOR` setting.
 
 ## Documentation Standards
 
@@ -75,5 +76,5 @@ Common types used in this project: `feat` (new behavior), `fix` (bug fix), `refa
 ## Privacy & Security
 
 - **Never hardcode personal or client-specific data in source files.** This includes real filenames, document IDs, tax identifiers, or any path fragment that could reveal personal information.
-- If a script needs a file path for testing (e.g. a sample document), it must read it from `settings.TEST_PDF_PATH` (`.env`) or from a CLI argument — never as a Python literal in the source.
+- If a script needs a file path for testing (e.g. a sample document), it must read it from `settings.TEST_DOC_PATH` (`.env`) or from a CLI argument — never as a Python literal in the source.
 - The `.env` file is already git-ignored. Keep it that way. Never commit `.env` itself.
