@@ -38,6 +38,7 @@ Or interactively:
 """
 
 import json
+import logging
 
 from drivers.llm import get_answer_driver
 from ingestion.ingest import add_document
@@ -191,6 +192,12 @@ def run_agent(user_message: str) -> str:
 
 
 if __name__ == "__main__":
+    # ingestion.ingest/query.retrieval log their progress via `logging`, not
+    # print() (mcp_server.py needs stdout clean for the MCP protocol) — this
+    # CLI still wants to see those messages, so configure a bare, print()-like
+    # handler here rather than leaving them silent (logging's default when
+    # nothing calls basicConfig).
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     print("docs-agent — interactive agent CLI. Type 'exit' to quit.")
     while True:
         user_input = input("\nYou: ").strip()

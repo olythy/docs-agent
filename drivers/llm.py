@@ -126,10 +126,17 @@ def _build_prompt(question: str, context_chunks: list[dict]) -> tuple[str, str]:
 
     system_prompt = (
         "You are a helpful assistant that answers questions based strictly on "
-        "the provided document excerpts. "
-        "Always cite the source file and page number when referencing information. "
-        "If the answer cannot be found in the excerpts, respond with exactly: "
-        "'I could not find this information in the provided documents.'"
+        "the provided document excerpts. Do not use your own general or "
+        "training knowledge, and do not fill in gaps with what you believe "
+        "is probably true, even if you feel confident about it — every "
+        "claim in your answer must be traceable to a specific excerpt "
+        "below. Always cite the source file and page number when "
+        "referencing information. If the excerpts only partially answer "
+        "the question, say exactly what they do and don't cover, rather "
+        "than completing the picture from outside knowledge. If the "
+        "answer cannot be found in the excerpts at all, respond with "
+        "exactly: 'I could not find this information in the provided "
+        "documents.'"
     )
 
     user_message = (

@@ -30,6 +30,7 @@ Usage::
     print(answer)
 """
 
+import logging
 from abc import ABC, abstractmethod
 
 from config import settings
@@ -38,6 +39,13 @@ from drivers.llm import get_answer_driver
 from drivers.reranker import get_reranker_driver
 from query.hybrid import reciprocal_rank_fusion
 from store import VectorStore
+
+# Progress logging, not print(): retrieve_chunks() is called from
+# mcp_server.py over an MCP stdio transport, where stray stdout writes can
+# corrupt the JSON-RPC protocol stream — confirmed empirically (a print()
+# here broke a real client's message parsing mid-call). logging defaults to
+# stderr, safe for every caller (CLI scripts, agent.py, mcp_server.py alike).
+logger = logging.getLogger(__name__)
 
 # Returned when no chunk clears the relevance threshold.
 # Using a constant avoids scatter: every caller sees the same wording,
@@ -135,13 +143,15 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         instead, before this strategy ever sees them.
         """
         candidate_k = len(vector_results)
-        print(f"[query] Keyword-searching the same candidate pool ({candidate_k}) ...")
+        logger.info("[query] Keyword-searching the same candidate pool (%d) ...", candidate_k)
         fulltext_results = store.search_fulltext(question, top_k=candidate_k)
 
         fused = reciprocal_rank_fusion(vector_results, fulltext_results)
-        print(
-            f"[query] Fused {len(vector_results)} vector + {len(fulltext_results)} "
-            f"keyword result(s) into {len(fused)} unique candidate(s)."
+        logger.info(
+            "[query] Fused %d vector + %d keyword result(s) into %d unique candidate(s).",
+            len(vector_results),
+            len(fulltext_results),
+            len(fused),
         )
 
         reranker = get_reranker_driver()
@@ -225,24 +235,24 @@ def retrieve_chunks(
     store.assert_dimension_matches(embedding_driver.dimension)
 
     if query_vector is None:
-        print("[query] Embedding question ...")
+        logger.info("[query] Embedding question ...")
         query_vector = embedding_driver.embed_text(question)
 
-    print(f"[query] Vector-searching a candidate pool of {candidate_k} chunks ...")
+    logger.info("[query] Vector-searching a candidate pool of %d chunks ...", candidate_k)
     vector_results = store.search(query_vector, top_k=candidate_k, min_score=0.0)
 
     if not _passes_relevance_gate(vector_results, top_k=k, min_score=threshold):
-        print("[query] No relevant chunks found.")
+        logger.info("[query] No relevant chunks found.")
         return []
 
     active_strategy = strategy if strategy is not None else get_retrieval_strategy()
-    print(f"[query] Selecting final chunks via {type(active_strategy).__name__} ...")
+    logger.info("[query] Selecting final chunks via %s ...", type(active_strategy).__name__)
     chunks = active_strategy.select_chunks(
         question, vector_results, store, top_k=k, min_score=threshold
     )
 
     scores_str = ", ".join(f"{c['score']:.4f}" for c in chunks)
-    print(f"[query] Using {len(chunks)} chunk(s) as context. Scores: {scores_str}")
+    logger.info("[query] Using %d chunk(s) as context. Scores: %s", len(chunks), scores_str)
     return chunks
 
 
@@ -277,14 +287,14 @@ def query_knowledge_base(
     chunks = retrieve_chunks(question, top_k=top_k, min_score=min_score)
 
     if not chunks:
-        print("[query] Returning fallback message.")
+        logger.info("[query] Returning fallback message.")
         return NO_RESULTS_MESSAGE
 
-    print(f"[query] Generating answer with LLM driver='{settings.LLM_DRIVER}' ...")
+    logger.info("[query] Generating answer with LLM driver='%s' ...", settings.LLM_DRIVER)
     answer_driver = get_answer_driver()
     answer = answer_driver.answer(question=question, context_chunks=chunks)
 
-    print("[query] Done.")
+    logger.info("[query] Done.")
     return answer
 
 

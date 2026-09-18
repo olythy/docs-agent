@@ -89,6 +89,7 @@ Usage:
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -382,6 +383,11 @@ def print_llm_answers(vector_result: dict, hybrid_result: dict) -> None:
 
 
 def main() -> None:
+    # retrieve_chunks()/add_document() log their progress via `logging`, not
+    # print() — configure a bare, print()-like handler so this script's
+    # output stays exactly as before (logging is silent by default).
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     parser = argparse.ArgumentParser(description="Retrieval-quality evaluation.")
     parser.add_argument(
         "--with-llm",

@@ -3,7 +3,7 @@
 .PHONY: help docker-up docker-down docker-down-clean \
         db-migrate db-migrate-test db-flush db-refresh setup \
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
-        make-migration test lint
+        make-migration add-document query mcp-dev mcp-install test lint
 
 # Self-documenting: every target's `## ` comment is both its Makefile
 # documentation and its `make help` output — one source, so it can't drift
@@ -67,6 +67,28 @@ migrate-refresh: ## migrate-reset then db-migrate
 
 make-migration: ## Scaffold a new migration file — usage: make make-migration name=add_foo_column
 	uv run python scripts/make_migration.py $(name)
+
+# -c one-liners configure logging themselves: ingestion.ingest/query.retrieval
+# log progress via `logging` (silent by default) rather than print(), so
+# mcp_server.py's stdout stays clean for the MCP protocol.
+add-document: ## Ingest a document — usage: make add-document path=/path/to/file.pdf
+	uv run python -c "import logging; logging.basicConfig(level=logging.INFO, format='%(message)s'); from ingestion.ingest import add_document; add_document('$(path)')"
+
+query: ## Ask a question (full pipeline, real LLM call) — usage: make query q="What is X?"
+	uv run python -c "import logging; logging.basicConfig(level=logging.INFO, format='%(message)s'); from query.retrieval import query_knowledge_base; print(query_knowledge_base('$(q)'))"
+
+mcp-dev: ## Run mcp_server.py under the MCP Inspector, for local testing
+	uv run mcp dev mcp_server.py
+
+# `mcp install`'s own generated launch command is built for a standalone,
+# dependency-free script ("works from any directory, no project needed") —
+# docs-agent isn't that, so scripts/fix_mcp_install.py rewrites it to use
+# --project right after. See that script's docstring for why (confirmed via
+# a real Claude Desktop failure: ModuleNotFoundError on a bare `mcp install`
+# config).
+mcp-install: ## Register mcp_server.py with Claude Desktop (env vars loaded from .env)
+	uv run mcp install mcp_server.py --name "docs-agent" -f .env
+	uv run python scripts/fix_mcp_install.py
 
 # No db-migrate-test prerequisite here on purpose: schema setup is handled
 # by a session-scoped autouse pytest fixture (tests/db/conftest.py) instead

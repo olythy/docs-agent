@@ -1,9 +1,16 @@
 [project]
 name = "docs-agent"
 version = "0.1.0"
-requires-python = ">=3.12"
+# Upper-bounded (not just ">=3.12"): uv resolves dependencies universally
+# across the whole requires-python range, including hypothetical future
+# versions (e.g. 3.14) nobody has actually run this against — and on
+# those, sentence-transformers' pinned torch range has no compatible
+# wheel for this platform, making every `uv add`/`uv sync` fail even
+# though 3.12 itself resolves fine. Matches .python-version (3.12).
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "langchain-text-splitters>=1.1.2",
+    "mcp[cli]>=2.2.0",
     "numpy<2",
     "openai>=3.0.0",
     "pdfplumber>=0.11.0",

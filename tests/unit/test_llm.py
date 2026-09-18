@@ -39,6 +39,14 @@ def test_build_prompt_includes_numbered_sources_and_question():
     assert "Question: What happened?" in user_message
 
 
+def test_build_prompt_forbids_outside_knowledge_and_requires_partial_answer_honesty():
+    system_prompt, _ = _build_prompt("q", [])
+
+    assert "training knowledge" in system_prompt
+    assert "traceable to a specific excerpt" in system_prompt
+    assert "partially answer" in system_prompt
+
+
 def test_build_prompt_handles_missing_metadata_gracefully():
     chunks = [{"content": "x", "metadata": {}}]
     _, user_message = _build_prompt("q", chunks)
