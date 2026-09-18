@@ -47,6 +47,26 @@ class AnswerDriver(ABC):
     def _get_client(self):
         """Lazily create and cache the provider-specific OpenAI-compatible client."""
 
+    @property
+    def model(self) -> str:
+        """The chat-completion model identifier this driver is configured for."""
+        return self._model
+
+    def get_client(self):
+        """Return this driver's underlying OpenAI-compatible client.
+
+        Public wrapper around :meth:`_get_client`. ``answer()`` (RAG-specific:
+        fixed system prompt, no tools) is the only thing most callers need —
+        but ``agent.py``'s function-calling loop needs the raw client itself,
+        to pass its own messages/``tools=[...]`` and read back tool-call
+        requests, which ``answer()``'s fixed shape doesn't expose.
+
+        Returns:
+            The provider-specific client (currently always an
+            ``openai.OpenAI`` instance, pointed at the right ``base_url``).
+        """
+        return self._get_client()
+
     def answer(self, question: str, context_chunks: list[dict]) -> str:
         """Generate a grounded answer from retrieved context chunks.
 

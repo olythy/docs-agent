@@ -86,6 +86,18 @@ def test_answer_returns_empty_string_when_content_is_none():
     assert driver.answer("q", []) == ""
 
 
+def test_model_property_exposes_configured_model():
+    driver = _FakeAnswerDriver(model="some-model", client=MagicMock())
+    assert driver.model == "some-model"
+
+
+def test_get_client_delegates_to_get_client_impl():
+    client = MagicMock()
+    driver = _FakeAnswerDriver(model="some-model", client=client)
+
+    assert driver.get_client() is client
+
+
 def test_openai_driver_get_client_caches_across_calls(monkeypatch):
     created = []
 

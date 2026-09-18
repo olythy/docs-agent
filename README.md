@@ -13,15 +13,18 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 
 | Tool | Triggered when... |
 |---|---|
-| `add_document(file_path)` | User wants to ingest a new PDF |
+| `add_document(file_path)` | User wants to ingest a new document |
 | `query_knowledge_base(question)` | User wants to ask a question |
 
-*(The function-calling dispatch layer above — the LLM actually choosing between the two tools — is Step 6 on the roadmap and isn't wired up yet. Today `add_document` and `query_knowledge_base` are plain Python functions you call directly.)*
+`agent.py` wires this up: both tools are described to the LLM as OpenAI-style `tools=[...]` function schemas, and a single free-form message runs the standard tool-calling loop — the model decides whether to call `add_document`, `query_knowledge_base`, both, or neither. Try it interactively with `uv run python agent.py`, or call `agent.run_agent("...")` directly. `AnswerDriver` (the same driver `query_knowledge_base` uses for answer generation) exposes a public `get_client()`/`model` for this — the agent loop needs the raw, tools-capable chat client, not the RAG-specific `answer()` method with its fixed prompt shape.
+
+**Caveat:** tool-calling support is model-dependent, and `LLM_MODEL`'s default (`openrouter/free`, which auto-routes to *some* available free model) isn't guaranteed to support it — pick a model explicitly known to support tools if `agent.py` doesn't behave as expected.
 
 ## Architecture
 
 ```
 .
+├── agent.py                 # Function-calling loop: LLM picks add_document vs query_knowledge_base
 ├── config.py               # Centralized Settings (env + defaults)
 ├── db.py                   # Postgres connection factory — nothing else
 ├── store.py                # VectorStore: all document_chunks persistence (save/search)
@@ -56,8 +59,6 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 ├── .env.example             # Environment variable template
 └── .env.test.example        # .env.test template — see AGENT_ENV below
 ```
-
-> **Coming soon:** `agent.py` (the function-calling dispatch layer, Step 6), `tools/`
 
 ## Setup
 
@@ -307,5 +308,5 @@ An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast appro
 - [x] Step 4 — Chunking + embedding + storage (`add_document` logic)
 - [x] Step 5 — Query: embedding + top-k retrieval + answer generation
 - [x] Hybrid search (vector + keyword, RRF-fused), optional cross-encoder reranking, and a retrieval-quality eval script — see "Retrieval" above (beyond the original steps, added in response to external evaluation criteria)
-- [ ] Step 6 — Function-calling agent (`add_document` vs `query_knowledge_base`)
+- [x] Step 6 — Function-calling agent (`add_document` vs `query_knowledge_base`) — see `agent.py`
 - [ ] Step 7 *(stretch)* — Wrap tools as an MCP server
