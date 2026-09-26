@@ -326,20 +326,15 @@ def test_split_strategy_falls_back_to_warn_when_driver_lacks_real_token_counts(
 # --- get_chunk_overflow_strategy ---
 
 
-def test_get_chunk_overflow_strategy_returns_warn_by_default(
-    monkeypatch, settings_override
-):
+def test_get_chunk_overflow_strategy_returns_split_by_default():
+    assert isinstance(get_chunk_overflow_strategy(), SplitOverflowStrategy)
+
+
+def test_get_chunk_overflow_strategy_returns_warn(monkeypatch, settings_override):
     monkeypatch.setattr(
         chunker_module, "settings", settings_override(CHUNK_OVERFLOW_STRATEGY="warn")
     )
     assert isinstance(get_chunk_overflow_strategy(), WarnOverflowStrategy)
-
-
-def test_get_chunk_overflow_strategy_returns_split(monkeypatch, settings_override):
-    monkeypatch.setattr(
-        chunker_module, "settings", settings_override(CHUNK_OVERFLOW_STRATEGY="split")
-    )
-    assert isinstance(get_chunk_overflow_strategy(), SplitOverflowStrategy)
 
 
 def test_get_chunk_overflow_strategy_raises_on_unknown(monkeypatch, settings_override):

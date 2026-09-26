@@ -59,8 +59,8 @@ class Settings:
                               ``EMBEDDING_DRIVER=openai``).
 
     Chunking:
-        CHUNK_SIZE            Target word count per chunk (default: 500).
-        CHUNK_OVERLAP         Word overlap between adjacent chunks (default: 50).
+        CHUNK_SIZE            Target word count per chunk (default: 250).
+        CHUNK_OVERLAP         Word overlap between adjacent chunks (default: 30).
         WORDS_PER_TOKEN       Approximate words-per-token ratio used to estimate
                               token count from word count when checking chunk
                               size against an embedding model's token limit
@@ -71,16 +71,16 @@ class Settings:
                               Only used by the ``warn`` overflow strategy.
         CHUNK_OVERFLOW_STRATEGY
                               What to do when a chunk likely/actually exceeds
-                              the embedding model's token limit: ``warn``
-                              (default) estimates via WORDS_PER_TOKEN and logs
-                              a warning, but still truncates silently at
-                              embed time; ``split`` measures each chunk's
-                              real token count with the driver's own
-                              tokenizer and re-splits any chunk that overflows
-                              so nothing is ever silently truncated. ``split``
-                              requires the active driver to support real
-                              token counting (currently only the ``local``
+                              the embedding model's token limit: ``split``
+                              (default) measures each chunk's real token count
+                              with the driver's own tokenizer and re-splits any
+                              chunk that overflows so nothing is ever silently
+                              truncated. Requires the active driver to support
+                              real token counting (currently only the ``local``
                               driver) — falls back to ``warn`` otherwise.
+                              ``warn`` estimates via WORDS_PER_TOKEN and logs
+                              a warning, but still truncates silently at embed
+                              time.
         PDF_EXTRACTION_MODE   ``flat`` (default) joins each page's text with a
                               single space — fast, but paragraph structure is
                               lost. ``blocks`` additionally detects paragraph
@@ -173,10 +173,10 @@ class Settings:
     EMBEDDING_API_KEY: str = os.getenv("EMBEDDING_API_KEY", "")
 
     # --- Chunking ---
-    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "500"))
-    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "50"))
+    CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "250"))
+    CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "30"))
     WORDS_PER_TOKEN: float = float(os.getenv("WORDS_PER_TOKEN", "0.75"))
-    CHUNK_OVERFLOW_STRATEGY: str = os.getenv("CHUNK_OVERFLOW_STRATEGY", "warn")
+    CHUNK_OVERFLOW_STRATEGY: str = os.getenv("CHUNK_OVERFLOW_STRATEGY", "split")
     PDF_EXTRACTION_MODE: str = os.getenv("PDF_EXTRACTION_MODE", "flat")
     CHUNKING_STRATEGY: str = os.getenv("CHUNKING_STRATEGY", "word")
 
