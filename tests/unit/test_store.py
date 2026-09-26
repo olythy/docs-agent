@@ -86,13 +86,10 @@ def test_search_fulltext_parses_json_metadata(monkeypatch):
 
 
 def test_search_fulltext_or_joins_query_words(monkeypatch):
-    """A raw natural-language question must be OR-joined before querying.
+    """A raw natural-language question must filter stopwords and OR-join words.
 
-    Without this, websearch_to_tsquery ANDs every word together, and since
-    the 'simple' config has no stopword list, a question's grammar words
-    (e.g. "milyen"/"used"/"is") would almost always fail to appear verbatim
-    in a matching chunk — silently returning nothing for most real
-    questions. See store.search_fulltext's docstring.
+    Stopwords and non-technical short words are filtered out before OR-joining,
+    preventing common grammatical filler words from dominating rankings.
     """
     cursor = MagicMock()
     cursor.fetchall.return_value = []
@@ -102,8 +99,35 @@ def test_search_fulltext_or_joins_query_words(monkeypatch):
     VectorStore().search_fulltext("What tennis system is this?", top_k=5)
 
     query_arg, top_k_arg = cursor.execute.call_args[0][1][0], cursor.execute.call_args[0][1][2]
-    assert query_arg == "What or tennis or system or is or this?"
+    assert query_arg == "tennis or system"
     assert top_k_arg == 5
+
+
+def test_prepare_fulltext_query_filters_stopwords_and_short_words():
+    query, kept, dropped = store.prepare_fulltext_query("What tennis system is this?")
+    assert query == "tennis or system"
+    assert kept == ["tennis", "system"]
+    assert "What" in dropped
+    assert "is" in dropped
+    assert "this" in dropped
+
+
+def test_prepare_fulltext_query_preserves_short_tech_terms():
+    query, kept, dropped = store.prepare_fulltext_query("AI pipeline and UI in Python")
+    assert query == "AI or pipeline or UI or Python"
+    assert "AI" in kept
+    assert "UI" in kept
+    assert "pipeline" in kept
+    assert "Python" in kept
+    assert "and" in dropped
+    assert "in" in dropped
+
+
+def test_prepare_fulltext_query_fallback_when_all_stopwords():
+    query, kept, dropped = store.prepare_fulltext_query("Who is it?")
+    assert query == "Who or is or it"
+    assert kept == ["Who", "is", "it"]
+    assert dropped == []
 
 
 def test_search_fulltext_returns_empty_list_for_no_matches(monkeypatch):

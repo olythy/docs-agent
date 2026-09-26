@@ -141,7 +141,9 @@ class Settings:
     Database (REQUIRED):
         DATABASE_URL          PostgreSQL connection URL with pgvector enabled.
 
-    Development / Testing:
+    Development / Testing / Observability:
+        LOG_FILE_PATH         Path to the structured JSONL audit/events log file
+                              (default: ``logs/log.jsonl``).
         TEST_DOC_PATH         Path to a local document (PDF or Markdown) used
                               by ``scripts/extract_text.py``,
                               ``scripts/inspect_chunks.py``, and the tests/db/
@@ -163,6 +165,9 @@ class Settings:
     #: class body runs, so this is just exposing it as settings.AGENT_ENV
     #: for consistency with every other value here.
     AGENT_ENV: str = AGENT_ENV
+
+    # --- Observability ---
+    LOG_FILE_PATH: str = os.getenv("LOG_FILE_PATH", "logs/log.jsonl")
 
     # --- Embedding ---
     EMBEDDING_DRIVER: str = os.getenv("EMBEDDING_DRIVER", "local")

@@ -13,6 +13,74 @@ Key exports:
 import json
 
 from db import get_connection
+from logger import get_logger
+
+#: Technical acronyms and terms of 2-3 characters that should NOT be filtered out.
+PRESERVED_SHORT_TERMS: frozenset[str] = frozenset(
+    {"ai", "ui", "ux", "db", "ci", "cd", "go", "id", "ip", "os", "qa", "api", "rag", "sql", "llm"}
+)
+
+#: Combined bilingual (Hungarian + English) stop words for full-text query sanitization.
+#: Prevents ranking chunks solely by occurrence of grammatical glue words.
+BILINGUAL_STOPWORDS: frozenset[str] = frozenset(
+    {
+        # Hungarian stopwords / question words / particles
+        "a", "az", "és", "vagy", "hogy", "van", "volt", "nem", "sem", "mint", "mert",
+        "csak", "már", "még", "milyen", "mikor", "hol", "hova", "honnan", "ki", "kit",
+        "kivel", "mi", "mit", "mivel", "miért", "hogyan", "melyik", "ez", "ezen",
+        "azon", "itt", "ott", "egy", "egyik", "másik", "is", "se", "ne", "ha", "de",
+        "te", "én", "ti", "ő", "ők", "ön", "önök", "lenne", "lesz",
+        # English stopwords / pronouns / prepositions / auxiliaries
+        "an", "the", "and", "or", "are", "was", "were", "be", "been", "being",
+        "in", "on", "at", "to", "for", "with", "from", "by", "about", "against", "between",
+        "into", "through", "during", "before", "after", "above", "below", "up", "down",
+        "of", "off", "over", "under", "how", "what", "when", "where", "who", "which",
+        "why", "this", "that", "these", "those", "it", "its", "they", "them", "their",
+        "we", "us", "our", "you", "your", "he", "him", "his", "she", "her", "i", "me",
+        "my", "do", "does", "did", "have", "has", "had", "can", "could", "will", "would",
+        "should", "not", "no", "nor", "so", "than", "too", "very", "just",
+    }
+)
+
+
+def prepare_fulltext_query(query_text: str) -> tuple[str, list[str], list[str]]:
+    """Clean and prepare a query for Postgres full-text search.
+
+    Filters out grammatical stop words and short tokens (<= 2 chars) unless
+    they are recognized technical acronyms (e.g. 'AI', 'UI'). Returns the
+    OR-joined query along with lists of kept and dropped terms for telemetry.
+
+    If all terms would be dropped (e.g. 'Who is it?'), falls back to all
+    original terms to avoid returning an empty query.
+
+    Args:
+        query_text: The raw user query.
+
+    Returns:
+        A tuple of (or_joined_query, kept_terms, dropped_terms).
+    """
+    kept: list[str] = []
+    dropped: list[str] = []
+
+    for raw_word in query_text.split():
+        clean = raw_word.strip(".,!?:;\"'()[]{}")
+        if not clean:
+            continue
+        lower = clean.lower()
+
+        if lower in PRESERVED_SHORT_TERMS:
+            kept.append(clean)
+        elif len(lower) <= 2 or lower in BILINGUAL_STOPWORDS:
+            dropped.append(clean)
+        else:
+            kept.append(clean)
+
+    if not kept:
+        # Fallback if entire question was stop words
+        fallback = [w.strip(".,!?:;\"'()[]{}") for w in query_text.split() if w.strip(".,!?:;\"'()[]{}")]
+        return " or ".join(fallback), fallback, []
+
+    return " or ".join(kept), kept, dropped
 
 
 def _to_pgvector_literal(embedding: list[float]) -> str:
@@ -154,7 +222,12 @@ class VectorStore:
             :meth:`search`'s cosine similarity — never compare the two
             directly, only their *ranks* (which is exactly what RRF does).
         """
-        or_joined_query = " or ".join(query_text.split())
+        or_joined_query, kept_terms, dropped_terms = prepare_fulltext_query(query_text)
+        get_logger().log_fts_query_filtered(
+            original_query=query_text,
+            kept_terms=kept_terms,
+            dropped_terms=dropped_terms,
+        )
         sql = """
             SELECT
                 id,
