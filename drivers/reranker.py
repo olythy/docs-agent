@@ -21,6 +21,7 @@ Usage::
 """
 
 from abc import ABC, abstractmethod
+from functools import lru_cache
 
 from config import settings
 
@@ -121,10 +122,13 @@ class CrossEncoderRerankerDriver(RerankerDriver):
         return reranked
 
 
+@lru_cache(maxsize=1)
 def get_reranker_driver() -> RerankerDriver:
     """Factory function: return the active reranker driver from settings.
 
     Reads ``settings.RERANKER_DRIVER`` and instantiates the matching driver.
+    Cached with ``@lru_cache(maxsize=1)`` so repeated calls reuse the same
+    driver instance and its loaded in-memory model instead of reloading from disk.
 
     Returns:
         A :class:`RerankerDriver` instance ready to call.

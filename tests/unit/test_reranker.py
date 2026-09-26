@@ -101,3 +101,9 @@ def test_get_reranker_driver_raises_on_unknown(monkeypatch, settings_override):
     )
     with pytest.raises(ValueError, match="Unknown RERANKER_DRIVER"):
         get_reranker_driver()
+
+
+def test_get_reranker_driver_is_cached():
+    driver1 = get_reranker_driver()
+    driver2 = get_reranker_driver()
+    assert driver1 is driver2

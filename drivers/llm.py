@@ -19,6 +19,7 @@ Usage::
 """
 
 from abc import ABC, abstractmethod
+from functools import lru_cache
 
 from config import settings
 
@@ -221,10 +222,13 @@ class OpenRouterAnswerDriver(AnswerDriver):
         return self._client
 
 
+@lru_cache(maxsize=1)
 def get_answer_driver() -> AnswerDriver:
     """Factory function: return the active LLM driver from settings.
 
     Reads ``settings.LLM_DRIVER`` and instantiates the matching driver.
+    Cached with ``@lru_cache(maxsize=1)`` so repeated calls reuse the same
+    driver instance instead of re-instantiating.
 
     Returns:
         An :class:`AnswerDriver` instance ready to call.

@@ -16,6 +16,7 @@ Usage::
 
 import logging
 from abc import ABC, abstractmethod
+from functools import lru_cache
 
 from config import settings
 
@@ -254,10 +255,13 @@ class OpenAIEmbeddingDriver(EmbeddingDriver):
         return [item.embedding for item in response.data]
 
 
+@lru_cache(maxsize=1)
 def get_embedding_driver() -> EmbeddingDriver:
     """Factory function: return the active embedding driver from settings.
 
     Reads ``settings.EMBEDDING_DRIVER`` and instantiates the matching driver.
+    Cached with ``@lru_cache(maxsize=1)`` so repeated calls reuse the same
+    driver instance and its loaded in-memory model instead of reloading from disk.
 
     Returns:
         An :class:`EmbeddingDriver` instance ready to call.

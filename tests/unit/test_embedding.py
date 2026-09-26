@@ -193,3 +193,9 @@ def test_get_embedding_driver_raises_on_unknown(monkeypatch, settings_override):
     )
     with pytest.raises(ValueError, match="Unknown EMBEDDING_DRIVER"):
         get_embedding_driver()
+
+
+def test_get_embedding_driver_is_cached():
+    driver1 = get_embedding_driver()
+    driver2 = get_embedding_driver()
+    assert driver1 is driver2

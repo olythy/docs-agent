@@ -155,3 +155,9 @@ def test_get_answer_driver_raises_on_unknown(monkeypatch, settings_override):
     monkeypatch.setattr(llm_module, "settings", settings_override(LLM_DRIVER="bogus"))
     with pytest.raises(ValueError, match="Unknown LLM_DRIVER"):
         get_answer_driver()
+
+
+def test_get_answer_driver_is_cached():
+    driver1 = get_answer_driver()
+    driver2 = get_answer_driver()
+    assert driver1 is driver2

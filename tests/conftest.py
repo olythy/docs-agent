@@ -26,3 +26,25 @@ def settings_override():
         return dataclasses.replace(real_settings, **overrides)
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def clear_driver_caches():
+    """Clear lru_cache on driver factories before and after each test.
+
+    Ensures tests that override driver settings via monkeypatch receive a fresh
+    driver instance and don't leak state across test boundaries.
+    """
+    from drivers.embedding import get_embedding_driver
+    from drivers.llm import get_answer_driver
+    from drivers.reranker import get_reranker_driver
+
+    get_embedding_driver.cache_clear()
+    get_reranker_driver.cache_clear()
+    get_answer_driver.cache_clear()
+    try:
+        yield
+    finally:
+        get_embedding_driver.cache_clear()
+        get_reranker_driver.cache_clear()
+        get_answer_driver.cache_clear()
