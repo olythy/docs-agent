@@ -44,3 +44,10 @@ def test_get_logger_singleton():
     logger1 = get_logger()
     logger2 = get_logger()
     assert logger1 is logger2
+
+
+def test_event_logger_default_path():
+    from config import settings
+
+    logger = EventLogger()
+    assert logger.log_path == Path(settings.LOG_FILE)

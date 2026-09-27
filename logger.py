@@ -37,16 +37,16 @@ class EventLogger:
     """Writes structured JSON lines to a designated event log file.
 
     Attributes:
-        log_path: Path to the target JSONL file. Defaults to ``settings.LOG_FILE_PATH``.
+        log_path: Path to the target JSONL file. Defaults to ``settings.LOG_FILE``.
     """
 
     def __init__(self, log_path: str | Path | None = None) -> None:
         """Initialise the logger with a designated destination path.
 
         Args:
-            log_path: Path to the log file, or ``None`` to use ``settings.LOG_FILE_PATH``.
+            log_path: Path to the log file, or ``None`` to use ``settings.LOG_FILE``.
         """
-        self._log_path = Path(log_path or settings.LOG_FILE_PATH)
+        self._log_path = Path(log_path or settings.LOG_FILE)
 
     @property
     def log_path(self) -> Path:

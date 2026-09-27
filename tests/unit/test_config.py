@@ -25,3 +25,7 @@ def test_settings_parsed_ingest_extensions():
 
     custom = dataclasses.replace(settings, INGEST_EXTENSIONS="md, .PDF,  TXT  ")
     assert custom.parsed_ingest_extensions == frozenset({".md", ".pdf", ".txt"})
+
+
+def test_settings_log_file_defaults():
+    assert settings.LOG_FILE.endswith(".jsonl")
