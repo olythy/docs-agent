@@ -69,17 +69,15 @@ Purpose:
 
     ``--with-llm``:
         Also generates a real answer via ``LLM_DRIVER`` for every
-        question, for both configurations — makes real network calls
-        (13 questions x 2 configs = 26 LLM calls), skipped by default to
-        stay fast and free to run. For the 3 deliberately unanswerable
-        questions, checks whether the answer looks like a decline (a
-        loose heuristic — see ``_looks_like_a_decline``) and reports a
-        decline rate; this is the second defense layer's own measurement,
-        complementing Fallback rate above (which only measures the first,
-        retrieval-layer one). The 10 answerable questions' answers are
-        printed for manual review, not auto-scored — judging real answer
-        *correctness* would need an LLM-as-judge or similar, out of scope
-        here.
+        question, comparing both configurations side-by-side. For
+        answerable questions, checks whether the expected gold fact
+        is included in the completion. For deliberately unanswerable
+        questions, checks whether retrieval filtered them out (0 chunks)
+        or the prompt safely declined, versus potential hallucinations.
+        Prints a consolidated LLM Benchmark Scorecard at the end with
+        gold fact retention %, hallucination resistance %, API call counts,
+        and latency. Makes real network calls via LLM_DRIVER (skipped by
+        default to stay fast and free to run).
 
 Usage:
     uv run python scripts/evaluate_retrieval.py
@@ -91,6 +89,8 @@ import argparse
 import json
 import logging
 import sys
+import textwrap
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -125,8 +125,6 @@ FIXTURE_DOCS = [
 # row (the per-question breakdown table's "<- differs" marker included).
 QUESTION_COLUMN_WIDTH = 42
 STATUS_COLUMN_WIDTH = 11
-LLM_QUESTION_PREVIEW_WIDTH = 45
-LLM_ANSWER_PREVIEW_WIDTH = 65
 
 
 def _print_target_database() -> None:
@@ -261,6 +259,7 @@ def evaluate(config_name: str, retrieve_fn, questions: list[dict]) -> dict:
             {
                 "question": q["question"],
                 "expected_source_file": expected_file,
+                "expected_text_contains": q.get("expected_text_contains"),
                 "file_rank": file_rank,
                 "passage_rank": passage_rank,
                 "language": lang,
@@ -376,19 +375,28 @@ def print_per_question_breakdown(vector_result: dict, hybrid_result: dict) -> No
     )
 
 
-def _answer_with_llm(question: str, chunks: list[dict]) -> str:
-    """Generate the final answer for ``chunks``, exactly like
-    ``query.retrieval.query_knowledge_base()`` does internally — but taking
-    already-retrieved ``chunks`` directly, so this works for either
-    strategy's results without needing a strategy override on
-    ``query_knowledge_base()`` itself.
+def _format_answer(text: str, indent: str = "  ", width: int = 76) -> str:
+    """Format and word-wrap an LLM answer, preserving paragraphs.
+
+    Args:
+        text: Raw answer string from the LLM.
+        indent: Prefix prepended to every line of output.
+        width: Maximum terminal width for wrapped lines.
+
+    Returns:
+        Reflowed multi-line string.
     """
-    if not chunks:
-        return NO_RESULTS_MESSAGE
-
-    from drivers.llm import get_answer_driver
-
-    return get_answer_driver().answer(question=question, context_chunks=chunks)
+    paragraphs = text.split("\n")
+    formatted = []
+    wrap_width = max(width - len(indent), 20)
+    for p in paragraphs:
+        stripped = p.strip()
+        if not stripped:
+            formatted.append("")
+        else:
+            lines = textwrap.wrap(stripped, width=wrap_width)
+            formatted.append("\n".join(f"{indent}{line}" for line in lines))
+    return "\n".join(formatted)
 
 
 def _looks_like_a_decline(answer: str) -> bool:
@@ -402,48 +410,201 @@ def _looks_like_a_decline(answer: str) -> bool:
         "does not mention",
         "cannot find",
         "not mentioned",
+        "not provided",
+        "no information",
+        "unable to find",
         "nem találtam",
+        "nem található",
         "nem tartalmaz",
         "nem szerepel",
         "nincs információ",
         "nem tér ki",
+        "nem derül ki",
+        "nem állapítható meg",
     ]
     return any(p in lower for p in decline_phrases)
 
 
+def _print_llm_scorecard(v_stats: dict, h_stats: dict) -> None:
+    """Print a comparative summary scorecard of LLM generation performance."""
+    print("\n" + "=" * 80)
+    print("                    LLM GENERATION BENCHMARK SCORECARD")
+    print("=" * 80)
+
+    v_name = truncate(v_stats["config"], 17)
+    h_name = truncate(h_stats["config"], 17)
+    print(f"{'Metric':<42} {v_name:>17} {h_name:>17}")
+    print("-" * 80)
+
+    ans_tot = v_stats["ans_total"]
+    print(f"Answerable Questions ({ans_tot}):")
+
+    def _fmt_rate(count: int, total: int) -> str:
+        if total == 0:
+            return "0/0  (  0.0%)"
+        pct = (count / total) * 100
+        return f"{count:>2}/{total:<2} ({pct:>5.1f}%)"
+
+    v_fact = _fmt_rate(v_stats["gold_matches"], ans_tot)
+    h_fact = _fmt_rate(h_stats["gold_matches"], ans_tot)
+    print(f"{'  - Gold Fact Inclusion Rate':<42} {v_fact:>17} {h_fact:>17}")
+
+    v_decl = _fmt_rate(v_stats["ans_declined"], ans_tot)
+    h_decl = _fmt_rate(h_stats["ans_declined"], ans_tot)
+    print(f"{'  - Declined / Unanswered':<42} {v_decl:>17} {h_decl:>17}")
+
+    unans_tot = v_stats["unans_total"]
+    print(f"\nUnanswerable / Hallucination Gate ({unans_tot}):")
+
+    v_rej = _fmt_rate(v_stats["unans_retrieval_rejected"], unans_tot)
+    h_rej = _fmt_rate(h_stats["unans_retrieval_rejected"], unans_tot)
+    print(f"{'  - Filtered at Retrieval (0 chunks)':<42} {v_rej:>17} {h_rej:>17}")
+
+    v_pdecl = _fmt_rate(v_stats["unans_prompt_declined"], unans_tot)
+    h_pdecl = _fmt_rate(h_stats["unans_prompt_declined"], unans_tot)
+    print(f"{'  - Safely Declined by Prompt':<42} {v_pdecl:>17} {h_pdecl:>17}")
+
+    v_safe_tot = v_stats["unans_retrieval_rejected"] + v_stats["unans_prompt_declined"]
+    h_safe_tot = h_stats["unans_retrieval_rejected"] + h_stats["unans_prompt_declined"]
+    v_safe = _fmt_rate(v_safe_tot, unans_tot)
+    h_safe = _fmt_rate(h_safe_tot, unans_tot)
+    print(f"{'  - Total Safe Decline Rate':<42} {v_safe:>17} {h_safe:>17}")
+
+    v_hall = _fmt_rate(v_stats["unans_hallucinations"], unans_tot)
+    h_hall = _fmt_rate(h_stats["unans_hallucinations"], unans_tot)
+    print(f"{'  - Potential Hallucinations':<42} {v_hall:>17} {h_hall:>17}")
+
+    print("\nEfficiency & Latency:")
+    print(
+        f"{'  - Real LLM API Calls Made':<42} {v_stats['api_calls']:>17} {h_stats['api_calls']:>17}"
+    )
+
+    v_lat = (
+        f"{sum(v_stats['latencies']) / len(v_stats['latencies']):.2f}s"
+        if v_stats["latencies"]
+        else "N/A"
+    )
+    h_lat = (
+        f"{sum(h_stats['latencies']) / len(h_stats['latencies']):.2f}s"
+        if h_stats["latencies"]
+        else "N/A"
+    )
+    print(f"{'  - Average LLM Latency':<42} {v_lat:>17} {h_lat:>17}")
+    print("=" * 80)
+
+
 def print_llm_answers(vector_result: dict, hybrid_result: dict) -> None:
-    """Generate and print a real LLM answer for every question, per strategy.
+    """Generate and compare real LLM answers side-by-side for every question.
 
-    Makes one real network call per question per config (26 total for the
-    current 13-question set) — only runs when ``--with-llm`` is passed.
+    Evaluates gold fact inclusion for answerable questions, and checks
+    retrieval filtering / prompt decline behavior for unanswerable questions.
+    Prints an LLM Generation Benchmark Scorecard upon completion.
     """
-    for config_name, result in [
-        (vector_result["config"], vector_result),
-        (hybrid_result["config"], hybrid_result),
-    ]:
-        print(f"\n--- {config_name} ---")
-        declined_correctly = 0
-        unanswerable_total = 0
+    from drivers.llm import get_answer_driver
 
-        for entry in result["details"]:
-            answer = _answer_with_llm(entry["question"], entry["chunks"])
-            question_preview = truncate(entry["question"], LLM_QUESTION_PREVIEW_WIDTH)
-            answer_preview = truncate(answer, LLM_ANSWER_PREVIEW_WIDTH)
+    driver = get_answer_driver()
 
-            if entry["expected_source_file"] is None:
-                unanswerable_total += 1
-                declined = _looks_like_a_decline(answer)
-                declined_correctly += declined
-                tag = "DECLINED" if declined else "DID NOT DECLINE"
+    stats = {
+        "vec": {
+            "config": vector_result["config"],
+            "ans_total": 0,
+            "gold_matches": 0,
+            "ans_declined": 0,
+            "unans_total": 0,
+            "unans_retrieval_rejected": 0,
+            "unans_prompt_declined": 0,
+            "unans_hallucinations": 0,
+            "api_calls": 0,
+            "latencies": [],
+        },
+        "hyb": {
+            "config": hybrid_result["config"],
+            "ans_total": 0,
+            "gold_matches": 0,
+            "ans_declined": 0,
+            "unans_total": 0,
+            "unans_retrieval_rejected": 0,
+            "unans_prompt_declined": 0,
+            "unans_hallucinations": 0,
+            "api_calls": 0,
+            "latencies": [],
+        },
+    }
+
+    v_details = vector_result["details"]
+    h_details = hybrid_result["details"]
+    total = len(v_details)
+
+    for i in range(total):
+        v_entry = v_details[i]
+        h_entry = h_details[i]
+
+        q_text = v_entry["question"]
+        expected_file = v_entry["expected_source_file"]
+        expected_fact = v_entry.get("expected_text_contains")
+        lang = v_entry.get("language", "en")
+        is_unans = expected_file is None
+
+        print("\n" + "=" * 80)
+        print(f"[{i + 1}/{total}] ({lang.upper()}) {q_text}")
+        if is_unans:
+            print("Expected: [DELIBERATELY UNANSWERABLE — EXPECTED TO DECLINE]")
+        else:
+            fact_str = f"'{expected_fact}'" if expected_fact else "(none specified)"
+            print(f"Expected: {fact_str} in {expected_file}")
+        print("-" * 80)
+
+        for key, entry in [("vec", v_entry), ("hyb", h_entry)]:
+            cfg_name = stats[key]["config"]
+            s = stats[key]
+            chunks = entry["chunks"]
+
+            if not chunks:
+                answer = NO_RESULTS_MESSAGE
+                latency = 0.0
+                if is_unans:
+                    s["unans_total"] += 1
+                    s["unans_retrieval_rejected"] += 1
+                    tag = "🛡️  RETRIEVAL REJECTED"
+                else:
+                    s["ans_total"] += 1
+                    s["ans_declined"] += 1
+                    tag = "⚠️  NO CHUNKS RETRIEVED"
             else:
-                tag = "answer"
-            print(f"  [{tag:<15}] {question_preview}\n      -> {answer_preview}")
+                t0 = time.perf_counter()
+                answer = driver.answer(question=q_text, context_chunks=chunks)
+                latency = time.perf_counter() - t0
+                s["api_calls"] += 1
+                s["latencies"].append(latency)
 
-        if unanswerable_total:
-            print(
-                f"\n  LLM decline rate ({config_name}): {declined_correctly}/"
-                f"{unanswerable_total} unanswerable question(s) correctly declined."
-            )
+                is_decline = _looks_like_a_decline(answer)
+                if is_unans:
+                    s["unans_total"] += 1
+                    if is_decline:
+                        s["unans_prompt_declined"] += 1
+                        tag = "🛡️  PROMPT DECLINED"
+                    else:
+                        s["unans_hallucinations"] += 1
+                        tag = "🚨 POTENTIAL HALLUCINATION"
+                else:
+                    s["ans_total"] += 1
+                    has_fact = bool(
+                        expected_fact and expected_fact.lower() in answer.lower()
+                    )
+                    if has_fact:
+                        s["gold_matches"] += 1
+                        tag = "✅ GOLD FACT MATCH"
+                    elif is_decline:
+                        s["ans_declined"] += 1
+                        tag = "⚠️  DECLINED / REFUSED"
+                    else:
+                        tag = "ℹ️  ANSWERED (FACT NOT FOUND)"
+
+            print(f"[{cfg_name}] ({len(chunks)} chunks, {latency:.2f}s) [{tag}]")
+            print(_format_answer(answer, indent="  ", width=76))
+            print()
+
+    _print_llm_scorecard(stats["vec"], stats["hyb"])
 
 
 def main() -> None:
