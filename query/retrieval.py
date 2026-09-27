@@ -227,6 +227,7 @@ def retrieve_chunks(
     strategy: RetrievalStrategy | None = None,
     query_vector: list[float] | None = None,
     metadata_filter: dict | None = None,
+    store: VectorStore | None = None,
 ) -> list[dict]:
     """Retrieve the final context chunks for ``question``.
 
@@ -249,6 +250,8 @@ def retrieve_chunks(
             entirely when given.
         metadata_filter: Optional dict of key-value pairs to restrict
             retrieval to matching chunk metadata (JSONB containment).
+        store: Optional :class:`store.VectorStore` instance. If omitted,
+            instantiates a fresh one.
 
     Returns:
         The final list of chunks, already ranked/truncated to ``top_k``, or
@@ -264,7 +267,7 @@ def retrieve_chunks(
     candidate_k = max(k, settings.RETRIEVAL_CANDIDATE_POOL_SIZE)
 
     embedding_driver = get_embedding_driver()
-    store = VectorStore()
+    store = store if store is not None else VectorStore()
     store.assert_dimension_matches(embedding_driver.dimension)
 
     if query_vector is None:
@@ -323,6 +326,7 @@ def query_knowledge_base(
     min_score: float | None = None,
     strategy: RetrievalStrategy | None = None,
     metadata_filter: dict | None = None,
+    store: VectorStore | None = None,
 ) -> str:
     """Answer a question using the RAG knowledge base.
 
@@ -341,6 +345,7 @@ def query_knowledge_base(
         strategy: Override for ``settings.RETRIEVAL_STRATEGY``.
         metadata_filter: Optional dict of key-value pairs to restrict
             retrieval to matching chunk metadata (JSONB containment).
+        store: Optional :class:`store.VectorStore` instance.
 
     Returns:
         A string answer grounded in the retrieved chunks, or
@@ -356,6 +361,7 @@ def query_knowledge_base(
         min_score=min_score,
         strategy=strategy,
         metadata_filter=metadata_filter,
+        store=store,
     )
 
     if not chunks:

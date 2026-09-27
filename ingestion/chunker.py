@@ -213,6 +213,7 @@ def _split_oversized_text(
     text: str,
     count_tokens: Callable[[str], int],
     max_seq_length: int,
+    overlap_ratio: float = 0.0,
 ) -> list[str]:
     """Split ``text`` into balanced pieces that each fit within ``max_seq_length`` real tokens.
 
@@ -236,11 +237,14 @@ def _split_oversized_text(
         count_tokens: Returns the real token count for a given string
             (e.g. :meth:`drivers.embedding.EmbeddingDriver.count_tokens`).
         max_seq_length: The token budget each returned piece must fit within.
+        overlap_ratio: Optional fraction of words (0.0 - 0.5) from the end of
+            a piece to repeat at the beginning of the next piece, ensuring
+            sentences or concepts crossing chunk boundaries retain context.
 
     Returns:
-        One or more pieces whose concatenation (with single spaces) equals
-        ``text``. A single word longer than ``max_seq_length`` tokens on its
-        own is returned as its own (still-oversized) piece.
+        One or more pieces whose concatenation covers ``text``. A single word
+        longer than ``max_seq_length`` tokens on its own is returned as its
+        own (still-oversized) piece.
     """
     words = text.split()
     if not words:
@@ -253,23 +257,25 @@ def _split_oversized_text(
     pieces: list[str] = []
     remaining = words
 
-    while remaining and pieces_left > 0:
-        remaining_tokens = count_tokens(" ".join(remaining))
-        target = -(-remaining_tokens // pieces_left)  # ceil division
-        budget = min(target, max_seq_length)
+    while remaining:
+        if pieces_left > 0:
+            remaining_tokens = count_tokens(" ".join(remaining))
+            target = -(-remaining_tokens // pieces_left)  # ceil division
+            budget = min(target, max_seq_length)
+        else:
+            budget = max_seq_length
 
         fit = _largest_fitting_prefix(remaining, count_tokens, budget)
         pieces.append(" ".join(remaining[:fit]))
-        remaining = remaining[fit:]
-        pieces_left -= 1
 
-    if remaining:
-        # Token density wasn't uniform enough for the balanced estimate to
-        # fully consume the text in the predicted number of pieces (rare).
-        # Finish correctly via the same algorithm, just less evenly.
-        pieces.extend(
-            _split_oversized_text(" ".join(remaining), count_tokens, max_seq_length)
-        )
+        if fit >= len(remaining):
+            break
+
+        overlap_count = int(fit * overlap_ratio) if overlap_ratio > 0.0 else 0
+        step = max(1, fit - overlap_count)
+        remaining = remaining[step:]
+        if pieces_left > 0:
+            pieces_left -= 1
 
     return pieces
 
@@ -313,11 +319,19 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
     Uses the driver's real tokenizer (:meth:`EmbeddingDriver.count_tokens`)
     rather than the ``WORDS_PER_TOKEN`` estimate, so nothing is ever
     silently truncated — at the cost of an extra tokenizer call per chunk.
-    Falls back to :class:`WarnOverflowStrategy` when the active driver can't
-    report real token counts (e.g. ``OpenAIEmbeddingDriver``): there's no
+    Maintains an overlap between sub-pieces so cross-boundary context is
+    preserved. Falls back to :class:`WarnOverflowStrategy` when the active driver
+    can't report real token counts (e.g. ``OpenAIEmbeddingDriver``): there's no
     ground truth to split against, so correction isn't possible, only the
     same estimate-based warning is.
+
+    Args:
+        overlap_ratio: Word overlap ratio (0.0 to 0.5) between generated pieces
+            (default: 0.10, i.e. 10%).
     """
+
+    def __init__(self, overlap_ratio: float = 0.10) -> None:
+        self.overlap_ratio = overlap_ratio
 
     def apply(self, chunks: list[dict], driver: EmbeddingDriver) -> list[dict]:
         max_seq_length = driver.max_sequence_length()
@@ -338,7 +352,10 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
         next_index = 0
         for chunk in chunks:
             for piece in _split_oversized_text(
-                chunk["content"], driver.count_tokens, max_seq_length
+                chunk["content"],
+                driver.count_tokens,
+                max_seq_length,
+                overlap_ratio=self.overlap_ratio,
             ):
                 corrected.append(
                     {

@@ -11,6 +11,7 @@ Key exports:
 """
 
 import json
+from contextlib import contextmanager
 
 from db import get_connection
 from logger import get_logger
@@ -230,9 +231,49 @@ def _to_pgvector_literal(embedding: list[float]) -> str:
 class VectorStore:
     """Persistence layer for the document_chunks table.
 
-    Opens its own connection per call, matching this project's existing
-    short-lived-connection style (no connection pooling yet).
+    Can be initialized with an existing PostgreSQL connection to reuse across
+    multiple operations (e.g. during hybrid retrieval or batched ingestion),
+    or without one, in which case it opens and closes its own short-lived
+    connection per call.
+
+    Args:
+        conn: Optional active psycopg connection. If provided, callers are
+            responsible for closing it.
     """
+
+    def __init__(self, conn=None) -> None:
+        self._conn = conn
+
+    @contextmanager
+    def _connection(self):
+        """Context manager yielding the active or a newly opened connection."""
+        if self._conn is not None:
+            yield self._conn
+        else:
+            conn = get_connection()
+            try:
+                yield conn
+            finally:
+                conn.close()
+
+    def delete_chunks_from_source(self, source_file: str) -> int:
+        """Delete all document_chunks rows for the given source file.
+
+        Used to ensure idempotent re-ingestion when a document is re-indexed.
+
+        Args:
+            source_file: The basename to delete chunks for (e.g. ``"sample.pdf"``).
+
+        Returns:
+            The number of rows deleted.
+        """
+        sql = "DELETE FROM document_chunks WHERE metadata->>'source_file' = %s;"
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (source_file,))
+                deleted = cur.rowcount
+            conn.commit()
+            return deleted
 
     def save(self, chunks: list[dict], embeddings: list[list[float]]) -> int:
         """Insert chunk rows into document_chunks.
@@ -248,8 +289,7 @@ class VectorStore:
             INSERT INTO document_chunks (content, metadata, embedding)
             VALUES (%s, %s, %s);
         """
-        conn = get_connection()
-        try:
+        with self._connection() as conn:
             with conn.cursor() as cur:
                 for chunk, embedding in zip(chunks, embeddings, strict=True):
                     cur.execute(
@@ -262,8 +302,6 @@ class VectorStore:
                     )
             conn.commit()
             return len(chunks)
-        finally:
-            conn.close()
 
     def search(
         self,
@@ -314,13 +352,9 @@ class VectorStore:
             ORDER BY embedding <=> %s::vector
             LIMIT %s;
         """
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(sql, tuple(params))
-                rows = cur.fetchall()
-        finally:
-            conn.close()
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall()
 
         results = []
         for chunk_id, content, metadata, score in rows:
@@ -409,13 +443,9 @@ class VectorStore:
             ORDER BY score DESC
             LIMIT %s;
         """
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(sql, tuple(params))
-                rows = cur.fetchall()
-        finally:
-            conn.close()
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall()
 
         results = []
         for chunk_id, content, metadata, score in rows:
@@ -451,13 +481,9 @@ class VectorStore:
         sql = (
             "SELECT 1 FROM document_chunks WHERE metadata->>'source_file' = %s LIMIT 1;"
         )
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(sql, (source_file,))
-                return cur.fetchone() is not None
-        finally:
-            conn.close()
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (source_file,))
+            return cur.fetchone() is not None
 
     def get_embedding_dimension(self) -> int | None:
         """Read the declared dimension of the document_chunks.embedding column.
@@ -473,20 +499,16 @@ class VectorStore:
             The column's declared dimension, or ``None`` if document_chunks
             doesn't exist yet.
         """
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
                     SELECT atttypmod FROM pg_attribute
                     WHERE attrelid = to_regclass('document_chunks')
                       AND attname = 'embedding'
                       AND NOT attisdropped;
                     """
-                )
-                row = cur.fetchone()
-        finally:
-            conn.close()
+            )
+            row = cur.fetchone()
         return row[0] if row else None
 
     def assert_dimension_matches(self, expected_dimension: int) -> None:

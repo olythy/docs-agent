@@ -53,6 +53,7 @@ def _mock_ingest_pipeline(monkeypatch, *, already_present: bool):
 
     fake_store = MagicMock()
     fake_store.has_chunks_from_source.return_value = already_present
+    fake_store.delete_chunks_from_source.return_value = 0
     fake_store.save.return_value = 1
     # MagicMock treats "assert_*" names as typo-guards by default (raises
     # AttributeError), not real attributes — assign explicitly since
@@ -87,6 +88,7 @@ def test_add_document_force_skips_the_already_present_check(tmp_path, monkeypatc
     add_document(doc_path, force=True)
 
     fake_store.has_chunks_from_source.assert_not_called()
+    fake_store.delete_chunks_from_source.assert_called_once_with("notes.md")
     fake_store.save.assert_called_once()
 
 

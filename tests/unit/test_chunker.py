@@ -238,6 +238,19 @@ def test_split_oversized_text_balances_pieces_instead_of_a_tiny_straggler():
     assert min(token_counts) >= 0.9 * max(token_counts)
 
 
+def test_split_oversized_text_with_overlap():
+    words = [f"w{i}" for i in range(20)]
+    text = " ".join(words)
+    # fit=10, overlap_ratio=0.2 -> overlap_count=2 words
+    pieces = _split_oversized_text(
+        text, _word_count, max_seq_length=10, overlap_ratio=0.2
+    )
+    assert len(pieces) >= 2
+    first_words = pieces[0].split()
+    second_words = pieces[1].split()
+    assert first_words[-2:] == second_words[:2]
+
+
 # --- WarnOverflowStrategy ---
 
 
@@ -303,6 +316,22 @@ def test_split_strategy_splits_oversized_chunk_and_reindexes():
     assert [c["content"] for c in result] == ["a b c", "d e f", "g h"]
     assert [c["metadata"]["chunk_index"] for c in result] == [0, 1, 2]
     assert all(c["metadata"]["source_file"] == "doc.pdf" for c in result)
+
+
+def test_split_strategy_applies_overlap():
+    driver = MagicMock()
+    driver.max_sequence_length.return_value = 10
+    driver.count_tokens.side_effect = _word_count
+    words = [f"w{i}" for i in range(20)]
+    chunks = [{"content": " ".join(words), "metadata": {"chunk_index": 0}}]
+
+    strategy = SplitOverflowStrategy(overlap_ratio=0.2)
+    result = strategy.apply(chunks, driver)
+
+    assert len(result) >= 2
+    first_words = result[0]["content"].split()
+    second_words = result[1]["content"].split()
+    assert first_words[-2:] == second_words[:2]
 
 
 def test_split_strategy_falls_back_to_warn_when_driver_lacks_real_token_counts(

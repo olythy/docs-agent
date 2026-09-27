@@ -47,9 +47,8 @@ def add_document(file_path: str | Path, force: bool = False) -> None:
         file_path: Path to the source document (str or Path).
         force: Skip the already-ingested check and ingest anyway. Since
             there's no way to identify/replace a document's *previous*
-            chunks (they aren't keyed by content hash), this adds a second,
-            duplicate copy rather than updating the existing one — only use
-            this if that's genuinely what's wanted.
+            this replaces any existing chunks from this file rather than
+            creating duplicates.
 
     Raises:
         FileNotFoundError: If the file does not exist at ``file_path``.
@@ -59,10 +58,7 @@ def add_document(file_path: str | Path, force: bool = False) -> None:
         ValueError: If the file's extension is unsupported, the file has no
             extractable content (e.g. empty, or a scanned PDF with no text
             layer), or (unless ``force=True``) a document with this same
-            filename is already in the knowledge base — found the hard way:
-            re-ingesting the same file twice (nothing here prevented it)
-            silently doubled its chunks, which then crowded out other,
-            genuinely relevant chunks from a real query's top-k results.
+            filename is already in the knowledge base.
     """
     doc_path = Path(file_path)
     source_file = doc_path.name
@@ -82,9 +78,17 @@ def add_document(file_path: str | Path, force: bool = False) -> None:
     if not force and store.has_chunks_from_source(source_file):
         raise ValueError(
             f"'{source_file}' is already in the knowledge base. Pass "
-            "force=True to ingest it again anyway (this adds a duplicate "
-            "copy of its chunks, it does not replace the existing ones)."
+            "force=True to re-ingest it (this replaces any existing chunks "
+            "from this file)."
         )
+    if force:
+        deleted = store.delete_chunks_from_source(source_file)
+        if isinstance(deleted, int) and deleted > 0:
+            logger.info(
+                "[ingest] Replaced %d existing chunk(s) for '%s'.",
+                deleted,
+                source_file,
+            )
 
     # Step 3: Concatenate the whole document, then chunk it document-wide
     try:

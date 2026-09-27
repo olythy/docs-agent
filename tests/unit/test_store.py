@@ -230,3 +230,36 @@ def test_search_fulltext_with_metadata_filter(monkeypatch):
 
     assert "AND metadata @> %s::jsonb" in sql_executed
     assert '{"source_file": "doc.md"}' in args_executed
+
+
+def test_vector_store_reuses_provided_connection():
+    cursor = MagicMock()
+    conn = _fake_conn_with_cursor(cursor)
+    custom_store = VectorStore(conn=conn)
+
+    chunks = [{"content": "hello", "metadata": {"page_number": 1}}]
+    embeddings = [[0.1, 0.2]]
+
+    custom_store.save(chunks, embeddings)
+
+    assert cursor.execute.call_count == 1
+    conn.commit.assert_called_once()
+    # When an external connection is provided, VectorStore must NOT close it
+    conn.close.assert_not_called()
+
+
+def test_delete_chunks_from_source(monkeypatch):
+    cursor = MagicMock()
+    cursor.rowcount = 4
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    deleted = VectorStore().delete_chunks_from_source("sample.pdf")
+
+    assert deleted == 4
+    sql_executed = cursor.execute.call_args[0][0]
+    args_executed = cursor.execute.call_args[0][1]
+    assert "DELETE FROM document_chunks" in sql_executed
+    assert args_executed == ("sample.pdf",)
+    conn.commit.assert_called_once()
+    conn.close.assert_called_once()
