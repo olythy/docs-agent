@@ -113,8 +113,8 @@ class Settings:
         LLM_DRIVER            Driver to use: ``openrouter`` (default) or ``openai``.
         LLM_API_KEY           REQUIRED for answer generation. API key for the
                               active LLM driver.
-        LLM_MODEL             Model identifier. Defaults to ``openrouter/free``
-                              which auto-routes to an available free model.
+        LLM_MODEL             Model identifier. Defaults to
+                              ``google/gemini-3.1-flash-lite`` on OpenRouter.
 
     Retrieval:
         RETRIEVAL_TOP_K       Number of chunks to retrieve per query (default: 4).
@@ -229,7 +229,7 @@ class Settings:
     # --- LLM (answer generation) ---
     LLM_DRIVER: str = os.getenv("LLM_DRIVER", "openrouter")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "openrouter/free")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "google/gemini-3.1-flash-lite")
 
     # --- Retrieval ---
     RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "4"))

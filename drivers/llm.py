@@ -68,7 +68,12 @@ class AnswerDriver(ABC):
         """
         return self._get_client()
 
-    def answer(self, question: str, context_chunks: list[dict]) -> str:
+    def answer(
+        self,
+        question: str,
+        context_chunks: list[dict],
+        max_tokens: int = 1024,
+    ) -> str:
         """Generate a grounded answer from retrieved context chunks.
 
         Instructs the model to base its answer only on the provided
@@ -82,6 +87,9 @@ class AnswerDriver(ABC):
                     - ``content`` (str): The raw chunk text.
                     - ``metadata`` (dict): At least ``source_file`` and
                       ``page_number`` for source citation.
+            max_tokens: Maximum tokens to generate (default: 1024). Prevents
+                upstream aggregators (e.g. OpenRouter) from pre-authorizing
+                the model's entire theoretical context limit against account credits.
 
         Returns:
             A string containing the answer, ideally citing the source document
@@ -97,6 +105,7 @@ class AnswerDriver(ABC):
                 {"role": "user", "content": user_message},
             ],
             temperature=0.2,  # Low temperature → more factual, less creative
+            max_tokens=max_tokens,
         )
         return response.choices[0].message.content or ""
 

@@ -82,6 +82,7 @@ def test_answer_calls_chat_completions_with_built_prompt_and_returns_content():
     kwargs = client.chat.completions.create.call_args.kwargs
     assert kwargs["model"] == "some-model"
     assert kwargs["temperature"] == 0.2
+    assert kwargs["max_tokens"] == 1024
     assert kwargs["messages"][0]["role"] == "system"
     assert kwargs["messages"][1]["role"] == "user"
     assert "What is X?" in kwargs["messages"][1]["content"]
