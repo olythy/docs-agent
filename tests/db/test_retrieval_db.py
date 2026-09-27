@@ -62,7 +62,9 @@ def test_search_orders_results_by_similarity(db_conn):
 def test_search_filters_below_min_score(db_conn):
     driver = get_embedding_driver()
     _insert_chunk(
-        db_conn, "Bananas are yellow fruit.", driver.embed_text("Bananas are yellow fruit.")
+        db_conn,
+        "Bananas are yellow fruit.",
+        driver.embed_text("Bananas are yellow fruit."),
     )
 
     query_vec = driver.embed_text("What is the capital of France?")
@@ -124,7 +126,9 @@ def test_search_fulltext_finds_keyword_match_in_a_natural_language_question(db_c
 def test_search_fulltext_returns_empty_when_no_keyword_match(db_conn):
     driver = get_embedding_driver()
     _insert_chunk(
-        db_conn, "Bananas are yellow fruit.", driver.embed_text("Bananas are yellow fruit.")
+        db_conn,
+        "Bananas are yellow fruit.",
+        driver.embed_text("Bananas are yellow fruit."),
     )
 
     results = VectorStore().search_fulltext("quantum computing blockchain", top_k=5)
@@ -157,7 +161,9 @@ def test_query_knowledge_base_end_to_end_with_stubbed_llm(db_conn, monkeypatch):
     assert len(stub.received_chunks) >= 1
 
 
-def test_query_knowledge_base_returns_fallback_when_nothing_matches(db_conn, monkeypatch):
+def test_query_knowledge_base_returns_fallback_when_nothing_matches(
+    db_conn, monkeypatch
+):
     stub = _StubAnswerDriver()
     monkeypatch.setattr(retrieval_module, "get_answer_driver", lambda: stub)
 
@@ -165,3 +171,54 @@ def test_query_knowledge_base_returns_fallback_when_nothing_matches(db_conn, mon
 
     assert answer == NO_RESULTS_MESSAGE
     assert stub.received_chunks is None  # answer() was never called
+
+
+def test_search_with_metadata_filter_against_real_pgvector(db_conn):
+    """Proves pgvector search respects Postgres JSONB containment (@>)."""
+    driver = get_embedding_driver()
+    _insert_chunk(
+        db_conn,
+        "Chunk from doc 1",
+        driver.embed_text("Chunk from doc 1"),
+        source_file="doc_1.pdf",
+    )
+    _insert_chunk(
+        db_conn,
+        "Chunk from doc 2",
+        driver.embed_text("Chunk from doc 2"),
+        source_file="doc_2.pdf",
+    )
+
+    query_vec = driver.embed_text("Chunk")
+    results = VectorStore().search(
+        query_vec, top_k=5, min_score=0.0, metadata_filter={"source_file": "doc_2.pdf"}
+    )
+
+    assert len(results) == 1
+    assert results[0]["metadata"]["source_file"] == "doc_2.pdf"
+    assert results[0]["content"] == "Chunk from doc 2"
+
+
+def test_search_fulltext_with_metadata_filter_against_real_postgres(db_conn):
+    """Proves fulltext search respects Postgres JSONB containment (@>)."""
+    driver = get_embedding_driver()
+    _insert_chunk(
+        db_conn,
+        "Player Central booking system",
+        driver.embed_text("Player Central booking system"),
+        source_file="doc_1.pdf",
+    )
+    _insert_chunk(
+        db_conn,
+        "Player Central booking invoice",
+        driver.embed_text("Player Central booking invoice"),
+        source_file="doc_2.pdf",
+    )
+
+    results = VectorStore().search_fulltext(
+        "booking", top_k=5, metadata_filter={"source_file": "doc_1.pdf"}
+    )
+
+    assert len(results) == 1
+    assert results[0]["metadata"]["source_file"] == "doc_1.pdf"
+    assert results[0]["content"] == "Player Central booking system"

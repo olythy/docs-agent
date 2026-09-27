@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from config import settings
+from drivers.embedding import get_embedding_driver
 from ingestion.ingest import add_document
 from store import VectorStore
 
@@ -92,3 +93,63 @@ def test_add_document_end_to_end_with_real_markdown(db_conn):
     # depend on CHUNK_SIZE, which _markdown_section_map's own unit tests
     # already cover in detail, so this only checks the pipeline wiring).
     assert max(r[0]["page_number"] for r in rows) > 1
+
+
+def test_delete_chunks_from_source_removes_only_target_file(db_conn):
+    """Proves VectorStore.delete_chunks_from_source deletes rows for that file only."""
+    driver = get_embedding_driver()
+    chunks = [
+        {"content": "c1", "metadata": {"source_file": "file_a.pdf"}},
+        {"content": "c2", "metadata": {"source_file": "file_b.pdf"}},
+    ]
+    embeddings = [driver.embed_text("c1"), driver.embed_text("c2")]
+    VectorStore().save(chunks, embeddings)
+
+    deleted = VectorStore().delete_chunks_from_source("file_a.pdf")
+    assert deleted == 1
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT metadata->>'source_file' FROM document_chunks;")
+        remaining = [r[0] for r in cur.fetchall()]
+
+    assert remaining == ["file_b.pdf"]
+
+
+def test_add_document_force_replaces_existing_chunks_without_duplicates(db_conn):
+    """Proves add_document(force=True) replaces existing chunks instead of duplicating."""
+    add_document("tests/data/sample.md")
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM document_chunks WHERE metadata->>'source_file' = 'sample.md';"
+        )
+        initial_count = cur.fetchone()[0]
+
+    assert initial_count > 0
+
+    # Re-ingest with force=True — must cleanly replace, keeping identical count
+    add_document("tests/data/sample.md", force=True)
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM document_chunks WHERE metadata->>'source_file' = 'sample.md';"
+        )
+        reingested_count = cur.fetchone()[0]
+
+    assert reingested_count == initial_count
+
+
+def test_add_document_end_to_end_with_hungarian_markdown(db_conn):
+    """Proves ingestion of the new Hungarian IT policy fixture with header enrichment."""
+    add_document("tests/data/sample_hu.md")
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT content, metadata FROM document_chunks WHERE metadata->>'source_file' = 'sample_hu.md';"
+        )
+        rows = cur.fetchall()
+
+    assert len(rows) > 0
+    # Verify header enrichment was stored in metadata and content
+    assert any("header_path" in r[1] for r in rows)
+    assert any(r[1].get("header_path") is not None for r in rows)
