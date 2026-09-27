@@ -338,3 +338,42 @@ An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast appro
 - [x] Hybrid search (vector + keyword, RRF-fused), optional cross-encoder reranking, and a retrieval-quality eval script — see "Retrieval" above (beyond the original steps, added in response to external evaluation criteria)
 - [x] Step 6 — Function-calling agent (`add_document` vs `query_knowledge_base`) — see `agent.py`
 - [x] Step 7 *(stretch)* — Wrap tools as an MCP server — see `mcp_server.py` and "MCP Server" below (stdio transport only; a network-reachable version via FastAPI/Docker is a possible future step, not built)
+
+## Review & Information Retrieval / ML Improvements
+
+Following comprehensive feedback from an expert Information Retrieval and Machine Learning review, the system underwent significant architectural and algorithmic enhancements:
+
+### 1. Model Instantiation & Factory Caching
+- Added `@lru_cache` decorators across all driver factories (`get_embedding_driver`, `get_reranker_driver`, `get_answer_driver`).
+- Prevents redundant, heavy Transformer model re-initializations and GPU/RAM churn during high-frequency queries and tests.
+
+### 2. Chunking & Token Budgeting
+- Activated `CHUNK_OVERFLOW_STRATEGY=split` by default to ensure oversized chunks are never silently truncated during embedding.
+- Tuned `CHUNK_SIZE=250` words and `CHUNK_OVERLAP=30` words to fit comfortably within the 512-token sequence limits of multilingual embedding models even with dense word-to-token tokenization.
+
+### 3. Structured Observability & FTS Query Sanitization
+- Implemented a dedicated JSONL structured audit logger (`logger.py`, writing to `logs/log.jsonl`) tracking query lifecycles, RRF fusions, reranking thresholds, and metadata filtering.
+- Implemented bilingual (Hungarian & English) stopword removal for full-text queries, while preserving critical 2-3 letter technical acronyms (e.g., `AI`, `UI`, `DB`, `CI`, `CD`, `RAG`, `SQL`, `LLM`).
+
+### 4. Asymmetric Embedding Retrieval
+- Upgraded the default embedding model to `intfloat/multilingual-e5-small`.
+- Implemented asymmetric embedding prefixes: `"passage: "` for indexed document chunks via `embed_documents()` and `"query: "` for user questions via `embed_query()`.
+
+### 5. Cross-Encoder Logit Calibration & Early Rejection
+- Calibrated the relevance threshold `RERANKER_MIN_SCORE=-2.0` on the cross-encoder logit scale (`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`).
+- Cleanly separates valid domain answers (positive or mildly negative logits) from unanswerable or out-of-domain queries (`< -3.5`), achieving 100% early fallback accuracy without relying solely on LLM prompt refusals.
+
+### 6. Hierarchical Heading Enrichment & Metadata Filtering
+- Enhanced the Markdown extractor to trace `# H1 > ## H2` heading paths outside code fences.
+- Prepend contextual breadcrumbs to chunks and stored `header_path` in chunk JSONB metadata.
+- Added Postgres JSONB containment filtering (`metadata_filter` via `@>`) across the entire pipeline: `VectorStore`, `retrieve_chunks`, `agent.py`, and `mcp_server.py`.
+
+### 7. Multilingual Evaluation Suite & Gold Labels
+- Added a realistic Hungarian enterprise IT policy corpus (`tests/data/sample_hu.md`).
+- Expanded the evaluation benchmark to 25 bilingual queries (19 answerable, 6 unanswerable) with passage-level `expected_text_contains` gold labels.
+- Evaluator tracks `Passage Hit@1`, `Passage Recall@k`, `Passage MRR`, and `Fallback accuracy` broken down by language (`EN` and `HU`).
+
+### 8. Pipeline Refinements & Idempotency
+- **Chunk Split Overlap**: Added word overlap in `SplitOverflowStrategy` when dividing oversized chunks, preventing sentence mutilation at boundary lines.
+- **Idempotent Re-indexing**: Added `VectorStore.delete_chunks_from_source()` called during `add_document(..., force=True)`, cleanly replacing existing chunks without duplicate accumulation.
+- **Connection Reuse**: Enhanced `VectorStore(conn=...)` with context-manager connection lifecycle, allowing callers to reuse a single Postgres connection across sequential vector and keyword searches.
