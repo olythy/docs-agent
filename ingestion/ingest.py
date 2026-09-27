@@ -96,89 +96,93 @@ def add_document(
     # (token limit/counting) *during* chunking, not just for embedding after.
     driver = get_embedding_driver()
     store = store if store is not None else VectorStore()
-    store.assert_dimension_matches(driver.dimension)
 
-    existing_hash = store.get_hash_by_source(effective_source_path)
-    hash_already_stored = store.has_content_hash(content_hash)
+    with store:
+        store.assert_dimension_matches(driver.dimension)
 
-    if not force:
-        if existing_hash == content_hash:
-            raise ValueError(
-                f"'{effective_source_path}' is already in the knowledge base with "
-                "identical content. Pass force=True to re-index it anyway."
-            )
-        if hash_already_stored and existing_hash is None:
-            # Content already exists under another source path — register alias without re-embedding
-            store.add_source_alias(content_hash, effective_source_path)
-            logger.info(
-                "[ingest] Content already indexed (hash %s). Added '%s' as alias.",
-                content_hash[:8],
-                effective_source_path,
-            )
-            return
+        existing_hash = store.get_hash_by_source(effective_source_path)
+        hash_already_stored = store.has_content_hash(content_hash)
 
-    # If re-indexing a modified file or force-replacing, delete previous chunks by hash
-    if existing_hash:
-        deleted = store.delete_chunks_by_hash(existing_hash)
-        if deleted > 0:
-            logger.info(
-                "[ingest] Replaced %d existing chunk(s) for previous version of '%s' (hash %s).",
-                deleted,
-                effective_source_path,
-                existing_hash[:8],
-            )
-    elif force and hash_already_stored:
-        deleted = store.delete_chunks_by_hash(content_hash)
-        if deleted > 0:
-            logger.info(
-                "[ingest] Force-removed %d existing chunk(s) for hash %s.",
-                deleted,
-                content_hash[:8],
-            )
+        if not force:
+            if existing_hash == content_hash:
+                raise ValueError(
+                    f"'{effective_source_path}' is already in the knowledge base with "
+                    "identical content. Pass force=True to re-index it anyway."
+                )
+            if hash_already_stored and existing_hash is None:
+                # Content already exists under another source path — register alias without re-embedding
+                store.add_source_alias(content_hash, effective_source_path)
+                logger.info(
+                    "[ingest] Content already indexed (hash %s). Added '%s' as alias.",
+                    content_hash[:8],
+                    effective_source_path,
+                )
+                return
 
-    # Step 3: Concatenate the whole document, then chunk it document-wide
-    try:
-        full_text, word_page_map, word_header_map = extractor.extract_with_headers(
-            doc_path, mode=settings.PDF_EXTRACTION_MODE
+        # If re-indexing a modified file or force-replacing, delete previous chunks by hash
+        if existing_hash:
+            deleted = store.delete_chunks_by_hash(existing_hash)
+            if deleted > 0:
+                logger.info(
+                    "[ingest] Replaced %d existing chunk(s) for previous version of '%s' (hash %s).",
+                    deleted,
+                    effective_source_path,
+                    existing_hash[:8],
+                )
+        elif force and hash_already_stored:
+            deleted = store.delete_chunks_by_hash(content_hash)
+            if deleted > 0:
+                logger.info(
+                    "[ingest] Force-removed %d existing chunk(s) for hash %s.",
+                    deleted,
+                    content_hash[:8],
+                )
+
+        # Step 3: Concatenate the whole document, then chunk it document-wide
+        try:
+            full_text, word_page_map, word_header_map = extractor.extract_with_headers(
+                doc_path, mode=settings.PDF_EXTRACTION_MODE
+            )
+        except (TypeError, ValueError):
+            full_text, word_page_map = extractor.extract(
+                doc_path, mode=settings.PDF_EXTRACTION_MODE
+            )
+            word_header_map = None
+        chunks = chunk_document(
+            full_text,
+            word_page_map,
+            source_file=source_file,
+            driver=driver,
+            word_header_map=word_header_map,
+            source_path=effective_source_path,
+            content_hash=content_hash,
         )
-    except (TypeError, ValueError):
-        full_text, word_page_map = extractor.extract(
-            doc_path, mode=settings.PDF_EXTRACTION_MODE
-        )
-        word_header_map = None
-    chunks = chunk_document(
-        full_text,
-        word_page_map,
-        source_file=source_file,
-        driver=driver,
-        word_header_map=word_header_map,
-        source_path=effective_source_path,
-        content_hash=content_hash,
-    )
-    logger.info(
-        "[ingest] Created %d chunk(s) via CHUNKING_STRATEGY='%s'.",
-        len(chunks),
-        settings.CHUNKING_STRATEGY,
-    )
-
-    pre_overflow_count = len(chunks)
-    chunks = get_chunk_overflow_strategy().apply(chunks, driver)
-    if len(chunks) != pre_overflow_count:
         logger.info(
-            "[ingest] CHUNK_OVERFLOW_STRATEGY=split corrected %d chunk(s) into %d.",
-            pre_overflow_count,
+            "[ingest] Created %d chunk(s) via CHUNKING_STRATEGY='%s'.",
             len(chunks),
+            settings.CHUNKING_STRATEGY,
         )
 
-    # Step 4: Embed all chunks in one batched call
-    texts = [c["content"] for c in chunks]
-    logger.info("[ingest] Embedding with driver='%s' ...", settings.EMBEDDING_DRIVER)
-    embeddings = driver.embed_documents(texts)
-    logger.info("[ingest] Embeddings ready. Dimension: %d.", len(embeddings[0]))
+        pre_overflow_count = len(chunks)
+        chunks = get_chunk_overflow_strategy().apply(chunks, driver)
+        if len(chunks) != pre_overflow_count:
+            logger.info(
+                "[ingest] CHUNK_OVERFLOW_STRATEGY=split corrected %d chunk(s) into %d.",
+                pre_overflow_count,
+                len(chunks),
+            )
 
-    # Step 5: Store in Postgres
-    inserted = store.save(chunks, embeddings)
-    logger.info("[ingest] Stored %d row(s) in document_chunks. Done! ✅", inserted)
+        # Step 4: Embed all chunks in one batched call
+        texts = [c["content"] for c in chunks]
+        logger.info(
+            "[ingest] Embedding with driver='%s' ...", settings.EMBEDDING_DRIVER
+        )
+        embeddings = driver.embed_documents(texts)
+        logger.info("[ingest] Embeddings ready. Dimension: %d.", len(embeddings[0]))
+
+        # Step 5: Store in Postgres
+        inserted = store.save(chunks, embeddings)
+        logger.info("[ingest] Stored %d row(s) in document_chunks. Done! ✅", inserted)
 
 
 def add_directory(
@@ -270,38 +274,40 @@ def add_directory(
 
     driver = get_embedding_driver()
     store = VectorStore()
-    store.assert_dimension_matches(driver.dimension)
 
-    for doc_file in files:
-        rel_path = str(doc_file.relative_to(path))
-        try:
-            content_hash = compute_file_hash(doc_file)
-            existing_hash = store.get_hash_by_source(rel_path)
-            hash_already_stored = store.has_content_hash(content_hash)
+    with store:
+        store.assert_dimension_matches(driver.dimension)
 
-            if not force:
-                if existing_hash == content_hash:
-                    logger.info("[ingest] Skipping '%s' (unchanged)", rel_path)
-                    summary["skipped"].append(str(doc_file))
-                    continue
-                if hash_already_stored and existing_hash is None:
-                    store.add_source_alias(content_hash, rel_path)
-                    logger.info(
-                        "[ingest] Aliased '%s' to existing content (hash %s)",
-                        rel_path,
-                        content_hash[:8],
-                    )
-                    summary["aliased"].append(str(doc_file))
-                    continue
+        for doc_file in files:
+            rel_path = str(doc_file.relative_to(path))
+            try:
+                content_hash = compute_file_hash(doc_file)
+                existing_hash = store.get_hash_by_source(rel_path)
+                hash_already_stored = store.has_content_hash(content_hash)
 
-            add_document(doc_file, force=force, store=store, source_path=rel_path)
-            if existing_hash and existing_hash != content_hash:
-                summary["updated"].append(str(doc_file))
-            else:
-                summary["ingested"].append(str(doc_file))
-        except (ValueError, FileNotFoundError, RuntimeError, OSError) as exc:
-            logger.warning("[ingest] Failed to ingest '%s': %s", doc_file, exc)
-            summary["failed"].append({"file": str(doc_file), "error": str(exc)})
+                if not force:
+                    if existing_hash == content_hash:
+                        logger.info("[ingest] Skipping '%s' (unchanged)", rel_path)
+                        summary["skipped"].append(str(doc_file))
+                        continue
+                    if hash_already_stored and existing_hash is None:
+                        store.add_source_alias(content_hash, rel_path)
+                        logger.info(
+                            "[ingest] Aliased '%s' to existing content (hash %s)",
+                            rel_path,
+                            content_hash[:8],
+                        )
+                        summary["aliased"].append(str(doc_file))
+                        continue
+
+                add_document(doc_file, force=force, store=store, source_path=rel_path)
+                if existing_hash and existing_hash != content_hash:
+                    summary["updated"].append(str(doc_file))
+                else:
+                    summary["ingested"].append(str(doc_file))
+            except (ValueError, FileNotFoundError, RuntimeError, OSError) as exc:
+                logger.warning("[ingest] Failed to ingest '%s': %s", doc_file, exc)
+                summary["failed"].append({"file": str(doc_file), "error": str(exc)})
 
     logger.info(
         "[ingest] Finished directory '%s': %d ingested, %d updated, %d aliased, %d skipped, %d failed.",

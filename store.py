@@ -12,6 +12,7 @@ Key exports:
 
 import json
 from contextlib import contextmanager
+from typing import ClassVar, Self
 
 from db import get_connection
 from logger import get_logger
@@ -241,8 +242,37 @@ class VectorStore:
             responsible for closing it.
     """
 
+    _validated_dimensions: ClassVar[set[int]] = set()
+
+    @classmethod
+    def clear_dimension_cache(cls) -> None:
+        """Clear cached dimension validations. Useful in test fixtures."""
+        cls._validated_dimensions.clear()
+
     def __init__(self, conn=None) -> None:
         self._conn = conn
+        self._managed_conn = None
+        self._conn_depth = 0
+
+    def __enter__(self) -> Self:
+        """Enter the connection context, opening a reusable connection if none exists."""
+        if self._conn is None:
+            self._managed_conn = get_connection()
+            self._conn = self._managed_conn
+        self._conn_depth += 1
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit the connection context, closing the connection when the outermost scope exits."""
+        self._conn_depth -= 1
+        if self._conn_depth <= 0:
+            self._conn_depth = 0
+            if self._managed_conn is not None:
+                try:
+                    self._managed_conn.close()
+                finally:
+                    self._conn = None
+                    self._managed_conn = None
 
     @contextmanager
     def _connection(self):
@@ -625,6 +655,9 @@ class VectorStore:
     def assert_dimension_matches(self, expected_dimension: int) -> None:
         """Raise a clear error if ``expected_dimension`` disagrees with the DB column.
 
+        Caches successfully verified dimensions in-memory to prevent redundant
+        catalog queries against pg_attribute on every subsequent query.
+
         A fresh database always gets a matching column (the dimension is
         embedded directly into the CREATE TABLE in
         ``migrations/0001_create_document_chunks_table.py``), so this only
@@ -640,6 +673,9 @@ class VectorStore:
         Raises:
             RuntimeError: If document_chunks exists with a different dimension.
         """
+        if expected_dimension in self._validated_dimensions:
+            return
+
         actual = self.get_embedding_dimension()
         if actual is not None and actual != expected_dimension:
             raise RuntimeError(
@@ -651,3 +687,5 @@ class VectorStore:
                 "add a new migration (or run `migrate fresh` if you don't need "
                 "the existing data) once you've decided which dimension to use."
             )
+
+        self._validated_dimensions.add(expected_dimension)

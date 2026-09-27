@@ -268,56 +268,60 @@ def retrieve_chunks(
 
     embedding_driver = get_embedding_driver()
     store = store if store is not None else VectorStore()
-    store.assert_dimension_matches(embedding_driver.dimension)
 
-    if query_vector is None:
-        logger.info("[query] Embedding question ...")
-        query_vector = embedding_driver.embed_query(question)
+    with store:
+        store.assert_dimension_matches(embedding_driver.dimension)
 
-    logger.info(
-        "[query] Vector-searching a candidate pool of %d chunks ...", candidate_k
-    )
-    if metadata_filter:
-        vector_results = store.search(
-            query_vector,
-            top_k=candidate_k,
-            min_score=0.0,
-            metadata_filter=metadata_filter,
+        if query_vector is None:
+            logger.info("[query] Embedding question ...")
+            query_vector = embedding_driver.embed_query(question)
+
+        logger.info(
+            "[query] Vector-searching a candidate pool of %d chunks ...", candidate_k
         )
-    else:
-        vector_results = store.search(query_vector, top_k=candidate_k, min_score=0.0)
+        if metadata_filter:
+            vector_results = store.search(
+                query_vector,
+                top_k=candidate_k,
+                min_score=0.0,
+                metadata_filter=metadata_filter,
+            )
+        else:
+            vector_results = store.search(
+                query_vector, top_k=candidate_k, min_score=0.0
+            )
 
-    if not _passes_relevance_gate(vector_results, top_k=k, min_score=threshold):
-        logger.info("[query] No relevant chunks found.")
-        return []
+        if not _passes_relevance_gate(vector_results, top_k=k, min_score=threshold):
+            logger.info("[query] No relevant chunks found.")
+            return []
 
-    active_strategy = strategy if strategy is not None else get_retrieval_strategy()
-    logger.info(
-        "[query] Selecting final chunks via %s ...", type(active_strategy).__name__
-    )
-    if metadata_filter:
-        chunks = active_strategy.select_chunks(
-            question,
-            vector_results,
-            store,
-            top_k=k,
-            min_score=threshold,
-            metadata_filter=metadata_filter,
+        active_strategy = strategy if strategy is not None else get_retrieval_strategy()
+        logger.info(
+            "[query] Selecting final chunks via %s ...", type(active_strategy).__name__
         )
-    else:
-        chunks = active_strategy.select_chunks(
-            question,
-            vector_results,
-            store,
-            top_k=k,
-            min_score=threshold,
-        )
+        if metadata_filter:
+            chunks = active_strategy.select_chunks(
+                question,
+                vector_results,
+                store,
+                top_k=k,
+                min_score=threshold,
+                metadata_filter=metadata_filter,
+            )
+        else:
+            chunks = active_strategy.select_chunks(
+                question,
+                vector_results,
+                store,
+                top_k=k,
+                min_score=threshold,
+            )
 
-    scores_str = ", ".join(f"{c['score']:.4f}" for c in chunks)
-    logger.info(
-        "[query] Using %d chunk(s) as context. Scores: %s", len(chunks), scores_str
-    )
-    return chunks
+        scores_str = ", ".join(f"{c['score']:.4f}" for c in chunks)
+        logger.info(
+            "[query] Using %d chunk(s) as context. Scores: %s", len(chunks), scores_str
+        )
+        return chunks
 
 
 def query_knowledge_base(

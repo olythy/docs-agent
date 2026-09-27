@@ -8,6 +8,13 @@ import store
 from store import VectorStore, _to_pgvector_literal
 
 
+@pytest.fixture(autouse=True)
+def _reset_dimension_cache():
+    VectorStore.clear_dimension_cache()
+    yield
+    VectorStore.clear_dimension_cache()
+
+
 def test_to_pgvector_literal_formats_as_bracketed_csv():
     assert _to_pgvector_literal([0.1, 0.2, 0.3]) == "[0.1,0.2,0.3]"
 
@@ -309,3 +316,69 @@ def test_add_source_alias(monkeypatch):
     assert updated == 2
     assert "jsonb_set" in cursor.execute.call_args[0][0]
     conn.commit.assert_called_once()
+
+
+def test_vector_store_context_manager_reuses_single_connection(monkeypatch):
+    cursor = MagicMock()
+    conn = _fake_conn_with_cursor(cursor)
+    get_conn_mock = MagicMock(return_value=conn)
+    monkeypatch.setattr(store, "get_connection", get_conn_mock)
+
+    store_instance = VectorStore()
+    assert store_instance._conn is None
+
+    with store_instance:
+        assert store_instance._conn is conn
+        get_conn_mock.assert_called_once()
+
+        # Perform multiple operations on the same instance
+        store_instance.has_content_hash("a" * 64)
+        store_instance.has_content_hash("b" * 64)
+
+        # Still only one connection opened
+        get_conn_mock.assert_called_once()
+        conn.close.assert_not_called()
+
+    # Closed upon exiting the context
+    conn.close.assert_called_once()
+    assert store_instance._conn is None
+
+
+def test_vector_store_context_manager_nested_reentrancy(monkeypatch):
+    cursor = MagicMock()
+    conn = _fake_conn_with_cursor(cursor)
+    get_conn_mock = MagicMock(return_value=conn)
+    monkeypatch.setattr(store, "get_connection", get_conn_mock)
+
+    store_instance = VectorStore()
+    with store_instance:
+        # Outer scope
+        assert store_instance._conn_depth == 1
+        with store_instance:
+            # Inner scope (e.g. add_directory -> add_document)
+            assert store_instance._conn_depth == 2
+            conn.close.assert_not_called()
+        # Exited inner scope
+        assert store_instance._conn_depth == 1
+        conn.close.assert_not_called()
+
+    # Exited outer scope
+    assert store_instance._conn_depth == 0
+    conn.close.assert_called_once()
+
+
+def test_assert_dimension_matches_caches_successful_check(monkeypatch):
+    get_dim_mock = MagicMock(return_value=384)
+    monkeypatch.setattr(VectorStore, "get_embedding_dimension", get_dim_mock)
+
+    s = VectorStore()
+    s.assert_dimension_matches(384)
+    assert get_dim_mock.call_count == 1
+
+    # Second call for the same dimension must hit cache and NOT query DB
+    s.assert_dimension_matches(384)
+    assert get_dim_mock.call_count == 1
+
+    # Another instance also benefits from the cache
+    VectorStore().assert_dimension_matches(384)
+    assert get_dim_mock.call_count == 1
