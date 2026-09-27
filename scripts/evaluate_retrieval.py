@@ -170,7 +170,7 @@ def _precompute_embeddings(questions: list[dict]) -> dict[str, list[float]]:
     """
     driver = get_embedding_driver()
     print(f"[eval] Pre-embedding {len(questions)} question(s) ...")
-    return {q["question"]: driver.embed_text(q["question"]) for q in questions}
+    return {q["question"]: driver.embed_query(q["question"]) for q in questions}
 
 
 def _rank_of_expected(chunks: list[dict], expected_source_file: str) -> int | None:

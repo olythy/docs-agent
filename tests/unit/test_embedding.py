@@ -50,6 +50,14 @@ def test_default_embed_text_delegates_to_embed_batch():
     assert _FakeDriver().embed_text("abc") == [3.0]
 
 
+def test_default_embed_query_delegates_to_embed_text():
+    assert _FakeDriver().embed_query("abc") == [3.0]
+
+
+def test_default_embed_documents_delegates_to_embed_batch():
+    assert _FakeDriver().embed_documents(["abc", "de"]) == [[3.0], [2.0]]
+
+
 def test_openai_driver_max_sequence_length_is_none():
     assert OpenAIEmbeddingDriver().max_sequence_length() is None
 
@@ -199,3 +207,35 @@ def test_get_embedding_driver_is_cached():
     driver1 = get_embedding_driver()
     driver2 = get_embedding_driver()
     assert driver1 is driver2
+
+
+def test_local_driver_e5_adds_query_and_passage_prefixes(monkeypatch):
+    fake_model = MagicMock()
+    fake_item = MagicMock()
+    fake_item.tolist.return_value = [0.1] * 384
+    fake_model.encode.side_effect = lambda texts, **kw: [fake_item for _ in texts]
+    monkeypatch.setattr("sentence_transformers.SentenceTransformer", lambda name: fake_model)
+
+    driver = LocalSentenceTransformerDriver(model_name="intfloat/multilingual-e5-small")
+    driver.embed_query("What is this?")
+    fake_model.encode.assert_called_with(["query: What is this?"], convert_to_numpy=True)
+
+    driver.embed_documents(["doc chunk 1", "doc chunk 2"])
+    fake_model.encode.assert_called_with(
+        ["passage: doc chunk 1", "passage: doc chunk 2"], convert_to_numpy=True
+    )
+
+
+def test_local_driver_non_e5_does_not_add_prefixes(monkeypatch):
+    fake_model = MagicMock()
+    fake_item = MagicMock()
+    fake_item.tolist.return_value = [0.1] * 384
+    fake_model.encode.side_effect = lambda texts, **kw: [fake_item for _ in texts]
+    monkeypatch.setattr("sentence_transformers.SentenceTransformer", lambda name: fake_model)
+
+    driver = LocalSentenceTransformerDriver(model_name="paraphrase-multilingual-MiniLM-L12-v2")
+    driver.embed_query("What is this?")
+    fake_model.encode.assert_called_with(["What is this?"], convert_to_numpy=True)
+
+    driver.embed_documents(["doc chunk 1"])
+    fake_model.encode.assert_called_with(["doc chunk 1"], convert_to_numpy=True)

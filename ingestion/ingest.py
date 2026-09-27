@@ -107,7 +107,7 @@ def add_document(file_path: str | Path, force: bool = False) -> None:
     # Step 4: Embed all chunks in one batched call
     texts = [c["content"] for c in chunks]
     logger.info("[ingest] Embedding with driver='%s' ...", settings.EMBEDDING_DRIVER)
-    embeddings = driver.embed_batch(texts)
+    embeddings = driver.embed_documents(texts)
     logger.info("[ingest] Embeddings ready. Dimension: %d.", len(embeddings[0]))
 
     # Step 5: Store in Postgres

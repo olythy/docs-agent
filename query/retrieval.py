@@ -236,7 +236,7 @@ def retrieve_chunks(
 
     if query_vector is None:
         logger.info("[query] Embedding question ...")
-        query_vector = embedding_driver.embed_text(question)
+        query_vector = embedding_driver.embed_query(question)
 
     logger.info("[query] Vector-searching a candidate pool of %d chunks ...", candidate_k)
     vector_results = store.search(query_vector, top_k=candidate_k, min_score=0.0)

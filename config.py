@@ -53,8 +53,9 @@ class Settings:
 
     Embedding:
         EMBEDDING_DRIVER      Driver to use: ``local`` (default) or ``openai``.
-        EMBEDDING_MODEL       Model name/id for the active driver.
-        EMBEDDING_DIMENSION   Output vector dimension (must match the model).
+        EMBEDDING_MODEL       Model name/id for the active driver (default:
+                              ``intfloat/multilingual-e5-small`` for local).
+        EMBEDDING_DIMENSION   Output vector dimension (must match the model; 384 for e5-small).
         EMBEDDING_API_KEY     API key for the embedding driver (only when
                               ``EMBEDDING_DRIVER=openai``).
 
@@ -172,7 +173,7 @@ class Settings:
     # --- Embedding ---
     EMBEDDING_DRIVER: str = os.getenv("EMBEDDING_DRIVER", "local")
     EMBEDDING_MODEL: str = os.getenv(
-        "EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2"
+        "EMBEDDING_MODEL", "intfloat/multilingual-e5-small"
     )
     EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION", "384"))
     EMBEDDING_API_KEY: str = os.getenv("EMBEDDING_API_KEY", "")

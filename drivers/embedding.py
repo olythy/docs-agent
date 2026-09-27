@@ -95,6 +95,34 @@ class EmbeddingDriver(ABC):
             A list of float vectors, one per input string.
         """
 
+    def embed_query(self, text: str) -> list[float]:
+        """Embed a search query string into a dense float vector.
+
+        Default implementation delegates to :meth:`embed_text`. Asymmetric models
+        (such as E5 or BGE) override this to prepend instruction prefixes (e.g. 'query: ').
+
+        Args:
+            text: The search query text.
+
+        Returns:
+            A list of floats with length equal to :attr:`dimension`.
+        """
+        return self.embed_text(text)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed a list of document chunk strings in one batched call.
+
+        Default implementation delegates to :meth:`embed_batch`. Asymmetric models
+        (such as E5) override this to prepend passage prefixes (e.g. 'passage: ').
+
+        Args:
+            texts: List of document chunk strings.
+
+        Returns:
+            A list of float vectors, one per input string.
+        """
+        return self.embed_batch(texts)
+
     def max_sequence_length(self) -> int | None:
         """Return this driver's maximum input length in tokens, if known.
 
@@ -158,6 +186,38 @@ class LocalSentenceTransformerDriver(EmbeddingDriver):
         """
         self._model_name = model_name or settings.EMBEDDING_MODEL
         self._model = None  # Loaded lazily on first embed call
+        is_e5 = "e5" in self._model_name.lower()
+        self._query_prefix = "query: " if is_e5 else ""
+        self._passage_prefix = "passage: " if is_e5 else ""
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed a search query, prepending 'query: ' if using an E5 model.
+
+        Args:
+            text: The search query text.
+
+        Returns:
+            Dense float vector representing the query.
+        """
+        if self._query_prefix and not text.startswith(self._query_prefix):
+            text = f"{self._query_prefix}{text}"
+        return self.embed_text(text)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed document chunk strings, prepending 'passage: ' if using an E5 model.
+
+        Args:
+            texts: List of document chunk strings.
+
+        Returns:
+            List of float vectors, one per document chunk.
+        """
+        if self._passage_prefix:
+            texts = [
+                f"{self._passage_prefix}{t}" if not t.startswith(self._passage_prefix) else t
+                for t in texts
+            ]
+        return self.embed_batch(texts)
 
     def _get_model(self):
         """Load and cache the sentence-transformer model.

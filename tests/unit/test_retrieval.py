@@ -145,16 +145,16 @@ def test_retrieve_chunks_skips_embedding_when_query_vector_given(monkeypatch):
 
     retrieve_chunks("question", query_vector=[0.1, 0.2])
 
-    fake_driver.embed_text.assert_not_called()
+    fake_driver.embed_query.assert_not_called()
     fake_store.search.assert_called_once()
     assert fake_store.search.call_args.args[0] == [0.1, 0.2]
 
 
 def test_retrieve_chunks_embeds_when_no_query_vector_given(monkeypatch):
     fake_driver, fake_store = _patch_driver_and_store(monkeypatch)
-    fake_driver.embed_text.return_value = [0.9, 0.9]
+    fake_driver.embed_query.return_value = [0.9, 0.9]
 
     retrieve_chunks("question")
 
-    fake_driver.embed_text.assert_called_once_with("question")
+    fake_driver.embed_query.assert_called_once_with("question")
     assert fake_store.search.call_args.args[0] == [0.9, 0.9]
