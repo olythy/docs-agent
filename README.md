@@ -182,14 +182,16 @@ The project uses the **Strategy / Driver pattern** so the embedding backend is s
 
 | `EMBEDDING_DRIVER` | Model | Cost | Language support |
 |---|---|---|---|
-| `local` (default) | `paraphrase-multilingual-MiniLM-L12-v2` | Free, offline | 50+ languages incl. Hungarian |
+| `local` (default) | `intfloat/multilingual-e5-small` | Free, offline | 100+ languages incl. Hungarian |
 | `openai` | `text-embedding-3-small` | Paid API | Primarily English |
+
+The `local` driver uses **asymmetric embedding**: document chunks are embedded with a `"passage: "` prefix (`embed_documents()`), while query strings use a `"query: "` prefix (`embed_query()`). This matches the retrieval-optimised training of the `e5` model family and measurably improves ranking compared to symmetric embedding (same prefix for both), particularly for cross-lingual queries.
 
 Set `EMBEDDING_DRIVER=openai` in `.env` to switch — no code changes needed.
 
 ## Chunking & Token Limits
 
-Embedding models don't read arbitrarily long text — each one has a maximum input length in *tokens* (not words), and text beyond that limit is **silently truncated** during embedding, not rejected. The truncated tail becomes invisible to retrieval, which can badly hurt answer quality without ever raising an error. Confirmed empirically for the default local model: `paraphrase-multilingual-MiniLM-L12-v2` truncates at only **128 tokens** — far below the 512 an earlier version of this project's docs assumed.
+Embedding models don't read arbitrarily long text — each one has a maximum input length in *tokens* (not words), and text beyond that limit is **silently truncated** during embedding, not rejected. The truncated tail becomes invisible to retrieval, which can badly hurt answer quality without ever raising an error. The default local model (`intfloat/multilingual-e5-small`) has a **512-token** sequence limit.
 
 Since `CHUNK_SIZE` (`chunker.py`) is configured in *words*, not tokens, what happens next depends on `CHUNK_OVERFLOW_STRATEGY` (`.env`, default `warn`) — a Strategy pattern in `ingestion/chunker.py`, same shape as the embedding/LLM drivers:
 
@@ -248,15 +250,42 @@ Controlled by `RERANKER_DRIVER` (`.env`, default `none`) — a Strategy pattern 
 
 ### How quality is measured
 
-`scripts/evaluate_retrieval.py` + `tests/data/eval_questions.json` — 13 hand-written questions (10 answerable, 3 deliberately unanswerable) against the two real, committed fixtures (`tests/data/sample.md`, `tests/data/sample.pdf`). It runs every question through `retrieve_chunks()` with each `RetrievalStrategy` swapped in explicitly — **vector-only** (`VectorRetrievalStrategy`) and **hybrid+rerank** (`HybridRetrievalStrategy`, with whatever `RERANKER_DRIVER` is currently configured) — through the exact same production code path, not a hand-rolled duplicate, and reports:
+`scripts/evaluate_retrieval.py` + `tests/data/eval_questions.json` — **25 bilingual questions** (19 answerable, 6 deliberately unanswerable) across three committed fixtures (`tests/data/sample.md`, `tests/data/sample.pdf`, `tests/data/sample_hu.md` — an Hungarian enterprise IT policy). It runs every question through `retrieve_chunks()` with each `RetrievalStrategy` swapped in explicitly — **vector-only** (`VectorRetrievalStrategy`) and **hybrid+rerank** (`HybridRetrievalStrategy`, with whatever `RERANKER_DRIVER` is currently configured) — through the exact same production code path, not a hand-rolled duplicate, and reports:
 
-- **Recall@k**: did a chunk from the expected source file appear anywhere in the top-k?
-- **MRR** (Mean Reciprocal Rank): how high up was the first correct chunk?
+- **Passage Hit@1**: did the passage containing the expected gold fact land at rank 1?
+- **Passage Recall@k**: did it land anywhere in the top-k?
+- **Passage MRR** (Mean Reciprocal Rank): inverse rank of the first gold passage.
 - **Fallback rate**: for the unanswerable questions, did the retrieval-layer relevance gate correctly return nothing?
 
-Run it with `uv run python scripts/evaluate_retrieval.py`. It's safe to run against any configured `DATABASE_URL`, including a populated dev database: it never deletes anything, only adds the two fixtures if they're not already present (`VectorStore.has_chunks_from_source`), and prints which database it's about to touch. Run with `AGENT_ENV=test` instead for a fully controlled corpus (no other documents mixed in).
+Each question carries a `expected_text_contains` gold label (a specific phrase expected verbatim in the answer, e.g. `"pgvector"`, `"€49/month"`, `"150 000 Ft"`) — the eval script uses these for passage-level matching, not just file-level.
 
-**Honesty about what these numbers mean**: this corpus is two documents. Recall@k and MRR come out identical (**1.00**) for both configurations here, and that's an honest, expected result of the corpus being this small — with only two possible source documents, hybrid fusion and reranking don't have much room to change an already-easy ranking. These are *our own, repeatable* numbers for comparing configurations against each other as the corpus grows, not a statistically meaningful benchmark.
+Run it with:
+
+```bash
+# Default (RERANKER_DRIVER=none — RRF fusion only, no cross-encoder):
+uv run python scripts/evaluate_retrieval.py
+
+# With cross-encoder reranker:
+RERANKER_DRIVER=cross_encoder uv run python scripts/evaluate_retrieval.py
+
+# Controlled corpus (only the 3 committed fixtures, no other documents):
+AGENT_ENV=test RERANKER_DRIVER=cross_encoder uv run python scripts/evaluate_retrieval.py
+```
+
+It's safe to run against any configured `DATABASE_URL`, including a populated dev database: it never deletes anything, only adds the fixtures if they're not already present (`VectorStore.has_chunks_from_source`), and prints which database it's about to touch.
+
+**Current benchmark numbers** (`AGENT_ENV=test`, controlled corpus):
+
+| Config | Hit@1 | Recall@k | Passage MRR | Fallback |
+|---|---|---|---|---|
+| `vector-only` | 0.89 | 0.95 | 0.92 | 0.00 |
+| `hybrid+rerank (cross_encoder)` | **0.95** | 0.95 | **0.95** | **1.00** |
+
+Language breakdown for `hybrid+rerank (cross_encoder)`:
+- **EN** (10 ans, 3 unans): Hit@1 = 0.90, Recall@k = 0.90, Fallback = 1.00
+- **HU** (9 ans, 3 unans): Hit@1 = **1.00**, Recall@k = 1.00, Fallback = 1.00
+
+**Honesty about what these numbers mean**: three documents, 25 questions — the corpus is tiny, so these compare our *configurations against each other*, not against a statistically meaningful external benchmark. What's meaningful here: the cross-encoder's `Fallback = 1.00` vs. vector-only's `Fallback = 0.00` (6/6 vs. 0/6 unanswerable queries correctly rejected at the retrieval layer) — this is a real, structural difference, not noise.
 
 **A more interesting, honest finding** came from the fallback-rate metric: it measured **0.33** — 1 of the 3 deliberately unanswerable questions was correctly caught by the retrieval-layer gate alone, the other 2 weren't. Inspecting the real scores explained why: a question that stays *topically* on-subject but asks for a fact the document never states can still score above `RETRIEVAL_MIN_SCORE` (0.25) — e.g. 0.438 for "what is the founder's phone number?" and 0.370 for "what is the project's annual revenue?" — because cosine similarity reflects "is this about the same topic", not "does this contain the specific fact asked for". The one that *was* caught ("what programming language is the backend written in?", scoring 0.249) shows how close this can run either way — a hair's width under the 0.25 threshold, not a clean rejection. That's a genuine limitation of similarity-threshold gating, not a bug, and it's exactly why the system doesn't rely on that gate alone (see below).
 
@@ -264,10 +293,13 @@ Run it with `uv run python scripts/evaluate_retrieval.py`. It's safe to run agai
 
 Two independent layers, not one:
 
-1. **Retrieval-layer gate** (`query/retrieval.py`'s `_passes_relevance_gate`): if *nothing* in the vector-search candidate pool clears `RETRIEVAL_MIN_SCORE`, `query_knowledge_base()` returns `NO_RESULTS_MESSAGE` immediately — no LLM call at all. This deliberately checks pure vector similarity only, never the fused RRF/reranker score, since those live on scales with no equivalent calibrated "irrelevant" cutoff. This catches questions genuinely unrelated to anything in the knowledge base.
-2. **Prompt-level grounding instruction** (`drivers/llm.py`'s `_build_prompt`): the system prompt explicitly instructs the model to answer strictly from the provided excerpts and respond with an exact "I could not find this information in the provided documents" if the excerpts don't answer the question. This catches the case the eval script's fallback-rate finding demonstrated above — a topically-relevant chunk that still doesn't contain the specific fact asked for — which a similarity threshold structurally cannot distinguish from a genuine answer.
+1. **Retrieval-layer gate** (`query/retrieval.py`'s `_passes_relevance_gate`): if *nothing* in the vector-search candidate pool clears `RETRIEVAL_MIN_SCORE`, `query_knowledge_base()` returns `NO_RESULTS_MESSAGE` immediately — no LLM call at all. This deliberately checks pure vector cosine similarity only, never the fused RRF/reranker score: cosine similarity lives on a calibrated [0, 1] scale with a meaningful "too-low-to-be-relevant" interpretation (the original motivation for `RETRIEVAL_MIN_SCORE=0.25`). This catches questions genuinely unrelated to anything in the knowledge base.
+2. **Cross-encoder reranking gate** (`RERANKER_DRIVER=cross_encoder`, optional): when enabled, `CrossEncoderRerankerDriver` scores each `(question, chunk)` pair jointly and discards any chunk scoring below `RERANKER_MIN_SCORE=-2.0` on the logit scale. This is a *second* gate that fires *after* the cosine gate — it operates on the already-filtered candidate pool, not the raw corpus. Its logit scale (unbounded, centered around 0) has a natural "irrelevant" region confirmed empirically: relevant chunks score +2 to +6, clearly irrelevant ones score -3.5 to -9. With `cross_encoder` enabled, the measured `Fallback = 1.00` (6/6 unanswerable queries correctly rejected at the retrieval layer, zero reaching the LLM), vs. `Fallback = 0.00` without it — a 6-chunk saving per irrelevant query with no LLM call at all.
+3. **Prompt-level grounding instruction** (`drivers/llm.py`'s `_build_prompt`): the system prompt explicitly instructs the model to answer strictly from the provided excerpts and respond with an exact "I could not find this information in the provided documents" if the excerpts don't answer the question. This catches the case the eval script's fallback-rate finding demonstrated above — a topically-relevant chunk that still doesn't contain the specific fact asked for — which a similarity threshold structurally cannot distinguish from a genuine answer.
 
-**Verifying layer 2 actually works — and a real caveat found doing it**: `scripts/evaluate_retrieval.py --with-llm` (see below) generates a real answer for the 3 unanswerable questions specifically to check this. Running it surfaced something worth knowing before trusting any number out of it: with the default `LLM_MODEL=openrouter/free`, which auto-routes to *whichever* free model is available per call (not a fixed one), some calls — for **both** answerable and unanswerable questions, so it isn't tied to retrieval quality at all — came back with a broken, non-answer string (`"User Safety: safe"`/`"User Safety: unsafe"`) instead of a real completion, apparently a moderation-layer artifact from whichever free model got auto-selected that call. That's real, useful signal about `openrouter/free`'s reliability for this kind of measurement, but it also means a `--with-llm` run's raw decline-rate number can't be trusted as reproducible evidence by itself — it's confounded by which random free model happened to answer. Pin `LLM_MODEL` to a fixed, non-`:free` model before drawing any real conclusion from this layer.
+**Verifying layers 2 and 3 work — `--with-llm`**: `scripts/evaluate_retrieval.py --with-llm` generates a real answer for every question under both configurations, side-by-side, with full (un-truncated) text. For answerable questions, it checks whether the expected gold fact (`expected_text_contains`) is verbatim in the answer (`✅ GOLD FACT MATCH` / `ℹ️ ANSWERED (FACT NOT FOUND)`). For unanswerable ones, it distinguishes between retrieval-layer rejection (`🛡️ RETRIEVAL REJECTED` — 0 chunks passed, 0 LLM calls) and prompt-layer decline (`🛡️ PROMPT DECLINED`), vs. a potential hallucination (`🚨 POTENTIAL HALLUCINATION`). A final **LLM Generation Benchmark Scorecard** summarises gold fact retention %, safe decline rate, API calls made, and average latency across both configurations.
+
+The default LLM model is pinned to `google/gemini-3.1-flash-lite` (via OpenRouter) — a fixed, non-`:free` model — to ensure `--with-llm` results are reproducible. Using `openrouter/free` (auto-routed to a random available model) is explicitly not recommended for this kind of measurement: different models on different calls makes the decline-rate numbers meaningless as comparative evidence.
 
 ## Local Diagnostic & Evaluation Scripts
 
@@ -281,9 +313,9 @@ Three hand-runnable scripts, no test framework involved — point them at a real
 
 All three fall back to `TEST_DOC_PATH` (`.env`) when no path is given, except `evaluate_retrieval.py`, which always runs against the two committed fixtures (`tests/data/sample.md`/`sample.pdf`) — see its own "Which database?" note above for why it's safe to run against a real, populated database.
 
-**`evaluate_retrieval.py`'s per-question breakdown**, specifically: the aggregate Recall@k/MRR/Fallback rate numbers can land on identical values for both configurations purely because the corpus is small — that hides whether the two strategies actually behave differently on any *individual* question. Every run also prints a row per question, `vector` vs. `hybrid`, with a `<- differs` marker wherever the two disagree, so a difference is visible even when the averages coincide. A real example from this project's own fixtures: both configs score `1.00`/`1.00`/`0.33` in aggregate, and yet the breakdown shows the "what is the project's annual revenue?" question keeps 1 chunk under `vector` but 2 under `hybrid` — a real, if small, difference the averages alone completely hid.
+**`evaluate_retrieval.py`'s per-question breakdown**, specifically: the aggregate Recall@k/MRR/Fallback rate numbers can land on identical values for both configurations purely because the corpus is small — that hides whether the two strategies actually behave differently on any *individual* question. Every run also prints a row per question, `vector` vs. `hybrid`, with a `<- differs` marker wherever the two disagree, so a difference is visible even when the averages coincide.
 
-**`--with-llm`**: none of the above touches the LLM — Recall@k/MRR/Fallback rate are all retrieval-layer-only, deliberately, to stay fast and free to run. Passing `--with-llm` additionally generates a real answer (real network call, `LLM_DRIVER`) for every question under both configurations, and for the 3 deliberately unanswerable ones, checks whether the answer actually reads like a decline — this is what closes the gap "What happens when there's no reliable source" describes above: Fallback rate alone only proves the *retrieval* gate didn't catch these three, not whether the *system* as a whole still ends up hallucinating. Run once with `--with-llm` and read the printed answers to find out — but see that same section's caveat about `LLM_MODEL=openrouter/free` before trusting the decline-rate number itself.
+**`--with-llm`**: none of the above touches the LLM — Recall@k/MRR/Fallback rate are all retrieval-layer-only, deliberately, to stay fast and free to run. Passing `--with-llm` additionally generates a real answer (real network call, `LLM_DRIVER`) for every question under both configurations side-by-side, with full un-truncated text. Each answer is tagged with its outcome: `✅ GOLD FACT MATCH` / `ℹ️ ANSWERED (FACT NOT FOUND)` for answerable questions (verified against `expected_text_contains` gold labels), and `🛡️ RETRIEVAL REJECTED` / `🛡️ PROMPT DECLINED` / `🚨 POTENTIAL HALLUCINATION` for unanswerable ones. A final **LLM Generation Benchmark Scorecard** at the end summarises gold fact retention rate, safe decline breakdown by layer, real API calls made (calls saved by retrieval-layer rejection), and average latency. See "What happens when there's no reliable source" above for the interpretation.
 
 ## MCP Server
 
