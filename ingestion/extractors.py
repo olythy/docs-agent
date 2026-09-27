@@ -22,6 +22,7 @@ Usage::
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from pathlib import Path
 
 from ingestion.pdf_loader import extract_document_text, extract_pages, is_scanned_pdf
@@ -183,6 +184,35 @@ def _markdown_section_map(full_text: str) -> list[int]:
     return word_section_map
 
 
+#: Registry mapping lowercase file extensions to their Extractor classes.
+EXTRACTOR_REGISTRY: dict[str, type[Extractor]] = {
+    ".pdf": PDFExtractor,
+    ".md": MarkdownExtractor,
+    ".markdown": MarkdownExtractor,
+}
+
+#: File extensions recognized by the ingestion pipeline.
+SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(EXTRACTOR_REGISTRY.keys())
+
+
+def normalize_extensions(extensions: Iterable[str]) -> frozenset[str]:
+    """Normalize an iterable of file extensions to lowercase with leading dots.
+
+    Args:
+        extensions: An iterable of extension strings (e.g. ``[".md", "PDF", " .markdown "]``).
+
+    Returns:
+        A frozenset of normalized lowercase extensions with leading dots (e.g. ``{".md", ".pdf", ".markdown"}``).
+    """
+    return frozenset(
+        ext.strip().lower()
+        if ext.strip().startswith(".")
+        else f".{ext.strip().lower()}"
+        for ext in extensions
+        if ext and ext.strip()
+    )
+
+
 def get_extractor(file_path: Path) -> Extractor:
     """Factory function: return the extractor matching ``file_path``'s extension.
 
@@ -196,13 +226,12 @@ def get_extractor(file_path: Path) -> Extractor:
         ValueError: If the file's extension isn't a supported format.
     """
     suffix = file_path.suffix.lower()
+    extractor_cls = EXTRACTOR_REGISTRY.get(suffix)
+    if extractor_cls is not None:
+        return extractor_cls()
 
-    if suffix == ".pdf":
-        return PDFExtractor()
-    if suffix in (".md", ".markdown"):
-        return MarkdownExtractor()
-
+    supported_list = ", ".join(sorted(SUPPORTED_EXTENSIONS))
     raise ValueError(
         f"Unsupported document type: '{suffix}'. Supported extensions are: "
-        ".pdf, .md, .markdown."
+        f"{supported_list}."
     )

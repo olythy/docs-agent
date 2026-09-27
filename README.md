@@ -13,10 +13,11 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 
 | Tool | Triggered when... |
 |---|---|
-| `add_document(file_path)` | User wants to ingest a new document |
+| `add_document(file_path)` | User wants to ingest a single document |
+| `add_directory(dir_path)` | User wants to batch-ingest an entire directory |
 | `query_knowledge_base(question)` | User wants to ask a question |
 
-`agent.py` wires this up: both tools are described to the LLM as OpenAI-style `tools=[...]` function schemas, and a single free-form message runs the standard tool-calling loop — the model decides whether to call `add_document`, `query_knowledge_base`, both, or neither. Try it interactively with `uv run python agent.py`, or call `agent.run_agent("...")` directly. `AnswerDriver` (the same driver `query_knowledge_base` uses for answer generation) exposes a public `get_client()`/`model` for this — the agent loop needs the raw, tools-capable chat client, not the RAG-specific `answer()` method with its fixed prompt shape.
+`agent.py` wires this up: tools are described to the LLM as OpenAI-style `tools=[...]` function schemas, and a single free-form message runs the standard tool-calling loop — the model decides whether to call `add_document`, `add_directory`, `query_knowledge_base`, or neither. Try it interactively with `uv run python agent.py`, or call `agent.run_agent("...")` directly. `AnswerDriver` (the same driver `query_knowledge_base` uses for answer generation) exposes a public `get_client()`/`model` for this — the agent loop needs the raw, tools-capable chat client, not the RAG-specific `answer()` method with its fixed prompt shape.
 
 **Caveat:** tool-calling support is model-dependent, and `LLM_MODEL`'s default (`openrouter/free`, which auto-routes to *some* available free model) isn't guaranteed to support it — pick a model explicitly known to support tools if `agent.py` doesn't behave as expected.
 
@@ -24,8 +25,8 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 
 ```
 .
-├── agent.py                 # Function-calling loop: LLM picks add_document vs query_knowledge_base
-├── mcp_server.py            # MCP server (stdio): search_knowledge_base + add_document, for Claude Desktop etc.
+├── agent.py                 # Function-calling loop: LLM picks add_document vs add_directory vs query_knowledge_base
+├── mcp_server.py            # MCP server (stdio): search_knowledge_base + add_document + add_directory
 ├── config.py               # Centralized Settings (env + defaults)
 ├── db.py                   # Postgres connection factory — nothing else
 ├── store.py                # VectorStore: all document_chunks persistence (save/search)
@@ -37,7 +38,7 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 │   ├── extractors.py         # Extractor strategy: PDF vs Markdown, chosen by file extension
 │   ├── pdf_loader.py         # PDF text extraction (pdfplumber), flat/blocks modes
 │   ├── chunker.py            # Chunking strategies (word/langchain) + overflow correction
-│   └── ingest.py             # add_document orchestration
+│   └── ingest.py             # add_document and add_directory orchestration
 ├── query/
 │   ├── retrieval.py          # query_knowledge_base: hybrid retrieval + answer generation
 │   └── hybrid.py             # reciprocal_rank_fusion: pure RRF fusion logic
@@ -46,6 +47,7 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 │   ├── 0001_create_document_chunks_table.py
 │   └── 0002_add_fulltext_search.py
 ├── scripts/
+│   ├── ingest.py             # CLI ingestion for documents and directories (make add-document / make add-directory)
 │   ├── migrate.py            # Migration runner: uv run python scripts/migrate.py [subcommand]
 │   ├── make_migration.py     # Scaffold a new migration file
 │   ├── db_flush.py           # Truncate document_chunks
@@ -164,7 +166,8 @@ Run `make` or `make help` any time for this same list straight from the terminal
 | `make migrate-reset` | `uv run python scripts/migrate.py reset` — revert every applied migration |
 | `make migrate-refresh` | `uv run python scripts/migrate.py refresh` — `reset` then `up` |
 | `make make-migration name=<snake_case_name>` | `uv run python scripts/make_migration.py <snake_case_name>` — scaffold a new migration file |
-| `make add-document path=<file>` | One-shot ingestion — `ingestion.ingest.add_document()` on `<file>` |
+| `make add-document path="<file> ..."` | Ingest one or more documents via `scripts/ingest.py` |
+| `make add-directory path=<dir> [ext=...]` | Batch-ingest a directory via `scripts/ingest.py` |
 | `make query q="<question>"` | One-shot question — full pipeline (`query.retrieval.query_knowledge_base()`), real LLM call |
 | `make mcp-dev` | `uv run mcp dev mcp_server.py` — runs `mcp_server.py` under the MCP Inspector for local testing |
 | `make mcp-install` | `uv run mcp install mcp_server.py --name "docs-agent" -f .env` — registers it with Claude Desktop |
@@ -201,7 +204,7 @@ Verified against a real document (`CHUNK_SIZE=50`, `WORDS_PER_TOKEN=0.4`): the `
 
 ## Supported Formats, Extraction Mode & Chunking Strategy
 
-`add_document()` accepts PDF (`.pdf`) and Markdown (`.md`/`.markdown`) files — the format is detected from the extension via `ingestion/extractors.py`'s `get_extractor()`, a Strategy pattern like the embedding/LLM drivers, but selected by file extension rather than an `.env` setting (there's nothing to prefer — the file's format is a fact, not a choice). `PDFExtractor` wraps `pdf_loader.py`'s pdfplumber-based extraction; `MarkdownExtractor` just reads the file directly — Markdown already marks its own paragraph breaks (blank lines) and structure (`#` headers), so there's no coordinate-based heuristic to run, unlike PDF.
+`add_document()` and `add_directory()` accept PDF (`.pdf`) and Markdown (`.md`/`.markdown`) files — the format is detected from the extension via `ingestion/extractors.py`'s `EXTRACTOR_REGISTRY` and `get_extractor()`. The system-wide list of allowed extensions can be configured in `.env` via `INGEST_EXTENSIONS` (default: `.pdf,.md,.markdown`), or overridden at runtime without restarting via the `allowed_extensions` parameter. `PDFExtractor` wraps `pdf_loader.py`'s pdfplumber-based extraction; `MarkdownExtractor` just reads the file directly — Markdown already marks its own paragraph breaks (blank lines) and structure (`#` headers), so there's no coordinate-based heuristic to run, unlike PDF.
 
 Markdown files have no real "pages", so chunk metadata's `page_number` is instead a **header-based section index** for them (every `#`...`######` line starts a new section) — the same field, same purpose (citing roughly where in the document a chunk came from), just a different unit depending on the source format. A `#` inside a fenced code block (e.g. a Python/shell comment in a documentation example) is correctly not treated as a header.
 

@@ -11,7 +11,7 @@ import pytest
 
 from config import settings
 from drivers.embedding import get_embedding_driver
-from ingestion.ingest import add_document
+from ingestion.ingest import add_directory, add_document
 from store import VectorStore
 
 pytestmark = [
@@ -153,3 +153,27 @@ def test_add_document_end_to_end_with_hungarian_markdown(db_conn):
     # Verify header enrichment was stored in metadata and content
     assert any("header_path" in r[1] for r in rows)
     assert any(r[1].get("header_path") is not None for r in rows)
+
+
+def test_add_directory_end_to_end_real_db(tmp_path, db_conn):
+    """Proves add_directory batch-ingests multiple files into real Postgres."""
+    folder = tmp_path / "batch_docs"
+    folder.mkdir()
+    (folder / "file1.md").write_text("# File 1\nSome initial content.")
+    (folder / "file2.md").write_text("# File 2\nSome second content.")
+    (folder / "ignored.txt").write_text("Should be ignored.")
+
+    summary = add_directory(folder)
+
+    assert summary["total_found"] == 2
+    assert len(summary["ingested"]) == 2
+    assert len(summary["skipped"]) == 0
+    assert len(summary["failed"]) == 0
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT metadata->>'source_file' FROM document_chunks ORDER BY 1;"
+        )
+        sources = [r[0] for r in cur.fetchall()]
+
+    assert sources == ["file1.md", "file2.md"]

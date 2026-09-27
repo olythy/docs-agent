@@ -40,6 +40,24 @@ def test_call_tool_add_document_calls_ingest_and_returns_confirmation(monkeypatc
     assert "notes.md" in result
 
 
+def test_call_tool_add_directory_calls_ingest_and_returns_summary(monkeypatch):
+    fake_add_directory = MagicMock(
+        return_value={
+            "ingested": ["a.md"],
+            "skipped": [],
+            "failed": [],
+            "total_found": 1,
+        }
+    )
+    monkeypatch.setattr(agent, "add_directory", fake_add_directory)
+
+    result = _call_tool("add_directory", {"dir_path": "docs/", "recursive": True})
+
+    fake_add_directory.assert_called_once_with("docs/", recursive=True, force=False)
+    assert "Directory 'docs/' processed" in result
+    assert "1 file(s) ingested" in result
+
+
 def test_call_tool_query_knowledge_base_returns_answer(monkeypatch):
     fake_query = MagicMock(return_value="ANSWER")
     monkeypatch.setattr(agent, "query_knowledge_base", fake_query)
@@ -76,9 +94,13 @@ def test_run_agent_returns_direct_reply_when_no_tool_call(monkeypatch):
 
 
 def test_run_agent_executes_tool_call_and_returns_final_reply(monkeypatch):
-    tool_call = _fake_tool_call("call_1", "query_knowledge_base", {"question": "What is X?"})
+    tool_call = _fake_tool_call(
+        "call_1", "query_knowledge_base", {"question": "What is X?"}
+    )
     first_response = _fake_response(_fake_message(content=None, tool_calls=[tool_call]))
-    final_response = _fake_response(_fake_message(content="Final answer", tool_calls=None))
+    final_response = _fake_response(
+        _fake_message(content="Final answer", tool_calls=None)
+    )
 
     fake_client = MagicMock()
     fake_client.chat.completions.create.side_effect = [first_response, final_response]
@@ -92,7 +114,9 @@ def test_run_agent_executes_tool_call_and_returns_final_reply(monkeypatch):
     assert result == "Final answer"
     fake_query.assert_called_once_with("What is X?")
 
-    second_call_messages = fake_client.chat.completions.create.call_args_list[1].kwargs["messages"]
+    second_call_messages = fake_client.chat.completions.create.call_args_list[1].kwargs[
+        "messages"
+    ]
     tool_messages = [m for m in second_call_messages if m["role"] == "tool"]
     assert len(tool_messages) == 1
     assert tool_messages[0]["content"] == "KB ANSWER"
@@ -102,7 +126,9 @@ def test_run_agent_executes_tool_call_and_returns_final_reply(monkeypatch):
 def test_run_agent_reports_tool_execution_errors_to_the_model(monkeypatch):
     tool_call = _fake_tool_call("call_1", "add_document", {"file_path": "missing.pdf"})
     first_response = _fake_response(_fake_message(content=None, tool_calls=[tool_call]))
-    final_response = _fake_response(_fake_message(content="Could not add it.", tool_calls=None))
+    final_response = _fake_response(
+        _fake_message(content="Could not add it.", tool_calls=None)
+    )
 
     fake_client = MagicMock()
     fake_client.chat.completions.create.side_effect = [first_response, final_response]
@@ -114,6 +140,8 @@ def test_run_agent_reports_tool_execution_errors_to_the_model(monkeypatch):
     result = run_agent("Add missing.pdf")
 
     assert result == "Could not add it."
-    second_call_messages = fake_client.chat.completions.create.call_args_list[1].kwargs["messages"]
+    second_call_messages = fake_client.chat.completions.create.call_args_list[1].kwargs[
+        "messages"
+    ]
     tool_messages = [m for m in second_call_messages if m["role"] == "tool"]
     assert tool_messages[0]["content"].startswith("Error:")

@@ -3,7 +3,7 @@
 .PHONY: help docker-up docker-down docker-down-clean \
         db-migrate db-migrate-test db-flush db-refresh setup \
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
-        make-migration add-document query mcp-dev mcp-install test lint
+        make-migration add-document add-directory query mcp-dev mcp-install test lint
 
 # Self-documenting: every target's `## ` comment is both its Makefile
 # documentation and its `make help` output — one source, so it can't drift
@@ -71,8 +71,11 @@ make-migration: ## Scaffold a new migration file — usage: make make-migration 
 # -c one-liners configure logging themselves: ingestion.ingest/query.retrieval
 # log progress via `logging` (silent by default) rather than print(), so
 # mcp_server.py's stdout stays clean for the MCP protocol.
-add-document: ## Ingest a document — usage: make add-document path=/path/to/file.pdf
-	uv run python -c "import logging; logging.basicConfig(level=logging.INFO, format='%(message)s'); from ingestion.ingest import add_document; add_document('$(path)')"
+add-document: ## Ingest document(s) — usage: make add-document path="file1.pdf file2.md"
+	uv run python scripts/ingest.py $(path)
+
+add-directory: ## Batch-ingest a directory — usage: make add-directory path=/path/to/dir [ext=.md]
+	uv run python scripts/ingest.py $(path) $(if $(ext),--ext $(ext),)
 
 query: ## Ask a question (full pipeline, real LLM call) — usage: make query q="What is X?"
 	uv run python -c "import logging; logging.basicConfig(level=logging.INFO, format='%(message)s'); from query.retrieval import query_knowledge_base; print(query_knowledge_base('$(q)'))"

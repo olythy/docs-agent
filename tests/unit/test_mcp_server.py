@@ -25,7 +25,9 @@ def _chunk(chunk_id, content="c", source="a.pdf", page=1, score=0.9):
 
 
 def test_to_search_result_maps_expected_fields():
-    result = mcp_server._to_search_result(_chunk(1, content="hello", source="a.pdf", page=3))
+    result = mcp_server._to_search_result(
+        _chunk(1, content="hello", source="a.pdf", page=3)
+    )
 
     assert result == {"content": "hello", "source_file": "a.pdf", "page_number": 3}
 
@@ -46,7 +48,9 @@ def test_to_search_result_defaults_missing_metadata():
 
 
 def test_search_knowledge_base_returns_mapped_chunks(monkeypatch):
-    fake_retrieve = MagicMock(return_value=[_chunk(1, content="first"), _chunk(2, content="second")])
+    fake_retrieve = MagicMock(
+        return_value=[_chunk(1, content="first"), _chunk(2, content="second")]
+    )
     monkeypatch.setattr(mcp_server, "retrieve_chunks", fake_retrieve)
 
     result = mcp_server.search_knowledge_base("What is X?")
@@ -79,7 +83,9 @@ def test_add_document_reraises_value_error_as_tool_error_with_message(monkeypatc
     monkeypatch.setattr(
         mcp_server,
         "_add_document",
-        MagicMock(side_effect=ValueError("'notes.md' is already in the knowledge base.")),
+        MagicMock(
+            side_effect=ValueError("'notes.md' is already in the knowledge base.")
+        ),
     )
 
     with pytest.raises(ToolError, match="already in the knowledge base"):
@@ -88,11 +94,42 @@ def test_add_document_reraises_value_error_as_tool_error_with_message(monkeypatc
 
 def test_add_document_reraises_file_not_found_as_tool_error_with_message(monkeypatch):
     monkeypatch.setattr(
-        mcp_server, "_add_document", MagicMock(side_effect=FileNotFoundError("no such file: x.pdf"))
+        mcp_server,
+        "_add_document",
+        MagicMock(side_effect=FileNotFoundError("no such file: x.pdf")),
     )
 
     with pytest.raises(ToolError, match="no such file"):
         mcp_server.add_document("x.pdf")
+
+
+def test_add_directory_delegates_and_confirms(monkeypatch):
+    fake_add_directory = MagicMock(
+        return_value={
+            "ingested": ["a.md", "b.pdf"],
+            "skipped": ["c.md"],
+            "failed": [],
+            "total_found": 3,
+        }
+    )
+    monkeypatch.setattr(mcp_server, "_add_directory", fake_add_directory)
+
+    result = mcp_server.add_directory("docs/", recursive=True)
+
+    fake_add_directory.assert_called_once_with("docs/", recursive=True)
+    assert "2 file(s) ingested" in result
+    assert "1 skipped" in result
+
+
+def test_add_directory_reraises_as_tool_error(monkeypatch):
+    monkeypatch.setattr(
+        mcp_server,
+        "_add_directory",
+        MagicMock(side_effect=NotADirectoryError("Path is not a directory: f.txt")),
+    )
+
+    with pytest.raises(ToolError, match="not a directory"):
+        mcp_server.add_directory("f.txt")
 
 
 def test_my_docs_prompt_instructs_the_model_to_call_the_tool_and_includes_the_question():

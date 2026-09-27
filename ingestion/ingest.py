@@ -1,31 +1,31 @@
 """Document ingestion pipeline.
 
-Orchestrates the full add_document flow:
-    1. Validate the source document (``ingestion.extractors.Extractor.validate``).
-    2. Extract the whole document as one string + a word-to-page/section map
-       (``Extractor.extract``) — concatenating pages *before* chunking is
-       what avoids truncating a paragraph that spans a page break.
-    3. Split the document into chunks (``chunker.chunk_document``), per
-       ``settings.CHUNKING_STRATEGY``.
-    4. Embed every chunk with the active embedding driver (``drivers.embedding``).
-    5. Store chunks + embeddings in the ``document_chunks`` Postgres table.
+Orchestrates the document ingestion flow:
+    - ``add_document``: Ingest a single file (PDF or Markdown).
+    - ``add_directory``: Batch-ingest all qualifying files in a directory.
 
-This module exposes a single public function: :func:`add_document`.
+This module exposes two public functions: :func:`add_document` and :func:`add_directory`.
 
 Usage::
 
-    from ingestion.ingest import add_document
+    from ingestion.ingest import add_document, add_directory
     add_document("/path/to/document.pdf")
     add_document("/path/to/notes.md")
+    add_directory("/path/to/docs/", recursive=True)
 """
 
 import logging
+from collections.abc import Collection
 from pathlib import Path
 
 from config import settings
 from drivers.embedding import get_embedding_driver
 from ingestion.chunker import chunk_document, get_chunk_overflow_strategy
-from ingestion.extractors import get_extractor
+from ingestion.extractors import (
+    SUPPORTED_EXTENSIONS,
+    get_extractor,
+    normalize_extensions,
+)
 from store import VectorStore
 
 # Progress logging, not print(): add_document() is called from mcp_server.py
@@ -36,7 +36,11 @@ from store import VectorStore
 logger = logging.getLogger(__name__)
 
 
-def add_document(file_path: str | Path, force: bool = False) -> None:
+def add_document(
+    file_path: str | Path,
+    force: bool = False,
+    store: VectorStore | None = None,
+) -> None:
     """Ingest a document into the RAG knowledge base.
 
     This is the main tool exposed to the agent. It runs the full pipeline:
@@ -46,9 +50,10 @@ def add_document(file_path: str | Path, force: bool = False) -> None:
     Args:
         file_path: Path to the source document (str or Path).
         force: Skip the already-ingested check and ingest anyway. Since
-            there's no way to identify/replace a document's *previous*
             this replaces any existing chunks from this file rather than
             creating duplicates.
+        store: Optional :class:`store.VectorStore` instance. If omitted,
+            instantiates a fresh one.
 
     Raises:
         FileNotFoundError: If the file does not exist at ``file_path``.
@@ -72,7 +77,7 @@ def add_document(file_path: str | Path, force: bool = False) -> None:
     # Step 2: Get the driver up front — CHUNKING_STRATEGY=langchain needs it
     # (token limit/counting) *during* chunking, not just for embedding after.
     driver = get_embedding_driver()
-    store = VectorStore()
+    store = store if store is not None else VectorStore()
     store.assert_dimension_matches(driver.dimension)
 
     if not force and store.has_chunks_from_source(source_file):
@@ -131,3 +136,118 @@ def add_document(file_path: str | Path, force: bool = False) -> None:
     # Step 5: Store in Postgres
     inserted = store.save(chunks, embeddings)
     logger.info("[ingest] Stored %d row(s) in document_chunks. Done! ✅", inserted)
+
+
+def add_directory(
+    dir_path: str | Path,
+    recursive: bool = True,
+    force: bool = False,
+    allowed_extensions: Collection[str] | None = None,
+) -> dict:
+    """Batch-ingest all qualifying documents from a directory into the knowledge base.
+
+    Scans ``dir_path`` for files with allowed extensions, ignoring hidden files
+    and directories (names starting with '.'). For each qualifying document,
+    attempts ingestion via :func:`add_document`.
+
+    Unlike :func:`add_document`, which raises immediately when a document is
+    already present (unless ``force=True``) or invalid, ``add_directory`` is
+    designed for batch resilience: it records skipped or failed files and
+    continues processing the rest of the directory, returning an overall summary.
+
+    Args:
+        dir_path: Path to the directory (str or Path).
+        recursive: Whether to search subdirectories recursively (default: True).
+        force: If True, replaces existing chunks for all files instead of
+            skipping them.
+        allowed_extensions: Optional collection of permitted extensions (e.g.
+            ``{".md"}``). If omitted, defaults to the system configuration
+            (``settings.parsed_ingest_extensions & SUPPORTED_EXTENSIONS``).
+
+    Returns:
+        A dict with the batch ingestion summary:
+            - ``"ingested"``: list of successfully ingested file paths.
+            - ``"skipped"``: list of files skipped because they are already present.
+            - ``"failed"``: list of dicts with ``"file"`` and ``"error"`` message.
+            - ``"total_found"``: total count of qualifying files discovered.
+
+    Raises:
+        FileNotFoundError: If ``dir_path`` does not exist.
+        NotADirectoryError: If ``dir_path`` is not a directory.
+    """
+    path = Path(dir_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Directory not found: {path}")
+    if not path.is_dir():
+        raise NotADirectoryError(f"Path is not a directory: {path}")
+
+    if allowed_extensions is not None:
+        normalized = normalize_extensions(allowed_extensions)
+        effective_allowed = normalized & SUPPORTED_EXTENSIONS
+        unsupported = normalized - SUPPORTED_EXTENSIONS
+        if unsupported:
+            logger.warning(
+                "[ingest] Extension(s) %s have no registered extractor and will be ignored.",
+                sorted(unsupported),
+            )
+    else:
+        effective_allowed = settings.parsed_ingest_extensions & SUPPORTED_EXTENSIONS
+        unsupported = settings.parsed_ingest_extensions - SUPPORTED_EXTENSIONS
+        if unsupported:
+            logger.warning(
+                "[ingest] Extension(s) %s in INGEST_EXTENSIONS have no registered extractor and will be ignored.",
+                sorted(unsupported),
+            )
+
+    iterator = path.rglob("*") if recursive else path.glob("*")
+    files: list[Path] = []
+    for item in iterator:
+        if not item.is_file():
+            continue
+        # Skip hidden files or files inside hidden subdirectories (.git, .venv, etc.)
+        if any(part.startswith(".") for part in item.relative_to(path).parts):
+            continue
+        if item.suffix.lower() in effective_allowed:
+            files.append(item)
+
+    files.sort()
+
+    summary: dict = {
+        "ingested": [],
+        "skipped": [],
+        "failed": [],
+        "total_found": len(files),
+    }
+
+    if not files:
+        logger.info("[ingest] No supported documents found in %s", path)
+        return summary
+
+    driver = get_embedding_driver()
+    store = VectorStore()
+    store.assert_dimension_matches(driver.dimension)
+
+    for doc_file in files:
+        source_name = doc_file.name
+        if not force and store.has_chunks_from_source(source_name):
+            logger.info(
+                "[ingest] Skipping '%s' (already in knowledge base)", source_name
+            )
+            summary["skipped"].append(str(doc_file))
+            continue
+
+        try:
+            add_document(doc_file, force=force, store=store)
+            summary["ingested"].append(str(doc_file))
+        except (ValueError, FileNotFoundError, RuntimeError, OSError) as exc:
+            logger.warning("[ingest] Failed to ingest '%s': %s", doc_file, exc)
+            summary["failed"].append({"file": str(doc_file), "error": str(exc)})
+
+    logger.info(
+        "[ingest] Finished directory '%s': %d ingested, %d skipped, %d failed.",
+        path.name,
+        len(summary["ingested"]),
+        len(summary["skipped"]),
+        len(summary["failed"]),
+    )
+    return summary

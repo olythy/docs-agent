@@ -33,6 +33,7 @@ import logging
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from ingestion.ingest import add_directory as _add_directory
 from ingestion.ingest import add_document as _add_document
 from query.retrieval import retrieve_chunks
 
@@ -135,6 +136,37 @@ def add_document(file_path: str) -> str:
     except (ValueError, FileNotFoundError) as e:
         raise ToolError(str(e)) from e
     return f"Document '{file_path}' was ingested successfully."
+
+
+@mcp.tool()
+def add_directory(dir_path: str, recursive: bool = True) -> str:
+    """Batch-ingest all supported documents (PDF or Markdown) from a directory.
+
+    Scans the directory for supported files, automatically skipping hidden
+    files/directories and already-ingested documents, and returns an overall
+    summary.
+
+    Args:
+        dir_path: Path to the directory containing documents.
+        recursive: Whether to scan subdirectories recursively (default: True).
+
+    Returns:
+        A summary message detailing ingested, skipped, and failed documents.
+
+    Raises:
+        ToolError: If the directory does not exist or is not a directory.
+    """
+    try:
+        summary = _add_directory(dir_path, recursive=recursive)
+    except (FileNotFoundError, NotADirectoryError, ValueError) as e:
+        raise ToolError(str(e)) from e
+
+    return (
+        f"Directory '{dir_path}' processed: "
+        f"{len(summary['ingested'])} file(s) ingested, "
+        f"{len(summary['skipped'])} skipped, "
+        f"{len(summary['failed'])} failed (out of {summary['total_found']} found)."
+    )
 
 
 @mcp.prompt(name="my-docs")

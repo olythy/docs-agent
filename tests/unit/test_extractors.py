@@ -6,11 +6,14 @@ from unittest.mock import MagicMock
 import pytest
 
 from ingestion.extractors import (
+    EXTRACTOR_REGISTRY,
+    SUPPORTED_EXTENSIONS,
     MarkdownExtractor,
     PDFExtractor,
     _markdown_headers_and_sections,
     _markdown_section_map,
     get_extractor,
+    normalize_extensions,
 )
 
 
@@ -27,7 +30,23 @@ def _fake_page(text: str):
     return page
 
 
-# --- get_extractor ---
+# --- get_extractor & registry ---
+
+
+def test_extractor_registry_and_supported_extensions():
+    assert ".pdf" in EXTRACTOR_REGISTRY
+    assert ".md" in EXTRACTOR_REGISTRY
+    assert ".markdown" in EXTRACTOR_REGISTRY
+    assert EXTRACTOR_REGISTRY[".pdf"] is PDFExtractor
+    assert EXTRACTOR_REGISTRY[".md"] is MarkdownExtractor
+    assert EXTRACTOR_REGISTRY[".markdown"] is MarkdownExtractor
+    assert SUPPORTED_EXTENSIONS == frozenset(EXTRACTOR_REGISTRY.keys())
+
+
+def test_normalize_extensions_normalizes_case_and_adds_dots():
+    raw = ["md", ".PDF", "  .markdown  ", "", "  "]
+    result = normalize_extensions(raw)
+    assert result == frozenset({".md", ".pdf", ".markdown"})
 
 
 def test_get_extractor_returns_pdf_extractor_for_pdf():
@@ -39,7 +58,7 @@ def test_get_extractor_is_case_insensitive():
 
 
 def test_get_extractor_raises_on_unsupported_extension():
-    with pytest.raises(ValueError, match="Unsupported document type"):
+    with pytest.raises(ValueError, match="Unsupported document type: '.txt'"):
         get_extractor(Path("doc.txt"))
 
 

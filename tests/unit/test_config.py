@@ -18,3 +18,10 @@ def test_settings_has_sensible_defaults():
 def test_settings_is_frozen():
     with pytest.raises(dataclasses.FrozenInstanceError):
         settings.CHUNK_SIZE = 999
+
+
+def test_settings_parsed_ingest_extensions():
+    assert {".pdf", ".md", ".markdown"}.issubset(settings.parsed_ingest_extensions)
+
+    custom = dataclasses.replace(settings, INGEST_EXTENSIONS="md, .PDF,  TXT  ")
+    assert custom.parsed_ingest_extensions == frozenset({".md", ".pdf", ".txt"})

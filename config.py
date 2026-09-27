@@ -98,6 +98,12 @@ class Settings:
                               falling back to smaller units only if a piece
                               still doesn't fit.
 
+    Ingestion:
+        INGEST_EXTENSIONS     Comma-separated list of file extensions permitted
+                              during batch directory ingestion (default:
+                              ``.pdf,.md,.markdown``). Can be overridden at runtime
+                              via ``allowed_extensions`` argument.
+
     LLM (answer generation):
         LLM_DRIVER            Driver to use: ``openrouter`` (default) or ``openai``.
         LLM_API_KEY           REQUIRED for answer generation. API key for the
@@ -193,6 +199,20 @@ class Settings:
     CHUNK_OVERFLOW_STRATEGY: str = os.getenv("CHUNK_OVERFLOW_STRATEGY", "split")
     PDF_EXTRACTION_MODE: str = os.getenv("PDF_EXTRACTION_MODE", "flat")
     CHUNKING_STRATEGY: str = os.getenv("CHUNKING_STRATEGY", "word")
+
+    # --- Ingestion ---
+    INGEST_EXTENSIONS: str = os.getenv("INGEST_EXTENSIONS", ".pdf,.md,.markdown")
+
+    @property
+    def parsed_ingest_extensions(self) -> frozenset[str]:
+        """Return the normalized, lowercased set of extensions configured for ingestion."""
+        return frozenset(
+            ext.strip().lower()
+            if ext.strip().startswith(".")
+            else f".{ext.strip().lower()}"
+            for ext in self.INGEST_EXTENSIONS.split(",")
+            if ext.strip()
+        )
 
     # --- LLM (answer generation) ---
     LLM_DRIVER: str = os.getenv("LLM_DRIVER", "openrouter")

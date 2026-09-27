@@ -41,7 +41,7 @@ import json
 import logging
 
 from drivers.llm import get_answer_driver
-from ingestion.ingest import add_document
+from ingestion.ingest import add_directory, add_document
 from query.retrieval import query_knowledge_base
 
 TOOLS = [
@@ -50,10 +50,10 @@ TOOLS = [
         "function": {
             "name": "add_document",
             "description": (
-                "Ingest a new document (PDF or Markdown) into the knowledge "
+                "Ingest a single new document (PDF or Markdown) into the knowledge "
                 "base, so its content becomes searchable by "
                 "query_knowledge_base. Use this when the user asks to add, "
-                "upload, or ingest a file."
+                "upload, or ingest a specific file."
             ),
             "parameters": {
                 "type": "object",
@@ -67,6 +67,31 @@ TOOLS = [
                     }
                 },
                 "required": ["file_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_directory",
+            "description": (
+                "Batch-ingest all supported documents (PDF or Markdown) from "
+                "a directory into the knowledge base. Use this when the user "
+                "asks to add or ingest an entire folder or directory."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dir_path": {
+                        "type": "string",
+                        "description": "Path to the directory containing documents.",
+                    },
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "Whether to scan subdirectories recursively (default: true).",
+                    },
+                },
+                "required": ["dir_path"],
             },
         },
     },
@@ -104,11 +129,11 @@ TOOLS = [
 
 _SYSTEM_PROMPT = (
     "You are an assistant for a personal document knowledge base. You have "
-    "two tools available: add_document (ingest a new file into the "
-    "knowledge base) and query_knowledge_base (answer a question using "
-    "already-ingested documents). Decide which tool, if any, the user's "
-    "message calls for, and call it. If the message needs neither, reply "
-    "directly."
+    "three tools available: add_document (ingest a single file), "
+    "add_directory (batch-ingest a directory of documents), and "
+    "query_knowledge_base (answer a question using already-ingested documents). "
+    "Decide which tool, if any, the user's message calls for, and call it. "
+    "If the message needs none, reply directly."
 )
 
 
@@ -130,6 +155,18 @@ def _call_tool(name: str, arguments: dict) -> str:
     if name == "add_document":
         add_document(arguments["file_path"])
         return f"Document '{arguments['file_path']}' was ingested successfully."
+    if name == "add_directory":
+        summary = add_directory(
+            arguments["dir_path"],
+            recursive=arguments.get("recursive", True),
+            force=arguments.get("force", False),
+        )
+        return (
+            f"Directory '{arguments['dir_path']}' processed: "
+            f"{len(summary['ingested'])} file(s) ingested, "
+            f"{len(summary['skipped'])} skipped, "
+            f"{len(summary['failed'])} failed (out of {summary['total_found']} found)."
+        )
     if name == "query_knowledge_base":
         source_file = arguments.get("source_file")
         if source_file:
