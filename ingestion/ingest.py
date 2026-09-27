@@ -26,6 +26,7 @@ from ingestion.extractors import (
     get_extractor,
     normalize_extensions,
 )
+from ingestion.hash import compute_file_hash
 from store import VectorStore
 
 # Progress logging, not print(): add_document() is called from mcp_server.py
@@ -40,6 +41,7 @@ def add_document(
     file_path: str | Path,
     force: bool = False,
     store: VectorStore | None = None,
+    source_path: str | None = None,
 ) -> None:
     """Ingest a document into the RAG knowledge base.
 
@@ -47,13 +49,23 @@ def add_document(
     extract → chunk → embed → store. The document's format is detected from
     its extension (see :func:`ingestion.extractors.get_extractor`).
 
+    Performs content-addressable integrity and deduplication checks via SHA-256
+    hash:
+        - If the document path exists with an identical content hash, skips it
+          (unless ``force=True``).
+        - If the document path exists with a *different* content hash (a new version),
+          it cleanly replaces the old chunks with the new ones.
+        - If an identical content hash already exists under a different path,
+          skips to avoid polluting the retrieval index with duplicates.
+
     Args:
         file_path: Path to the source document (str or Path).
-        force: Skip the already-ingested check and ingest anyway. Since
-            this replaces any existing chunks from this file rather than
-            creating duplicates.
+        force: Skip the already-ingested checks and re-ingest anyway. When True,
+            replaces existing chunks for this document.
         store: Optional :class:`store.VectorStore` instance. If omitted,
             instantiates a fresh one.
+        source_path: Optional logical path identity of the document (e.g.
+            relative path in a directory tree). Defaults to ``str(file_path)``.
 
     Raises:
         FileNotFoundError: If the file does not exist at ``file_path``.
@@ -61,14 +73,20 @@ def add_document(
             the active embedding driver's dimension doesn't match the
             existing document_chunks.embedding column.
         ValueError: If the file's extension is unsupported, the file has no
-            extractable content (e.g. empty, or a scanned PDF with no text
-            layer), or (unless ``force=True``) a document with this same
-            filename is already in the knowledge base.
+            extractable content, or (unless ``force=True``) the document/content
+            is already present in the knowledge base.
     """
     doc_path = Path(file_path)
-    source_file = doc_path.name
+    if not doc_path.exists():
+        raise FileNotFoundError(f"File not found: {doc_path}")
 
-    logger.info("[ingest] Starting ingestion: %s", source_file)
+    source_file = doc_path.name
+    effective_source_path = source_path if source_path is not None else str(doc_path)
+    content_hash = compute_file_hash(doc_path)
+
+    logger.info(
+        "[ingest] Starting ingestion: %s (%s)", effective_source_path, content_hash[:8]
+    )
 
     # Step 1: Pick the extractor for this file's format and validate it
     extractor = get_extractor(doc_path)
@@ -80,19 +98,42 @@ def add_document(
     store = store if store is not None else VectorStore()
     store.assert_dimension_matches(driver.dimension)
 
-    if not force and store.has_chunks_from_source(source_file):
-        raise ValueError(
-            f"'{source_file}' is already in the knowledge base. Pass "
-            "force=True to re-ingest it (this replaces any existing chunks "
-            "from this file)."
-        )
-    if force:
-        deleted = store.delete_chunks_from_source(source_file)
-        if isinstance(deleted, int) and deleted > 0:
+    existing_hash = store.get_hash_by_source(effective_source_path)
+    hash_already_stored = store.has_content_hash(content_hash)
+
+    if not force:
+        if existing_hash == content_hash:
+            raise ValueError(
+                f"'{effective_source_path}' is already in the knowledge base with "
+                "identical content. Pass force=True to re-index it anyway."
+            )
+        if hash_already_stored and existing_hash is None:
+            # Content already exists under another source path — register alias without re-embedding
+            store.add_source_alias(content_hash, effective_source_path)
             logger.info(
-                "[ingest] Replaced %d existing chunk(s) for '%s'.",
+                "[ingest] Content already indexed (hash %s). Added '%s' as alias.",
+                content_hash[:8],
+                effective_source_path,
+            )
+            return
+
+    # If re-indexing a modified file or force-replacing, delete previous chunks by hash
+    if existing_hash:
+        deleted = store.delete_chunks_by_hash(existing_hash)
+        if deleted > 0:
+            logger.info(
+                "[ingest] Replaced %d existing chunk(s) for previous version of '%s' (hash %s).",
                 deleted,
-                source_file,
+                effective_source_path,
+                existing_hash[:8],
+            )
+    elif force and hash_already_stored:
+        deleted = store.delete_chunks_by_hash(content_hash)
+        if deleted > 0:
+            logger.info(
+                "[ingest] Force-removed %d existing chunk(s) for hash %s.",
+                deleted,
+                content_hash[:8],
             )
 
     # Step 3: Concatenate the whole document, then chunk it document-wide
@@ -111,6 +152,8 @@ def add_document(
         source_file=source_file,
         driver=driver,
         word_header_map=word_header_map,
+        source_path=effective_source_path,
+        content_hash=content_hash,
     )
     logger.info(
         "[ingest] Created %d chunk(s) via CHUNKING_STRATEGY='%s'.",
@@ -214,6 +257,8 @@ def add_directory(
 
     summary: dict = {
         "ingested": [],
+        "updated": [],
+        "aliased": [],
         "skipped": [],
         "failed": [],
         "total_found": len(files),
@@ -228,25 +273,42 @@ def add_directory(
     store.assert_dimension_matches(driver.dimension)
 
     for doc_file in files:
-        source_name = doc_file.name
-        if not force and store.has_chunks_from_source(source_name):
-            logger.info(
-                "[ingest] Skipping '%s' (already in knowledge base)", source_name
-            )
-            summary["skipped"].append(str(doc_file))
-            continue
-
+        rel_path = str(doc_file.relative_to(path))
         try:
-            add_document(doc_file, force=force, store=store)
-            summary["ingested"].append(str(doc_file))
+            content_hash = compute_file_hash(doc_file)
+            existing_hash = store.get_hash_by_source(rel_path)
+            hash_already_stored = store.has_content_hash(content_hash)
+
+            if not force:
+                if existing_hash == content_hash:
+                    logger.info("[ingest] Skipping '%s' (unchanged)", rel_path)
+                    summary["skipped"].append(str(doc_file))
+                    continue
+                if hash_already_stored and existing_hash is None:
+                    store.add_source_alias(content_hash, rel_path)
+                    logger.info(
+                        "[ingest] Aliased '%s' to existing content (hash %s)",
+                        rel_path,
+                        content_hash[:8],
+                    )
+                    summary["aliased"].append(str(doc_file))
+                    continue
+
+            add_document(doc_file, force=force, store=store, source_path=rel_path)
+            if existing_hash and existing_hash != content_hash:
+                summary["updated"].append(str(doc_file))
+            else:
+                summary["ingested"].append(str(doc_file))
         except (ValueError, FileNotFoundError, RuntimeError, OSError) as exc:
             logger.warning("[ingest] Failed to ingest '%s': %s", doc_file, exc)
             summary["failed"].append({"file": str(doc_file), "error": str(exc)})
 
     logger.info(
-        "[ingest] Finished directory '%s': %d ingested, %d skipped, %d failed.",
+        "[ingest] Finished directory '%s': %d ingested, %d updated, %d aliased, %d skipped, %d failed.",
         path.name,
         len(summary["ingested"]),
+        len(summary["updated"]),
+        len(summary["aliased"]),
         len(summary["skipped"]),
         len(summary["failed"]),
     )

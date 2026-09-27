@@ -177,3 +177,45 @@ def test_add_directory_end_to_end_real_db(tmp_path, db_conn):
         sources = [r[0] for r in cur.fetchall()]
 
     assert sources == ["file1.md", "file2.md"]
+
+
+def test_add_directory_aliases_identical_files_in_real_db(tmp_path, db_conn):
+    """Proves that identical files under different paths are aliased without duplicate chunks."""
+    folder = tmp_path / "alias_docs"
+    folder.mkdir()
+    (folder / "original.md").write_text("# Shared Knowledge\nIdentical body text.")
+    sub = folder / "archive"
+    sub.mkdir()
+    (sub / "copy.md").write_text("# Shared Knowledge\nIdentical body text.")
+
+    summary = add_directory(folder)
+
+    assert summary["total_found"] == 2
+    assert len(summary["ingested"]) == 1
+    assert len(summary["aliased"]) == 1
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT metadata FROM document_chunks;")
+        rows = cur.fetchall()
+
+    # Chunks are stored only once
+    assert len(rows) > 0
+    metadata = rows[0][0]
+    # sources array includes both file paths
+    assert "original.md" in metadata["sources"]
+    assert "archive/copy.md" in metadata["sources"]
+
+
+def test_delete_chunks_by_hash_in_real_db(db_conn):
+    """Proves VectorStore.delete_chunks_by_hash atomically deletes only target chunks."""
+    from ingestion.hash import compute_file_hash
+
+    add_document("tests/data/sample.md")
+    content_hash = compute_file_hash("tests/data/sample.md")
+
+    store = VectorStore()
+    assert store.has_content_hash(content_hash) is True
+
+    deleted = store.delete_chunks_by_hash(content_hash)
+    assert deleted > 0
+    assert store.has_content_hash(content_hash) is False

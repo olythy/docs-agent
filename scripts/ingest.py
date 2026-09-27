@@ -61,6 +61,12 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Comma-separated file extensions to filter directories (e.g. '.md' or '.pdf,.md').",
     )
+    parser.add_argument(
+        "--delete",
+        "-d",
+        action="store_true",
+        help="Delete document chunks matching the given paths or content hashes instead of ingesting.",
+    )
     return parser.parse_args(args)
 
 
@@ -76,6 +82,34 @@ def main(cli_args: list[str] | None = None) -> int:
     """
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = parse_args(cli_args)
+
+    if args.delete:
+        from ingestion.hash import compute_file_hash
+        from store import VectorStore
+
+        store = VectorStore()
+        for target in args.paths:
+            target_path = Path(target)
+            if len(target) == 64 and all(c in "0123456789abcdefABCDEF" for c in target):
+                deleted = store.delete_chunks_by_hash(target.lower())
+                logger.info(
+                    "[ingest] Deleted %d chunk(s) for hash %s.", deleted, target[:8]
+                )
+            elif target_path.exists() and target_path.is_file():
+                content_hash = compute_file_hash(target_path)
+                deleted = store.delete_chunks_by_hash(content_hash)
+                logger.info(
+                    "[ingest] Deleted %d chunk(s) for file '%s' (hash %s).",
+                    deleted,
+                    target,
+                    content_hash[:8],
+                )
+            else:
+                deleted = store.delete_chunks_from_source(target)
+                logger.info(
+                    "[ingest] Deleted %d chunk(s) for source '%s'.", deleted, target
+                )
+        return 0
 
     allowed_exts: list[str] | None = None
     if args.extensions:

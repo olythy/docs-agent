@@ -562,6 +562,8 @@ def chunk_document(
     source_file: str,
     driver: EmbeddingDriver,
     word_header_map: list[str] | None = None,
+    source_path: str | None = None,
+    content_hash: str | None = None,
 ) -> list[dict]:
     """Split a whole document's text into chunk dicts, using the active CHUNKING_STRATEGY.
 
@@ -581,10 +583,13 @@ def chunk_document(
         full_text: The whole document's text.
         word_page_map: Page number per word in ``full_text.split()`` (same
             length), as returned by ``extract_document_text``.
-        source_file: The basename of the source PDF, stored in metadata.
+        source_file: The basename of the source document, stored in metadata.
         driver: The active embedding driver, passed through to the strategy.
         word_header_map: Optional parallel list of header breadcrumbs per word
             in ``full_text.split()``.
+        source_path: Optional logical path identity of the source document
+            (e.g. ``"finance/2024/report.pdf"``). Defaults to ``source_file``.
+        content_hash: Optional hexadecimal SHA-256 digest of the source document.
 
     Returns:
         A flat list of chunk dicts, in document order.
@@ -592,6 +597,7 @@ def chunk_document(
     from collections import Counter
 
     chunks = []
+    effective_source_path = source_path if source_path is not None else source_file
     for i, (content, start_word) in enumerate(
         get_chunking_strategy().split(full_text, driver)
     ):
@@ -613,9 +619,13 @@ def chunk_document(
 
         metadata: dict = {
             "source_file": source_file,
+            "source_path": effective_source_path,
+            "sources": [effective_source_path],
             "page_number": page_number,
             "chunk_index": i,
         }
+        if content_hash:
+            metadata["content_hash"] = content_hash
         if header_path:
             metadata["header_path"] = header_path
 

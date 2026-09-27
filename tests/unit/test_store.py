@@ -149,10 +149,11 @@ def test_has_chunks_from_source_returns_true_when_found(monkeypatch):
     monkeypatch.setattr(store, "get_connection", lambda: conn)
 
     assert VectorStore().has_chunks_from_source("sample.pdf") is True
-    cursor.execute.assert_called_once_with(
-        "SELECT 1 FROM document_chunks WHERE metadata->>'source_file' = %s LIMIT 1;",
-        ("sample.pdf",),
-    )
+    sql_executed = cursor.execute.call_args[0][0]
+    args_executed = cursor.execute.call_args[0][1]
+    assert "WHERE metadata->>'source_path' = %s" in sql_executed
+    assert "OR metadata->>'source_file' = %s" in sql_executed
+    assert args_executed == ("sample.pdf", "sample.pdf")
 
 
 def test_has_chunks_from_source_returns_false_when_missing(monkeypatch):
@@ -248,18 +249,63 @@ def test_vector_store_reuses_provided_connection():
     conn.close.assert_not_called()
 
 
-def test_delete_chunks_from_source(monkeypatch):
+def test_delete_chunks_by_hash(monkeypatch):
     cursor = MagicMock()
     cursor.rowcount = 4
     conn = _fake_conn_with_cursor(cursor)
     monkeypatch.setattr(store, "get_connection", lambda: conn)
 
-    deleted = VectorStore().delete_chunks_from_source("sample.pdf")
+    test_hash = "f" * 64
+    deleted = VectorStore().delete_chunks_by_hash(test_hash)
 
     assert deleted == 4
     sql_executed = cursor.execute.call_args[0][0]
     args_executed = cursor.execute.call_args[0][1]
-    assert "DELETE FROM document_chunks" in sql_executed
-    assert args_executed == ("sample.pdf",)
+    assert (
+        "DELETE FROM document_chunks WHERE metadata->>'content_hash' = %s"
+        in sql_executed
+    )
+    assert args_executed == (test_hash,)
     conn.commit.assert_called_once()
     conn.close.assert_called_once()
+
+
+def test_delete_chunks_from_source_delegates_to_hash(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = ("a" * 64,)
+    cursor.rowcount = 3
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    deleted = VectorStore().delete_chunks_from_source("sample.pdf")
+
+    assert deleted == 3
+    # Two queries: 1 to look up hash, 1 to delete by hash
+    assert cursor.execute.call_count == 2
+    assert (
+        "DELETE FROM document_chunks WHERE metadata->>'content_hash' = %s"
+        in cursor.execute.call_args[0][0]
+    )
+
+
+def test_has_content_hash(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (1,)
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    exists = VectorStore().has_content_hash("b" * 64)
+    assert exists is True
+    assert "metadata->>'content_hash' = %s" in cursor.execute.call_args[0][0]
+
+
+def test_add_source_alias(monkeypatch):
+    cursor = MagicMock()
+    cursor.rowcount = 2
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    updated = VectorStore().add_source_alias("c" * 64, "copy.md")
+    assert updated == 2
+    assert "jsonb_set" in cursor.execute.call_args[0][0]
+    conn.commit.assert_called_once()

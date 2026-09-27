@@ -256,24 +256,131 @@ class VectorStore:
             finally:
                 conn.close()
 
-    def delete_chunks_from_source(self, source_file: str) -> int:
-        """Delete all document_chunks rows for the given source file.
+    def delete_chunks_by_hash(self, content_hash: str) -> int:
+        """Delete all document_chunks rows matching the given SHA-256 content hash.
 
-        Used to ensure idempotent re-ingestion when a document is re-indexed.
+        All deletions in the storage engine are keyed by content_hash to ensure
+        unambiguous, collision-free removal of document chunks.
 
         Args:
-            source_file: The basename to delete chunks for (e.g. ``"sample.pdf"``).
+            content_hash: The 64-character hexadecimal SHA-256 digest.
 
         Returns:
             The number of rows deleted.
         """
-        sql = "DELETE FROM document_chunks WHERE metadata->>'source_file' = %s;"
+        sql = "DELETE FROM document_chunks WHERE metadata->>'content_hash' = %s;"
         with self._connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, (source_file,))
+                cur.execute(sql, (content_hash,))
                 deleted = cur.rowcount
             conn.commit()
             return deleted
+
+    def delete_chunks_from_source(self, source: str) -> int:
+        """Delete all document_chunks rows associated with the given source path.
+
+        Finds the content_hash associated with ``source`` and delegates to
+        :meth:`delete_chunks_by_hash`. Falls back to direct source-matching
+        only if the stored chunks lack a content_hash (e.g. raw test fixtures).
+
+        Args:
+            source: Source path to delete (e.g. ``"finance/report.pdf"``).
+
+        Returns:
+            The number of rows deleted.
+        """
+        content_hash = self.get_hash_by_source(source)
+        if content_hash:
+            return self.delete_chunks_by_hash(content_hash)
+
+        sql = """
+            DELETE FROM document_chunks
+            WHERE (metadata ? 'sources' AND metadata->'sources' ? %s)
+               OR metadata->>'source_path' = %s
+               OR metadata->>'source_file' = %s;
+        """
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (source, source, source))
+                deleted = cur.rowcount
+            conn.commit()
+            return deleted
+
+    def has_content_hash(self, content_hash: str) -> bool:
+        """Check whether chunks with the given content hash are already stored.
+
+        Args:
+            content_hash: The 64-character hexadecimal SHA-256 digest.
+
+        Returns:
+            True if at least one chunk exists with this content_hash.
+        """
+        if not content_hash:
+            return False
+        sql = "SELECT 1 FROM document_chunks WHERE metadata->>'content_hash' = %s LIMIT 1;"
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (content_hash,))
+            return cur.fetchone() is not None
+
+    def get_hash_by_source(self, source_path: str) -> str | None:
+        """Find the active content_hash associated with a given source path.
+
+        Checks both the ``sources`` array and ``source_path``/``source_file`` keys.
+
+        Args:
+            source_path: The file path to look up.
+
+        Returns:
+            The content_hash string if found, otherwise None.
+        """
+        sql = """
+            SELECT metadata->>'content_hash'
+            FROM document_chunks
+            WHERE (metadata ? 'sources' AND metadata->'sources' ? %s)
+               OR metadata->>'source_path' = %s
+               OR metadata->>'source_file' = %s
+            LIMIT 1;
+        """
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (source_path, source_path, source_path))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def add_source_alias(self, content_hash: str, new_source_path: str) -> int:
+        """Add a new source path alias to all chunks sharing an identical content hash.
+
+        Allows multiple file paths or copies to reference the same embedded chunks
+        without generating duplicate chunk rows or requiring redundant embedding.
+
+        Args:
+            content_hash: The SHA-256 hash identifying the chunks.
+            new_source_path: The additional file path referencing this content.
+
+        Returns:
+            The number of chunk rows updated.
+        """
+        sql = """
+            UPDATE document_chunks
+            SET metadata = jsonb_set(
+                metadata,
+                '{sources}',
+                CASE
+                    WHEN metadata ? 'sources' AND metadata->'sources' ? %s THEN metadata->'sources'
+                    WHEN metadata ? 'sources' THEN metadata->'sources' || to_jsonb(%s::text)
+                    ELSE jsonb_build_array(%s::text)
+                END
+            )
+            WHERE metadata->>'content_hash' = %s;
+        """
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql,
+                    (new_source_path, new_source_path, new_source_path, content_hash),
+                )
+                updated = cur.rowcount
+            conn.commit()
+            return updated
 
     def save(self, chunks: list[dict], embeddings: list[list[float]]) -> int:
         """Insert chunk rows into document_chunks.
@@ -461,8 +568,11 @@ class VectorStore:
             )
         return results
 
-    def has_chunks_from_source(self, source_file: str) -> bool:
-        """Return True if any stored chunk's metadata has this ``source_file``.
+    def has_chunks_from_source(self, source: str) -> bool:
+        """Return True if any stored chunk's metadata matches this source identifier.
+
+        Matches against either ``source_path`` (logical path) or ``source_file``
+        (basename) for compatibility.
 
         Used by ``scripts/evaluate_retrieval.py`` to seed its known fixture
         documents idempotently — add them only if missing, never re-ingest
@@ -471,18 +581,19 @@ class VectorStore:
         pointed at).
 
         Args:
-            source_file: The basename to check for (e.g. ``"sample.pdf"``),
-                matching :func:`ingestion.ingest.add_document`'s
-                ``metadata.source_file``.
+            source: The source path or basename to check for (e.g. ``"sample.pdf"``).
 
         Returns:
-            True if at least one chunk with this ``source_file`` exists.
+            True if at least one chunk with this source identifier exists.
         """
-        sql = (
-            "SELECT 1 FROM document_chunks WHERE metadata->>'source_file' = %s LIMIT 1;"
-        )
+        sql = """
+            SELECT 1 FROM document_chunks
+            WHERE metadata->>'source_path' = %s
+               OR metadata->>'source_file' = %s
+            LIMIT 1;
+        """
         with self._connection() as conn, conn.cursor() as cur:
-            cur.execute(sql, (source_file,))
+            cur.execute(sql, (source, source))
             return cur.fetchone() is not None
 
     def get_embedding_dimension(self) -> int | None:
