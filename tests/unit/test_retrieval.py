@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import query.retrieval as retrieval_module
+from drivers.reranker import CrossEncoderRerankerDriver
 from query.retrieval import (
     HybridRetrievalStrategy,
     VectorRetrievalStrategy,
@@ -30,6 +31,16 @@ class _NoopFakeReranker:
 
     def rerank(self, question, chunks):
         return chunks
+
+
+class _FakeCrossEncoderReranker(CrossEncoderRerankerDriver):
+    """Subclass of CrossEncoderRerankerDriver for testing reranker thresholds."""
+
+    def __init__(self, scores: list[float]) -> None:
+        self._scores = scores
+
+    def rerank(self, question: str, chunks: list[dict]) -> list[dict]:
+        return [{**c, "score": s} for c, s in zip(chunks, self._scores)]
 
 
 def test_passes_relevance_gate_true_when_top_result_clears_threshold():
@@ -96,6 +107,44 @@ def test_hybrid_strategy_truncates_to_top_k_after_fusion(monkeypatch):
     result = strategy.select_chunks("q", vector_results, fake_store, top_k=1, min_score=0.25)
 
     assert len(result) == 1
+
+
+def test_hybrid_strategy_cross_encoder_filters_low_scores(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        retrieval_module, "settings", settings_override(RERANKER_MIN_SCORE=0.0)
+    )
+    vector_results = [_chunk(1, score=0.9), _chunk(2, score=0.8)]
+    fake_store = MagicMock()
+    fake_store.search_fulltext.return_value = []
+    # Candidate 1 gets score 1.5 (passes >= 0.0), Candidate 2 gets -2.0 (filtered out)
+    monkeypatch.setattr(
+        retrieval_module, "get_reranker_driver", lambda: _FakeCrossEncoderReranker([1.5, -2.0])
+    )
+
+    strategy = HybridRetrievalStrategy()
+    result = strategy.select_chunks("q", vector_results, fake_store, top_k=5, min_score=0.25)
+
+    assert len(result) == 1
+    assert result[0]["id"] == 1
+    assert result[0]["score"] == 1.5
+
+
+def test_hybrid_strategy_cross_encoder_rejects_when_all_below_threshold(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        retrieval_module, "settings", settings_override(RERANKER_MIN_SCORE=0.0)
+    )
+    vector_results = [_chunk(1, score=0.9), _chunk(2, score=0.8)]
+    fake_store = MagicMock()
+    fake_store.search_fulltext.return_value = []
+    # Both candidates score negative logits (e.g. unanswerable / irrelevant)
+    monkeypatch.setattr(
+        retrieval_module, "get_reranker_driver", lambda: _FakeCrossEncoderReranker([-3.5, -7.2])
+    )
+
+    strategy = HybridRetrievalStrategy()
+    result = strategy.select_chunks("q", vector_results, fake_store, top_k=5, min_score=0.25)
+
+    assert result == []
 
 
 def test_get_retrieval_strategy_returns_hybrid_by_default(monkeypatch, settings_override):

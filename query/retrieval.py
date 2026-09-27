@@ -36,7 +36,8 @@ from abc import ABC, abstractmethod
 from config import settings
 from drivers.embedding import get_embedding_driver
 from drivers.llm import get_answer_driver
-from drivers.reranker import get_reranker_driver
+from drivers.reranker import CrossEncoderRerankerDriver, get_reranker_driver
+from logger import LogAction, get_logger
 from query.hybrid import reciprocal_rank_fusion
 from store import VectorStore
 
@@ -156,6 +157,30 @@ class HybridRetrievalStrategy(RetrievalStrategy):
 
         reranker = get_reranker_driver()
         reranked = reranker.rerank(question, fused)
+
+        if isinstance(reranker, CrossEncoderRerankerDriver):
+            threshold = settings.RERANKER_MIN_SCORE
+            valid_chunks = [c for c in reranked if c["score"] >= threshold]
+            get_logger().log(
+                LogAction.RERANK_APPLIED,
+                {
+                    "question": question,
+                    "reranker_model": settings.RERANKER_MODEL,
+                    "threshold": threshold,
+                    "candidates_count": len(reranked),
+                    "accepted_count": len(valid_chunks),
+                    "top_score": reranked[0]["score"] if reranked else None,
+                },
+            )
+            if not valid_chunks:
+                logger.info(
+                    "[query] Cross-encoder rejected all chunks (top score %.2f < %.2f threshold).",
+                    reranked[0]["score"] if reranked else 0.0,
+                    threshold,
+                )
+                return []
+            return valid_chunks[:top_k]
+
         return reranked[:top_k]
 
 
