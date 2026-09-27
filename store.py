@@ -17,7 +17,23 @@ from logger import get_logger
 
 #: Technical acronyms and terms of 2-3 characters that should NOT be filtered out.
 PRESERVED_SHORT_TERMS: frozenset[str] = frozenset(
-    {"ai", "ui", "ux", "db", "ci", "cd", "go", "id", "ip", "os", "qa", "api", "rag", "sql", "llm"}
+    {
+        "ai",
+        "ui",
+        "ux",
+        "db",
+        "ci",
+        "cd",
+        "go",
+        "id",
+        "ip",
+        "os",
+        "qa",
+        "api",
+        "rag",
+        "sql",
+        "llm",
+    }
 )
 
 #: Combined bilingual (Hungarian + English) stop words for full-text query sanitization.
@@ -25,20 +41,139 @@ PRESERVED_SHORT_TERMS: frozenset[str] = frozenset(
 BILINGUAL_STOPWORDS: frozenset[str] = frozenset(
     {
         # Hungarian stopwords / question words / particles
-        "a", "az", "és", "vagy", "hogy", "van", "volt", "nem", "sem", "mint", "mert",
-        "csak", "már", "még", "milyen", "mikor", "hol", "hova", "honnan", "ki", "kit",
-        "kivel", "mi", "mit", "mivel", "miért", "hogyan", "melyik", "ez", "ezen",
-        "azon", "itt", "ott", "egy", "egyik", "másik", "is", "se", "ne", "ha", "de",
-        "te", "én", "ti", "ő", "ők", "ön", "önök", "lenne", "lesz",
+        "a",
+        "az",
+        "és",
+        "vagy",
+        "hogy",
+        "van",
+        "volt",
+        "nem",
+        "sem",
+        "mint",
+        "mert",
+        "csak",
+        "már",
+        "még",
+        "milyen",
+        "mikor",
+        "hol",
+        "hova",
+        "honnan",
+        "ki",
+        "kit",
+        "kivel",
+        "mi",
+        "mit",
+        "mivel",
+        "miért",
+        "hogyan",
+        "melyik",
+        "ez",
+        "ezen",
+        "azon",
+        "itt",
+        "ott",
+        "egy",
+        "egyik",
+        "másik",
+        "is",
+        "se",
+        "ne",
+        "ha",
+        "de",
+        "te",
+        "én",
+        "ti",
+        "ő",
+        "ők",
+        "ön",
+        "önök",
+        "lenne",
+        "lesz",
         # English stopwords / pronouns / prepositions / auxiliaries
-        "an", "the", "and", "or", "are", "was", "were", "be", "been", "being",
-        "in", "on", "at", "to", "for", "with", "from", "by", "about", "against", "between",
-        "into", "through", "during", "before", "after", "above", "below", "up", "down",
-        "of", "off", "over", "under", "how", "what", "when", "where", "who", "which",
-        "why", "this", "that", "these", "those", "it", "its", "they", "them", "their",
-        "we", "us", "our", "you", "your", "he", "him", "his", "she", "her", "i", "me",
-        "my", "do", "does", "did", "have", "has", "had", "can", "could", "will", "would",
-        "should", "not", "no", "nor", "so", "than", "too", "very", "just",
+        "an",
+        "the",
+        "and",
+        "or",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "with",
+        "from",
+        "by",
+        "about",
+        "against",
+        "between",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "up",
+        "down",
+        "of",
+        "off",
+        "over",
+        "under",
+        "how",
+        "what",
+        "when",
+        "where",
+        "who",
+        "which",
+        "why",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "its",
+        "they",
+        "them",
+        "their",
+        "we",
+        "us",
+        "our",
+        "you",
+        "your",
+        "he",
+        "him",
+        "his",
+        "she",
+        "her",
+        "i",
+        "me",
+        "my",
+        "do",
+        "does",
+        "did",
+        "have",
+        "has",
+        "had",
+        "can",
+        "could",
+        "will",
+        "would",
+        "should",
+        "not",
+        "no",
+        "nor",
+        "so",
+        "than",
+        "too",
+        "very",
+        "just",
     }
 )
 
@@ -77,7 +212,11 @@ def prepare_fulltext_query(query_text: str) -> tuple[str, list[str], list[str]]:
 
     if not kept:
         # Fallback if entire question was stop words
-        fallback = [w.strip(".,!?:;\"'()[]{}") for w in query_text.split() if w.strip(".,!?:;\"'()[]{}")]
+        fallback = [
+            w.strip(".,!?:;\"'()[]{}")
+            for w in query_text.split()
+            if w.strip(".,!?:;\"'()[]{}")
+        ]
         return " or ".join(fallback), fallback, []
 
     return " or ".join(kept), kept, dropped
@@ -131,6 +270,7 @@ class VectorStore:
         query_embedding: list[float],
         top_k: int,
         min_score: float,
+        metadata_filter: dict | None = None,
     ) -> list[dict]:
         """Return the most similar chunks to ``query_embedding``, above ``min_score``.
 
@@ -144,6 +284,8 @@ class VectorStore:
             top_k: Maximum number of results to consider before filtering.
             min_score: Minimum cosine similarity (0-1). Chunks below this are
                 dropped.
+            metadata_filter: Optional dict of key-value pairs that chunk metadata
+                must contain (uses Postgres JSONB containment ``@>``).
 
         Returns:
             A list of chunk dicts ordered by descending similarity, each
@@ -154,20 +296,28 @@ class VectorStore:
             ``content``, ``metadata``, and ``score``.
         """
         vector_literal = _to_pgvector_literal(query_embedding)
-        sql = """
+        where_clause = ""
+        params: list = [vector_literal]
+        if metadata_filter:
+            where_clause = "WHERE metadata @> %s::jsonb"
+            params.append(json.dumps(metadata_filter))
+        params.extend([vector_literal, top_k])
+
+        sql = f"""
             SELECT
                 id,
                 content,
                 metadata,
                 1 - (embedding <=> %s::vector) AS score
             FROM document_chunks
+            {where_clause}
             ORDER BY embedding <=> %s::vector
             LIMIT %s;
         """
         conn = get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute(sql, (vector_literal, vector_literal, top_k))
+                cur.execute(sql, tuple(params))
                 rows = cur.fetchall()
         finally:
             conn.close()
@@ -180,11 +330,21 @@ class VectorStore:
             if isinstance(metadata, str):
                 metadata = json.loads(metadata)
             results.append(
-                {"id": chunk_id, "content": content, "metadata": metadata, "score": score}
+                {
+                    "id": chunk_id,
+                    "content": content,
+                    "metadata": metadata,
+                    "score": score,
+                }
             )
         return results
 
-    def search_fulltext(self, query_text: str, top_k: int) -> list[dict]:
+    def search_fulltext(
+        self,
+        query_text: str,
+        top_k: int,
+        metadata_filter: dict | None = None,
+    ) -> list[dict]:
         """Return chunks matching any word of ``query_text`` via full-text search.
 
         Uses ``websearch_to_tsquery('simple', ...)`` against the
@@ -213,6 +373,8 @@ class VectorStore:
         Args:
             query_text: The raw question/query text.
             top_k: Maximum number of results.
+            metadata_filter: Optional dict of key-value pairs that chunk metadata
+                must contain (uses Postgres JSONB containment ``@>``).
 
         Returns:
             A list of chunk dicts ordered by descending ``ts_rank``, each
@@ -228,7 +390,14 @@ class VectorStore:
             kept_terms=kept_terms,
             dropped_terms=dropped_terms,
         )
-        sql = """
+        where_filter = ""
+        params: list = [or_joined_query, or_joined_query]
+        if metadata_filter:
+            where_filter = "AND metadata @> %s::jsonb"
+            params.append(json.dumps(metadata_filter))
+        params.append(top_k)
+
+        sql = f"""
             SELECT
                 id,
                 content,
@@ -236,13 +405,14 @@ class VectorStore:
                 ts_rank(content_tsv, websearch_to_tsquery('simple', %s)) AS score
             FROM document_chunks
             WHERE content_tsv @@ websearch_to_tsquery('simple', %s)
+            {where_filter}
             ORDER BY score DESC
             LIMIT %s;
         """
         conn = get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute(sql, (or_joined_query, or_joined_query, top_k))
+                cur.execute(sql, tuple(params))
                 rows = cur.fetchall()
         finally:
             conn.close()
@@ -252,7 +422,12 @@ class VectorStore:
             if isinstance(metadata, str):
                 metadata = json.loads(metadata)
             results.append(
-                {"id": chunk_id, "content": content, "metadata": metadata, "score": score}
+                {
+                    "id": chunk_id,
+                    "content": content,
+                    "metadata": metadata,
+                    "score": score,
+                }
             )
         return results
 
@@ -273,7 +448,9 @@ class VectorStore:
         Returns:
             True if at least one chunk with this ``source_file`` exists.
         """
-        sql = "SELECT 1 FROM document_chunks WHERE metadata->>'source_file' = %s LIMIT 1;"
+        sql = (
+            "SELECT 1 FROM document_chunks WHERE metadata->>'source_file' = %s LIMIT 1;"
+        )
         conn = get_connection()
         try:
             with conn.cursor() as cur:

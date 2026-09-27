@@ -8,6 +8,7 @@ import pytest
 from ingestion.extractors import (
     MarkdownExtractor,
     PDFExtractor,
+    _markdown_headers_and_sections,
     _markdown_section_map,
     get_extractor,
 )
@@ -82,7 +83,9 @@ def test_pdf_extractor_validate_passes_for_real_content(monkeypatch, tmp_path):
 # --- PDFExtractor.extract ---
 
 
-def test_pdf_extractor_extract_delegates_to_extract_document_text(monkeypatch, tmp_path):
+def test_pdf_extractor_extract_delegates_to_extract_document_text(
+    monkeypatch, tmp_path
+):
     pdf_path = tmp_path / "doc.pdf"
     pdf_path.write_bytes(b"%PDF-1.4 fake")
     page1 = _fake_page("one two")
@@ -193,3 +196,79 @@ def test_markdown_section_map_length_matches_full_text_split_with_real_document(
     )
     result = _markdown_section_map(text)
     assert len(result) == len(text.split())
+
+
+def test_markdown_headers_and_sections_hierarchical_stack():
+    text = (
+        "Intro text\n\n"
+        "# Chapter 1\n\n"
+        "Chapter 1 content\n\n"
+        "## Section 1.1\n\n"
+        "Section 1.1 content\n\n"
+        "### Detail 1.1.1\n\n"
+        "Detail content\n\n"
+        "## Section 1.2\n\n"
+        "Section 1.2 content\n\n"
+        "# Chapter 2\n\n"
+        "Chapter 2 content\n"
+    )
+    words = text.split()
+    sections, headers = _markdown_headers_and_sections(text)
+
+    assert len(sections) == len(words)
+    assert len(headers) == len(words)
+
+    # Intro before any header has empty breadcrumb and section 1
+    assert headers[words.index("Intro")] == ""
+    assert sections[words.index("Intro")] == 1
+
+    # Chapter 1
+    assert headers[words.index("Chapter")] == "# Chapter 1"
+    assert sections[words.index("Chapter")] == 2
+
+    # Section 1.1
+    assert headers[words.index("Section")] == "# Chapter 1 > ## Section 1.1"
+
+    # Detail 1.1.1
+    assert (
+        headers[words.index("Detail")]
+        == "# Chapter 1 > ## Section 1.1 > ### Detail 1.1.1"
+    )
+
+    # Section 1.2 popped Detail 1.1.1 back to Section level
+    idx_1_2 = words.index("1.2")
+    assert headers[idx_1_2] == "# Chapter 1 > ## Section 1.2"
+
+    # Chapter 2 popped all Chapter 1 descendants
+    idx_ch2 = words.index("Chapter", words.index("1.2"))
+    assert headers[idx_ch2] == "# Chapter 2"
+
+
+def test_markdown_extractor_extract_with_headers(tmp_path):
+    md_path = tmp_path / "test.md"
+    md_path.write_text("# Overview\n\nSome text.\n\n## Sub\n\nMore text.")
+
+    extractor = MarkdownExtractor()
+    full_text, _sections, headers = extractor.extract_with_headers(md_path)
+
+    assert full_text == "# Overview\n\nSome text.\n\n## Sub\n\nMore text."
+    assert headers is not None
+    assert len(headers) == len(full_text.split())
+    assert headers[0] == "# Overview"
+    assert headers[-1] == "# Overview > ## Sub"
+
+
+def test_pdf_extractor_extract_with_headers_returns_none_for_headers(
+    monkeypatch, tmp_path
+):
+    pdf_path = tmp_path / "dummy.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 dummy")
+    page = _fake_page("pdf text")
+    _open_fake_pdf(monkeypatch, [page])
+
+    extractor = PDFExtractor()
+    full_text, page_map, headers = extractor.extract_with_headers(pdf_path)
+
+    assert full_text == "pdf text"
+    assert page_map == [1, 1]
+    assert headers is None

@@ -89,6 +89,8 @@ class RetrievalStrategy(ABC):
                 search).
             top_k: Maximum number of chunks to return.
             min_score: ``settings.RETRIEVAL_MIN_SCORE`` (or its override).
+            metadata_filter: Optional dict of key-value pairs to restrict
+                candidates in secondary searches (e.g. full-text).
 
         Returns:
             The final, ordered list of at most ``top_k`` chunks.
@@ -111,6 +113,7 @@ class VectorRetrievalStrategy(RetrievalStrategy):
         store: VectorStore,
         top_k: int,
         min_score: float,
+        metadata_filter: dict | None = None,
     ) -> list[dict]:
         """Filter ``vector_results`` by ``min_score`` and truncate to ``top_k``.
 
@@ -134,6 +137,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         store: VectorStore,
         top_k: int,
         min_score: float,
+        metadata_filter: dict | None = None,
     ) -> list[dict]:
         """Fuse ``vector_results`` with a keyword search, then rerank.
 
@@ -144,8 +148,15 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         instead, before this strategy ever sees them.
         """
         candidate_k = len(vector_results)
-        logger.info("[query] Keyword-searching the same candidate pool (%d) ...", candidate_k)
-        fulltext_results = store.search_fulltext(question, top_k=candidate_k)
+        logger.info(
+            "[query] Keyword-searching the same candidate pool (%d) ...", candidate_k
+        )
+        if metadata_filter:
+            fulltext_results = store.search_fulltext(
+                question, top_k=candidate_k, metadata_filter=metadata_filter
+            )
+        else:
+            fulltext_results = store.search_fulltext(question, top_k=candidate_k)
 
         fused = reciprocal_rank_fusion(vector_results, fulltext_results)
         logger.info(
@@ -215,6 +226,7 @@ def retrieve_chunks(
     min_score: float | None = None,
     strategy: RetrievalStrategy | None = None,
     query_vector: list[float] | None = None,
+    metadata_filter: dict | None = None,
 ) -> list[dict]:
     """Retrieve the final context chunks for ``question``.
 
@@ -234,13 +246,9 @@ def retrieve_chunks(
             should leave this as ``None`` and configure via ``.env``.
         query_vector: Precomputed embedding for ``question``, skipping both
             the embedding call *and* the embedding driver's lazy model load
-            entirely when given. Mainly for callers (the eval script) that
-            call this repeatedly for the same question across strategies —
-            without this, each call creates its own
-            :class:`drivers.embedding.EmbeddingDriver` instance and
-            re-triggers its lazy model load, which is real, avoidable cost
-            when done many times in a loop. Production callers should
-            leave this as ``None``.
+            entirely when given.
+        metadata_filter: Optional dict of key-value pairs to restrict
+            retrieval to matching chunk metadata (JSONB containment).
 
     Returns:
         The final list of chunks, already ranked/truncated to ``top_k``, or
@@ -263,21 +271,49 @@ def retrieve_chunks(
         logger.info("[query] Embedding question ...")
         query_vector = embedding_driver.embed_query(question)
 
-    logger.info("[query] Vector-searching a candidate pool of %d chunks ...", candidate_k)
-    vector_results = store.search(query_vector, top_k=candidate_k, min_score=0.0)
+    logger.info(
+        "[query] Vector-searching a candidate pool of %d chunks ...", candidate_k
+    )
+    if metadata_filter:
+        vector_results = store.search(
+            query_vector,
+            top_k=candidate_k,
+            min_score=0.0,
+            metadata_filter=metadata_filter,
+        )
+    else:
+        vector_results = store.search(query_vector, top_k=candidate_k, min_score=0.0)
 
     if not _passes_relevance_gate(vector_results, top_k=k, min_score=threshold):
         logger.info("[query] No relevant chunks found.")
         return []
 
     active_strategy = strategy if strategy is not None else get_retrieval_strategy()
-    logger.info("[query] Selecting final chunks via %s ...", type(active_strategy).__name__)
-    chunks = active_strategy.select_chunks(
-        question, vector_results, store, top_k=k, min_score=threshold
+    logger.info(
+        "[query] Selecting final chunks via %s ...", type(active_strategy).__name__
     )
+    if metadata_filter:
+        chunks = active_strategy.select_chunks(
+            question,
+            vector_results,
+            store,
+            top_k=k,
+            min_score=threshold,
+            metadata_filter=metadata_filter,
+        )
+    else:
+        chunks = active_strategy.select_chunks(
+            question,
+            vector_results,
+            store,
+            top_k=k,
+            min_score=threshold,
+        )
 
     scores_str = ", ".join(f"{c['score']:.4f}" for c in chunks)
-    logger.info("[query] Using %d chunk(s) as context. Scores: %s", len(chunks), scores_str)
+    logger.info(
+        "[query] Using %d chunk(s) as context. Scores: %s", len(chunks), scores_str
+    )
     return chunks
 
 
@@ -285,6 +321,8 @@ def query_knowledge_base(
     question: str,
     top_k: int | None = None,
     min_score: float | None = None,
+    strategy: RetrievalStrategy | None = None,
+    metadata_filter: dict | None = None,
 ) -> str:
     """Answer a question using the RAG knowledge base.
 
@@ -300,6 +338,9 @@ def query_knowledge_base(
             pass to the LLM.
         min_score: Override for ``settings.RETRIEVAL_MIN_SCORE``. Similarity
             threshold (0–1) below which the relevance gate fails.
+        strategy: Override for ``settings.RETRIEVAL_STRATEGY``.
+        metadata_filter: Optional dict of key-value pairs to restrict
+            retrieval to matching chunk metadata (JSONB containment).
 
     Returns:
         A string answer grounded in the retrieved chunks, or
@@ -309,13 +350,21 @@ def query_knowledge_base(
         RuntimeError: If the active embedding driver's dimension doesn't
             match the existing document_chunks.embedding column.
     """
-    chunks = retrieve_chunks(question, top_k=top_k, min_score=min_score)
+    chunks = retrieve_chunks(
+        question,
+        top_k=top_k,
+        min_score=min_score,
+        strategy=strategy,
+        metadata_filter=metadata_filter,
+    )
 
     if not chunks:
         logger.info("[query] Returning fallback message.")
         return NO_RESULTS_MESSAGE
 
-    logger.info("[query] Generating answer with LLM driver='%s' ...", settings.LLM_DRIVER)
+    logger.info(
+        "[query] Generating answer with LLM driver='%s' ...", settings.LLM_DRIVER
+    )
     answer_driver = get_answer_driver()
     answer = answer_driver.answer(question=question, context_chunks=chunks)
 

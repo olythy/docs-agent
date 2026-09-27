@@ -23,7 +23,12 @@ from query.retrieval import (
 
 
 def _chunk(chunk_id, score=0.0, source="a.pdf"):
-    return {"id": chunk_id, "content": f"chunk {chunk_id}", "metadata": {"source_file": source}, "score": score}
+    return {
+        "id": chunk_id,
+        "content": f"chunk {chunk_id}",
+        "metadata": {"source_file": source},
+        "score": score,
+    }
 
 
 class _NoopFakeReranker:
@@ -44,7 +49,9 @@ class _FakeCrossEncoderReranker(CrossEncoderRerankerDriver):
 
 
 def test_passes_relevance_gate_true_when_top_result_clears_threshold():
-    assert _passes_relevance_gate([_chunk(1, score=0.9)], top_k=4, min_score=0.25) is True
+    assert (
+        _passes_relevance_gate([_chunk(1, score=0.9)], top_k=4, min_score=0.25) is True
+    )
 
 
 def test_passes_relevance_gate_false_when_nothing_clears_threshold():
@@ -88,10 +95,14 @@ def test_hybrid_strategy_fuses_vector_and_fulltext_results(monkeypatch):
     vector_results = [_chunk(1, score=0.9)]
     fake_store = MagicMock()
     fake_store.search_fulltext.return_value = [_chunk(2, score=0.5)]
-    monkeypatch.setattr(retrieval_module, "get_reranker_driver", lambda: _NoopFakeReranker())
+    monkeypatch.setattr(
+        retrieval_module, "get_reranker_driver", lambda: _NoopFakeReranker()
+    )
 
     strategy = HybridRetrievalStrategy()
-    result = strategy.select_chunks("q", vector_results, fake_store, top_k=5, min_score=0.25)
+    result = strategy.select_chunks(
+        "q", vector_results, fake_store, top_k=5, min_score=0.25
+    )
 
     assert {c["id"] for c in result} == {1, 2}
     fake_store.search_fulltext.assert_called_once_with("q", top_k=1)
@@ -101,15 +112,21 @@ def test_hybrid_strategy_truncates_to_top_k_after_fusion(monkeypatch):
     vector_results = [_chunk(1, score=0.9), _chunk(2, score=0.8)]
     fake_store = MagicMock()
     fake_store.search_fulltext.return_value = []
-    monkeypatch.setattr(retrieval_module, "get_reranker_driver", lambda: _NoopFakeReranker())
+    monkeypatch.setattr(
+        retrieval_module, "get_reranker_driver", lambda: _NoopFakeReranker()
+    )
 
     strategy = HybridRetrievalStrategy()
-    result = strategy.select_chunks("q", vector_results, fake_store, top_k=1, min_score=0.25)
+    result = strategy.select_chunks(
+        "q", vector_results, fake_store, top_k=1, min_score=0.25
+    )
 
     assert len(result) == 1
 
 
-def test_hybrid_strategy_cross_encoder_filters_low_scores(monkeypatch, settings_override):
+def test_hybrid_strategy_cross_encoder_filters_low_scores(
+    monkeypatch, settings_override
+):
     monkeypatch.setattr(
         retrieval_module, "settings", settings_override(RERANKER_MIN_SCORE=0.0)
     )
@@ -118,18 +135,24 @@ def test_hybrid_strategy_cross_encoder_filters_low_scores(monkeypatch, settings_
     fake_store.search_fulltext.return_value = []
     # Candidate 1 gets score 1.5 (passes >= 0.0), Candidate 2 gets -2.0 (filtered out)
     monkeypatch.setattr(
-        retrieval_module, "get_reranker_driver", lambda: _FakeCrossEncoderReranker([1.5, -2.0])
+        retrieval_module,
+        "get_reranker_driver",
+        lambda: _FakeCrossEncoderReranker([1.5, -2.0]),
     )
 
     strategy = HybridRetrievalStrategy()
-    result = strategy.select_chunks("q", vector_results, fake_store, top_k=5, min_score=0.25)
+    result = strategy.select_chunks(
+        "q", vector_results, fake_store, top_k=5, min_score=0.25
+    )
 
     assert len(result) == 1
     assert result[0]["id"] == 1
     assert result[0]["score"] == 1.5
 
 
-def test_hybrid_strategy_cross_encoder_rejects_when_all_below_threshold(monkeypatch, settings_override):
+def test_hybrid_strategy_cross_encoder_rejects_when_all_below_threshold(
+    monkeypatch, settings_override
+):
     monkeypatch.setattr(
         retrieval_module, "settings", settings_override(RERANKER_MIN_SCORE=0.0)
     )
@@ -138,16 +161,22 @@ def test_hybrid_strategy_cross_encoder_rejects_when_all_below_threshold(monkeypa
     fake_store.search_fulltext.return_value = []
     # Both candidates score negative logits (e.g. unanswerable / irrelevant)
     monkeypatch.setattr(
-        retrieval_module, "get_reranker_driver", lambda: _FakeCrossEncoderReranker([-3.5, -7.2])
+        retrieval_module,
+        "get_reranker_driver",
+        lambda: _FakeCrossEncoderReranker([-3.5, -7.2]),
     )
 
     strategy = HybridRetrievalStrategy()
-    result = strategy.select_chunks("q", vector_results, fake_store, top_k=5, min_score=0.25)
+    result = strategy.select_chunks(
+        "q", vector_results, fake_store, top_k=5, min_score=0.25
+    )
 
     assert result == []
 
 
-def test_get_retrieval_strategy_returns_hybrid_by_default(monkeypatch, settings_override):
+def test_get_retrieval_strategy_returns_hybrid_by_default(
+    monkeypatch, settings_override
+):
     monkeypatch.setattr(
         retrieval_module, "settings", settings_override(RETRIEVAL_STRATEGY="hybrid")
     )
@@ -207,3 +236,16 @@ def test_retrieve_chunks_embeds_when_no_query_vector_given(monkeypatch):
 
     fake_driver.embed_query.assert_called_once_with("question")
     assert fake_store.search.call_args.args[0] == [0.9, 0.9]
+
+
+def test_retrieve_chunks_forwards_metadata_filter(monkeypatch):
+    fake_driver, fake_store = _patch_driver_and_store(
+        monkeypatch, search_results=[_chunk(1, score=0.9)]
+    )
+    fake_driver.embed_query.return_value = [0.1, 0.2]
+
+    filter_dict = {"source_file": "notes.md"}
+    results = retrieve_chunks("question", metadata_filter=filter_dict)
+
+    assert len(results) == 1
+    assert fake_store.search.call_args.kwargs.get("metadata_filter") == filter_dict

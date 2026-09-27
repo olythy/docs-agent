@@ -151,7 +151,9 @@ def test_validate_chunk_size_warns_for_the_actual_default_config():
         validate_chunk_size_against_model(chunk_size=500, max_seq_length=128)
 
 
-def test_validate_chunk_size_uses_settings_default_ratio(monkeypatch, settings_override):
+def test_validate_chunk_size_uses_settings_default_ratio(
+    monkeypatch, settings_override
+):
     monkeypatch.setattr(
         chunker_module, "settings", settings_override(WORDS_PER_TOKEN=0.75)
     )
@@ -181,6 +183,7 @@ def test_validate_chunk_size_raises_on_non_positive_ratio():
 
 
 # --- _split_oversized_text ---
+
 
 def _word_count(text: str) -> int:
     """Fake count_tokens: 1 word = 1 token, used throughout this section."""
@@ -251,9 +254,7 @@ def test_warn_strategy_returns_chunks_unchanged():
 
 
 def test_warn_strategy_warns_via_validate_chunk_size(monkeypatch, settings_override):
-    monkeypatch.setattr(
-        chunker_module, "settings", settings_override(CHUNK_SIZE=500)
-    )
+    monkeypatch.setattr(chunker_module, "settings", settings_override(CHUNK_SIZE=500))
     driver = MagicMock()
     driver.max_sequence_length.return_value = 128
     chunks = [{"content": "x", "metadata": {}}]
@@ -307,9 +308,7 @@ def test_split_strategy_splits_oversized_chunk_and_reindexes():
 def test_split_strategy_falls_back_to_warn_when_driver_lacks_real_token_counts(
     monkeypatch, settings_override
 ):
-    monkeypatch.setattr(
-        chunker_module, "settings", settings_override(CHUNK_SIZE=500)
-    )
+    monkeypatch.setattr(chunker_module, "settings", settings_override(CHUNK_SIZE=500))
     driver = MagicMock()
     driver.max_sequence_length.return_value = 128
     driver.supports_token_counting.return_value = False
@@ -448,9 +447,13 @@ def test_langchain_chunking_strategy_no_bare_separator_leftover(
     with pytest.warns(UserWarning, match="no real tokenizer"):
         result = LangChainChunkingStrategy().split(full_text, driver)
 
-    assert len(result) > 1, "text must actually have been split for this test to mean anything"
+    assert len(result) > 1, (
+        "text must actually have been split for this test to mean anything"
+    )
     for text, _start in result:
-        assert not text.startswith(('.', ',')), f"piece starts with a bare separator: {text!r}"
+        assert not text.startswith((".", ",")), (
+            f"piece starts with a bare separator: {text!r}"
+        )
 
 
 def test_langchain_chunking_strategy_start_indices_are_correct_even_with_stray_punctuation(
@@ -507,7 +510,9 @@ def test_get_chunking_strategy_raises_on_unknown(monkeypatch, settings_override)
 # --- chunk_document ---
 
 
-def test_chunk_document_builds_metadata_from_strategy_output(monkeypatch, settings_override):
+def test_chunk_document_builds_metadata_from_strategy_output(
+    monkeypatch, settings_override
+):
     monkeypatch.setattr(
         chunker_module,
         "settings",
@@ -516,7 +521,9 @@ def test_chunk_document_builds_metadata_from_strategy_output(monkeypatch, settin
     full_text = "a b c d e f"
     word_page_map = [1, 1, 1, 2, 2, 2]
 
-    chunks = chunk_document(full_text, word_page_map, source_file="doc.pdf", driver=MagicMock())
+    chunks = chunk_document(
+        full_text, word_page_map, source_file="doc.pdf", driver=MagicMock()
+    )
 
     assert [c["content"] for c in chunks] == ["a b c", "d e f"]
     assert [c["metadata"]["page_number"] for c in chunks] == [1, 2]
@@ -539,7 +546,9 @@ def test_chunk_document_page_number_is_majority_vote_across_a_page_boundary(
     full_text = "a b c d e"
     word_page_map = [1, 1, 1, 2, 2]  # 3 words from page 1, 2 from page 2
 
-    chunks = chunk_document(full_text, word_page_map, source_file="doc.pdf", driver=MagicMock())
+    chunks = chunk_document(
+        full_text, word_page_map, source_file="doc.pdf", driver=MagicMock()
+    )
 
     assert len(chunks) == 1
     assert chunks[0]["metadata"]["page_number"] == 1
@@ -549,7 +558,9 @@ def test_chunk_document_uses_langchain_strategy_when_configured(
     monkeypatch, settings_override
 ):
     monkeypatch.setattr(
-        chunker_module, "settings", settings_override(CHUNKING_STRATEGY="langchain", CHUNK_SIZE=60)
+        chunker_module,
+        "settings",
+        settings_override(CHUNKING_STRATEGY="langchain", CHUNK_SIZE=60),
     )
     full_text = "one two three four five six seven eight nine ten\n\neleven twelve"
     word_page_map = [1] * 10 + [2] * 2
@@ -567,3 +578,51 @@ def test_chunk_document_uses_langchain_strategy_when_configured(
         "eleven twelve",
     ]
     assert [c["metadata"]["page_number"] for c in chunks] == [1, 2]
+
+
+def test_enrich_chunk_content():
+    from ingestion.chunker import enrich_chunk_content
+
+    # 1. Empty header_path leaves content untouched
+    assert enrich_chunk_content("hello world", "") == "hello world"
+
+    # 2. Already starts with full header path
+    path = "# Doc > ## Section"
+    assert enrich_chunk_content(f"{path}\n\nhello", path) == f"{path}\n\nhello"
+
+    # 3. Starts with leaf header line: replaces with full path
+    leaf_chunk = "## Section\nSome details."
+    enriched = enrich_chunk_content(leaf_chunk, path)
+    assert enriched == "# Doc > ## Section\n\nSome details."
+
+    # 4. Body text without header: prepends header
+    body_chunk = "Some details without header."
+    assert enrich_chunk_content(body_chunk, path) == f"{path}\n\n{body_chunk}"
+
+
+def test_chunk_document_with_word_header_map(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        chunker_module,
+        "settings",
+        settings_override(CHUNKING_STRATEGY="word", CHUNK_SIZE=3, CHUNK_OVERLAP=0),
+    )
+    full_text = "## Overview intro text more details here"
+    word_page_map = [1] * 7
+    word_header_map = ["# Main > ## Overview"] * 7
+
+    chunks = chunk_document(
+        full_text,
+        word_page_map,
+        source_file="guide.md",
+        driver=MagicMock(),
+        word_header_map=word_header_map,
+    )
+
+    assert len(chunks) == 3
+    # Chunk 0 has words ['##', 'Overview', 'intro'] -> leaf replaced
+    assert chunks[0]["content"] == "# Main > ## Overview\n\nintro"
+    assert chunks[0]["metadata"]["header_path"] == "# Main > ## Overview"
+
+    # Chunk 1 has words ['text', 'more', 'details'] -> header prepended
+    assert chunks[1]["content"] == "# Main > ## Overview\n\ntext more details"
+    assert chunks[1]["metadata"]["header_path"] == "# Main > ## Overview"

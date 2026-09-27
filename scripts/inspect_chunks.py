@@ -85,7 +85,9 @@ def render_bar(tokens: int, max_seq_length: int, width: int = BAR_WIDTH) -> str:
     return f"[{bar:<{width}}]"
 
 
-def _chunks_for(doc_path: Path, extraction_mode: str, strategy: str, driver) -> list[dict]:
+def _chunks_for(
+    doc_path: Path, extraction_mode: str, strategy: str, driver
+) -> list[dict]:
     """Run the real ingest.py pipeline (get_extractor + chunk_document) for
     one (extraction_mode, CHUNKING_STRATEGY) combination.
 
@@ -102,8 +104,16 @@ def _chunks_for(doc_path: Path, extraction_mode: str, strategy: str, driver) -> 
     try:
         chunker_module.settings = replace(original_settings, CHUNKING_STRATEGY=strategy)
         extractor = get_extractor(doc_path)
-        full_text, word_page_map = extractor.extract(doc_path, mode=extraction_mode)
-        return chunk_document(full_text, word_page_map, source_file=doc_path.name, driver=driver)
+        full_text, word_page_map, word_header_map = extractor.extract_with_headers(
+            doc_path, mode=extraction_mode
+        )
+        return chunk_document(
+            full_text,
+            word_page_map,
+            source_file=doc_path.name,
+            driver=driver,
+            word_header_map=word_header_map,
+        )
     finally:
         chunker_module.settings = original_settings
 
@@ -141,8 +151,10 @@ def print_comparison_matrix(doc_path: Path, driver, max_seq_length: int) -> None
     #     empirically — its own import, separate from the model's).
     import langchain_text_splitters  # noqa: F401
 
-    print("\nConfiguration comparison — every extraction x chunking x "
-          "CHUNK_OVERFLOW_STRATEGY combination for this file:\n")
+    print(
+        "\nConfiguration comparison — every extraction x chunking x "
+        "CHUNK_OVERFLOW_STRATEGY combination for this file:\n"
+    )
     header = (
         f"  {'extraction':<11}{'strategy':<11}{'overflow':<9}"
         f"{'chunks':>7}{'avg':>6}{'max':>6}{'ms':>8}  bar (worst chunk vs. limit)"
@@ -167,7 +179,12 @@ def print_comparison_matrix(doc_path: Path, driver, max_seq_length: int) -> None
 
         for overflow_strategy, chunks, tokens, elapsed_seconds in [
             ("warn", raw_chunks, raw_tokens, extract_and_chunk_seconds),
-            ("split", corrected_chunks, corrected_tokens, extract_and_chunk_seconds + correction_seconds),
+            (
+                "split",
+                corrected_chunks,
+                corrected_tokens,
+                extract_and_chunk_seconds + correction_seconds,
+            ),
         ]:
             avg_tok = sum(tokens) / len(tokens) if tokens else 0
             worst = max(tokens, default=0)
@@ -227,8 +244,12 @@ def main() -> None:
 
     print("=" * 60)
     print(f"File      : {doc_path.name}")
-    print(f"CHUNK_SIZE={settings.CHUNK_SIZE} words, CHUNK_OVERLAP={settings.CHUNK_OVERLAP} words")
-    print(f"EMBEDDING_DRIVER={settings.EMBEDDING_DRIVER}, max_sequence_length={max_seq_length}")
+    print(
+        f"CHUNK_SIZE={settings.CHUNK_SIZE} words, CHUNK_OVERLAP={settings.CHUNK_OVERLAP} words"
+    )
+    print(
+        f"EMBEDDING_DRIVER={settings.EMBEDDING_DRIVER}, max_sequence_length={max_seq_length}"
+    )
     print("=" * 60)
 
     print_comparison_matrix(doc_path, driver, max_seq_length)

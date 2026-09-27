@@ -84,11 +84,12 @@ def _to_search_result(chunk: dict) -> dict:
 
 
 @mcp.tool(description=_SEARCH_KNOWLEDGE_BASE_DESCRIPTION)
-def search_knowledge_base(question: str) -> list[dict]:
+def search_knowledge_base(question: str, source_file: str | None = None) -> list[dict]:
     """Retrieve knowledge-base excerpts relevant to ``question``.
 
     Args:
         question: The user's natural-language question.
+        source_file: Optional source filename to restrict search to (e.g. 'notes.md').
 
     Returns:
         A list of excerpts (``content``/``source_file``/``page_number``),
@@ -96,6 +97,13 @@ def search_knowledge_base(question: str) -> list[dict]:
         result means the knowledge base has nothing reliable on this, not
         that the search itself failed.
     """
+    if source_file:
+        return [
+            _to_search_result(chunk)
+            for chunk in retrieve_chunks(
+                question, metadata_filter={"source_file": source_file}
+            )
+        ]
     return [_to_search_result(chunk) for chunk in retrieve_chunks(question)]
 
 

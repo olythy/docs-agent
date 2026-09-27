@@ -87,8 +87,22 @@ def add_document(file_path: str | Path, force: bool = False) -> None:
         )
 
     # Step 3: Concatenate the whole document, then chunk it document-wide
-    full_text, word_page_map = extractor.extract(doc_path, mode=settings.PDF_EXTRACTION_MODE)
-    chunks = chunk_document(full_text, word_page_map, source_file=source_file, driver=driver)
+    try:
+        full_text, word_page_map, word_header_map = extractor.extract_with_headers(
+            doc_path, mode=settings.PDF_EXTRACTION_MODE
+        )
+    except (TypeError, ValueError):
+        full_text, word_page_map = extractor.extract(
+            doc_path, mode=settings.PDF_EXTRACTION_MODE
+        )
+        word_header_map = None
+    chunks = chunk_document(
+        full_text,
+        word_page_map,
+        source_file=source_file,
+        driver=driver,
+        word_header_map=word_header_map,
+    )
     logger.info(
         "[ingest] Created %d chunk(s) via CHUNKING_STRATEGY='%s'.",
         len(chunks),

@@ -53,23 +53,25 @@ class Extractor(ABC):
     def extract(self, file_path: Path, mode: str = "flat") -> tuple[str, list[int]]:
         """Return the whole document as one string, plus a per-word page/section map.
 
-        Same contract :func:`ingestion.chunker.chunk_document` expects:
-        ``word_page_map[i]`` identifies where ``full_text.split()[i]`` came
-        from (1-based page number for PDFs; a header-based section index
-        for Markdown, where there are no real pages) — always the same
-        length as ``full_text.split()``.
-
         Args:
             file_path: Path to the source document.
             mode: Forwarded to :func:`ingestion.pdf_loader.extract_document_text`
                 for :class:`PDFExtractor` (``"flat"`` or ``"blocks"``).
-                Ignored by extractors whose format doesn't need it (e.g.
-                :class:`MarkdownExtractor`, which already has its paragraph
-                structure natively, with no coordinate-based mode to choose).
 
         Returns:
             A ``(full_text, word_page_map)`` tuple.
         """
+
+    def extract_with_headers(
+        self, file_path: Path, mode: str = "flat"
+    ) -> tuple[str, list[int], list[str] | None]:
+        """Return full_text, word_page_map, and optional word_header_map.
+
+        Extractors that do not extract headers (e.g. PDFExtractor) return
+        ``None`` for ``word_header_map``.
+        """
+        full_text, word_page_map = self.extract(file_path, mode=mode)
+        return full_text, word_page_map, None
 
 
 class PDFExtractor(Extractor):
@@ -117,43 +119,68 @@ class MarkdownExtractor(Extractor):
 
     def extract(self, file_path: Path, mode: str = "flat") -> tuple[str, list[int]]:
         full_text = file_path.read_text(encoding="utf-8")
-        word_page_map = _markdown_section_map(full_text)
+        word_page_map, _ = _markdown_headers_and_sections(full_text)
         return full_text, word_page_map
 
+    def extract_with_headers(
+        self, file_path: Path, mode: str = "flat"
+    ) -> tuple[str, list[int], list[str] | None]:
+        full_text = file_path.read_text(encoding="utf-8")
+        word_page_map, word_header_map = _markdown_headers_and_sections(full_text)
+        return full_text, word_page_map, word_header_map
 
-def _markdown_section_map(full_text: str) -> list[int]:
-    """Return a 1-based "section index" per word in ``full_text.split()``.
 
-    There's no real "page" in a Markdown file, so this reuses the same
-    word_page_map mechanism chunk_document() already relies on for PDFs,
-    with each ATX header (``#`` through ``######``) starting a new section
-    — a location marker meaningful enough for citations ("this came from
-    section 3") without needing a whole separate metadata shape.
+def _markdown_headers_and_sections(full_text: str) -> tuple[list[int], list[str]]:
+    """Parse Markdown lines, returning parallel section and header-breadcrumb maps.
 
-    Lines inside a fenced code block (delimited by a line starting with
-    ` ``` `) are never treated as headers — without this, a documentation
-    file with a shell/Python example containing a ``#`` comment would be
-    miscounted as starting a new section every time the example does.
+    Tracks a stack of ATX headers (``#`` through ``######``) outside fenced code
+    blocks. For each word in ``full_text.split()``, returns:
+    1. A 1-based section counter (incremented on each header).
+    2. A hierarchical breadcrumb string, e.g.
+       ``"# Chapter 1 > ## Section 1.1"`` (empty string before any header).
 
     Args:
-        full_text: The whole Markdown document.
+        full_text: The complete Markdown document text.
 
     Returns:
-        One section index per word — same length as ``full_text.split()``.
+        A tuple of (word_section_map, word_header_map), both having length
+        matching ``len(full_text.split())``.
     """
-    word_page_map: list[int] = []
+    word_section_map: list[int] = []
+    word_header_map: list[str] = []
     section = 1
     in_code_fence = False
+    header_stack: list[tuple[int, str]] = []
 
     for line in full_text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("```"):
+        if stripped.startswith(("```", "~~~")):
             in_code_fence = not in_code_fence
         elif not in_code_fence and stripped.startswith("#"):
-            section += 1
-        word_page_map.extend([section] * len(line.split()))
+            level = len(stripped) - len(stripped.lstrip("#"))
+            # Standard ATX headers: 1 to 6 hashes, followed by space or empty
+            if 1 <= level <= 6 and (len(stripped) == level or stripped[level] == " "):
+                header_text = stripped[level:].strip().rstrip("#").strip()
+                section += 1
+                while header_stack and header_stack[-1][0] >= level:
+                    header_stack.pop()
+                header_stack.append((level, f"{'#' * level} {header_text}"))
 
-    return word_page_map
+        current_breadcrumb = " > ".join(h[1] for h in header_stack)
+        num_words = len(line.split())
+        word_section_map.extend([section] * num_words)
+        word_header_map.extend([current_breadcrumb] * num_words)
+
+    return word_section_map, word_header_map
+
+
+def _markdown_section_map(full_text: str) -> list[int]:
+    """Return a 1-based section index per word in ``full_text.split()``.
+
+    Backward-compatible convenience wrapper around :func:`_markdown_headers_and_sections`.
+    """
+    word_section_map, _ = _markdown_headers_and_sections(full_text)
+    return word_section_map
 
 
 def get_extractor(file_path: Path) -> Extractor:

@@ -267,7 +267,9 @@ def _split_oversized_text(
         # Token density wasn't uniform enough for the balanced estimate to
         # fully consume the text in the predicted number of pieces (rare).
         # Finish correctly via the same algorithm, just less evenly.
-        pieces.extend(_split_oversized_text(" ".join(remaining), count_tokens, max_seq_length))
+        pieces.extend(
+            _split_oversized_text(" ".join(remaining), count_tokens, max_seq_length)
+        )
 
     return pieces
 
@@ -299,7 +301,9 @@ class WarnOverflowStrategy(ChunkOverflowStrategy):
     """
 
     def apply(self, chunks: list[dict], driver: EmbeddingDriver) -> list[dict]:
-        validate_chunk_size_against_model(settings.CHUNK_SIZE, driver.max_sequence_length())
+        validate_chunk_size_against_model(
+            settings.CHUNK_SIZE, driver.max_sequence_length()
+        )
         return chunks
 
 
@@ -405,7 +409,9 @@ class WordChunkingStrategy(ChunkingStrategy):
 
     def split(self, full_text: str, driver: EmbeddingDriver) -> list[tuple[str, int]]:
         words = full_text.split()
-        groups = _split_words_into_chunks(words, settings.CHUNK_SIZE, settings.CHUNK_OVERLAP)
+        groups = _split_words_into_chunks(
+            words, settings.CHUNK_SIZE, settings.CHUNK_OVERLAP
+        )
         step = settings.CHUNK_SIZE - settings.CHUNK_OVERLAP
         return [(" ".join(group), i * step) for i, group in enumerate(groups)]
 
@@ -504,11 +510,41 @@ def get_chunking_strategy() -> ChunkingStrategy:
     )
 
 
+def enrich_chunk_content(content: str, header_path: str) -> str:
+    """Prepend or integrate hierarchical header path into chunk content.
+
+    If the chunk already starts with the full header path, leaves it unchanged.
+    If the chunk starts with the leaf header (e.g. '## Section 1.1'), replaces
+    that local header with the full breadcrumb ('# Chapter 1 > ## Section 1.1')
+    to avoid redundant duplicate headers. Otherwise, prepends the header path
+    as a top-level context line.
+
+    Args:
+        content: The raw chunk text.
+        header_path: Hierarchical header breadcrumb (e.g. '# H1 > ## H2').
+
+    Returns:
+        The context-enriched chunk text.
+    """
+    if not header_path:
+        return content
+    if content.startswith(header_path):
+        return content
+
+    leaf = header_path.split(" > ")[-1]
+    if content.startswith(leaf):
+        rest = content[len(leaf) :].lstrip(" \r\n")
+        return f"{header_path}\n\n{rest}" if rest else header_path
+
+    return f"{header_path}\n\n{content}"
+
+
 def chunk_document(
     full_text: str,
     word_page_map: list[int],
     source_file: str,
     driver: EmbeddingDriver,
+    word_header_map: list[str] | None = None,
 ) -> list[dict]:
     """Split a whole document's text into chunk dicts, using the active CHUNKING_STRATEGY.
 
@@ -519,10 +555,10 @@ def chunk_document(
     paragraph that spans a page break into two truncated chunks.
 
     ``page_number`` is assigned by majority vote: whichever page contributed
-    the most words to a chunk. A chunk's words very rarely straddle more
-    than two pages, and an occasional off-by-one-page citation is a
-    negligible cost for not having to change the metadata shape (a page
-    *range* would ripple into the prompt template and retrieval display).
+    the most words to a chunk. If ``word_header_map`` is provided (e.g. from
+    :class:`ingestion.extractors.MarkdownExtractor`), the dominant header
+    breadcrumb is determined by majority vote, added to ``metadata["header_path"]``,
+    and prepended to ``content`` before embedding for hierarchical context.
 
     Args:
         full_text: The whole document's text.
@@ -530,6 +566,8 @@ def chunk_document(
             length), as returned by ``extract_document_text``.
         source_file: The basename of the source PDF, stored in metadata.
         driver: The active embedding driver, passed through to the strategy.
+        word_header_map: Optional parallel list of header breadcrumbs per word
+            in ``full_text.split()``.
 
     Returns:
         A flat list of chunk dicts, in document order.
@@ -537,18 +575,37 @@ def chunk_document(
     from collections import Counter
 
     chunks = []
-    for i, (content, start_word) in enumerate(get_chunking_strategy().split(full_text, driver)):
+    for i, (content, start_word) in enumerate(
+        get_chunking_strategy().split(full_text, driver)
+    ):
         n_words = len(content.split())
         pages_in_chunk = word_page_map[start_word : start_word + n_words]
-        page_number = Counter(pages_in_chunk).most_common(1)[0][0] if pages_in_chunk else None
+        page_number = (
+            Counter(pages_in_chunk).most_common(1)[0][0] if pages_in_chunk else None
+        )
+
+        header_path = ""
+        if word_header_map:
+            headers_in_chunk = [
+                h for h in word_header_map[start_word : start_word + n_words] if h
+            ]
+            if headers_in_chunk:
+                header_path = Counter(headers_in_chunk).most_common(1)[0][0]
+
+        enriched_content = enrich_chunk_content(content, header_path)
+
+        metadata: dict = {
+            "source_file": source_file,
+            "page_number": page_number,
+            "chunk_index": i,
+        }
+        if header_path:
+            metadata["header_path"] = header_path
+
         chunks.append(
             {
-                "content": content,
-                "metadata": {
-                    "source_file": source_file,
-                    "page_number": page_number,
-                    "chunk_index": i,
-                },
+                "content": enriched_content,
+                "metadata": metadata,
             }
         )
     return chunks

@@ -98,7 +98,10 @@ def test_search_fulltext_or_joins_query_words(monkeypatch):
 
     VectorStore().search_fulltext("What tennis system is this?", top_k=5)
 
-    query_arg, top_k_arg = cursor.execute.call_args[0][1][0], cursor.execute.call_args[0][1][2]
+    query_arg, top_k_arg = (
+        cursor.execute.call_args[0][1][0],
+        cursor.execute.call_args[0][1][2],
+    )
     assert query_arg == "tennis or system"
     assert top_k_arg == 5
 
@@ -193,3 +196,37 @@ def test_assert_dimension_matches_raises_on_mismatch(monkeypatch):
     monkeypatch.setattr(VectorStore, "get_embedding_dimension", lambda self: 384)
     with pytest.raises(RuntimeError, match="dimension mismatch"):
         VectorStore().assert_dimension_matches(1536)
+
+
+def test_search_with_metadata_filter(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    VectorStore().search(
+        [0.1, 0.2], top_k=3, min_score=0.0, metadata_filter={"source_file": "doc.md"}
+    )
+
+    sql_executed = cursor.execute.call_args[0][0]
+    args_executed = cursor.execute.call_args[0][1]
+
+    assert "WHERE metadata @> %s::jsonb" in sql_executed
+    assert '{"source_file": "doc.md"}' in args_executed
+
+
+def test_search_fulltext_with_metadata_filter(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    VectorStore().search_fulltext(
+        "tennis", top_k=3, metadata_filter={"source_file": "doc.md"}
+    )
+
+    sql_executed = cursor.execute.call_args[0][0]
+    args_executed = cursor.execute.call_args[0][1]
+
+    assert "AND metadata @> %s::jsonb" in sql_executed
+    assert '{"source_file": "doc.md"}' in args_executed

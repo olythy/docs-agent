@@ -86,7 +86,15 @@ TOOLS = [
                     "question": {
                         "type": "string",
                         "description": "The user's natural-language question.",
-                    }
+                    },
+                    "source_file": {
+                        "type": "string",
+                        "description": (
+                            "Optional filename to restrict the search to (e.g. 'notes.md' "
+                            "or 'sample.pdf'). Only provide if the user explicitly asks "
+                            "about a specific document."
+                        ),
+                    },
                 },
                 "required": ["question"],
             },
@@ -123,6 +131,11 @@ def _call_tool(name: str, arguments: dict) -> str:
         add_document(arguments["file_path"])
         return f"Document '{arguments['file_path']}' was ingested successfully."
     if name == "query_knowledge_base":
+        source_file = arguments.get("source_file")
+        if source_file:
+            return query_knowledge_base(
+                arguments["question"], metadata_filter={"source_file": source_file}
+            )
         return query_knowledge_base(arguments["question"])
     raise ValueError(f"Unknown tool requested by the model: '{name}'")
 
@@ -187,7 +200,9 @@ def run_agent(user_message: str) -> str:
             {"role": "tool", "tool_call_id": tool_call.id, "content": result}
         )
 
-    final_response = client.chat.completions.create(model=driver.model, messages=messages)
+    final_response = client.chat.completions.create(
+        model=driver.model, messages=messages
+    )
     return final_response.choices[0].message.content or ""
 
 
