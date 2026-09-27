@@ -13,6 +13,15 @@ Unlike every other Strategy in this project (``EMBEDDING_DRIVER``,
 That's deliberate: which extractor applies is a fact about the file, not a
 preference — there's nothing to configure.
 
+Key exports:
+    Extractor            -- Abstract base class defining the two-step extract contract.
+    PDFExtractor         -- Concrete extractor for .pdf files.
+    MarkdownExtractor    -- Concrete extractor for .md / .markdown files.
+    EXTRACTOR_REGISTRY   -- Dict mapping file extensions to their Extractor classes.
+    SUPPORTED_EXTENSIONS -- frozenset of all registered extensions (derived from registry).
+    get_extractor        -- Returns the correct Extractor instance for a given file path.
+    normalize_extensions -- Normalises a collection of extension strings (adds dot, lowercases).
+
 Usage::
 
     from ingestion.extractors import get_extractor

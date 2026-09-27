@@ -68,7 +68,12 @@ logger = logging.getLogger(__name__)
 
 
 def main(cli_args: list[str] | None = None) -> int:
-    """Run the CLI ingestion workflow."""
+    """Run the CLI ingestion workflow.
+
+    Returns:
+        0 on full success, 1 if any path was missing, failed, or a directory
+        ingestion produced at least one failed file.
+    """
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = parse_args(cli_args)
 
