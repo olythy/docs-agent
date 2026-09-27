@@ -111,3 +111,19 @@ def test_main_delete_by_missing_source_path(monkeypatch):
 
     assert exit_code == 0
     fake_store.delete_chunks_from_source.assert_called_once_with("nonexistent/doc.md")
+
+
+def test_resolve_input_paths_reconstructs_spaces(tmp_path):
+    from scripts.ingest import resolve_input_paths
+
+    doc_dir = tmp_path / "My Folder"
+    doc_dir.mkdir()
+    doc_file = doc_dir / "Special File.md"
+    doc_file.write_text("# Hello")
+
+    # Simulate Make splitting the path on spaces
+    split_tokens = [str(tmp_path / "My"), "Folder/Special", "File.md"]
+    resolved = resolve_input_paths(split_tokens)
+
+    assert len(resolved) == 1
+    assert resolved[0] == str(doc_file)

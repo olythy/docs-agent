@@ -5,6 +5,13 @@
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
         make-migration add-document add-directory delete-document query mcp-dev mcp-install test lint
 
+# Support direct positional arguments without path="...":
+# e.g. `make add-document file1.pdf file2.md`
+SUPPORTED_CMD_TARGETS := add-document add-directory delete-document
+ifeq ($(filter $(firstword $(MAKECMDGOALS)),$(SUPPORTED_CMD_TARGETS)),$(firstword $(MAKECMDGOALS)))
+  CMD_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+endif
+
 # Self-documenting: every target's `## ` comment is both its Makefile
 # documentation and its `make help` output — one source, so it can't drift
 # out of sync the way a hand-maintained list (e.g. README's old Makefile
@@ -71,14 +78,14 @@ make-migration: ## Scaffold a new migration file — usage: make make-migration 
 # -c one-liners configure logging themselves: ingestion.ingest/query.retrieval
 # log progress via `logging` (silent by default) rather than print(), so
 # mcp_server.py's stdout stays clean for the MCP protocol.
-add-document: ## Ingest document(s) — usage: make add-document path="file1.pdf file2.md"
-	uv run python scripts/ingest.py $(path)
+add-document: ## Ingest document(s) — usage: make add-document file1.pdf [file2.md]
+	uv run python scripts/ingest.py $(if $(path),$(path),$(CMD_ARGS))
 
-add-directory: ## Batch-ingest a directory — usage: make add-directory path=/path/to/dir [ext=.md]
-	uv run python scripts/ingest.py $(path) $(if $(ext),--ext $(ext),)
+add-directory: ## Batch-ingest a directory — usage: make add-directory /path/to/dir [ext=.md]
+	uv run python scripts/ingest.py $(if $(path),$(path),$(CMD_ARGS)) $(if $(ext),--ext $(ext),)
 
-delete-document: ## Delete document chunks by file path or hash — usage: make delete-document path=/path/to/doc.pdf
-	uv run python scripts/ingest.py --delete $(path)
+delete-document: ## Delete document chunks by path or hash — usage: make delete-document file.pdf
+	uv run python scripts/ingest.py --delete $(if $(path),$(path),$(CMD_ARGS))
 
 query: ## Ask a question (full pipeline, real LLM call) — usage: make query q="What is X?"
 	uv run python -c "import logging; logging.basicConfig(level=logging.INFO, format='%(message)s'); from query.retrieval import query_knowledge_base; print(query_knowledge_base('$(q)'))"
@@ -106,3 +113,7 @@ test: ## Run the full test suite (unit + tests/db/)
 
 lint: ## Run ruff
 	uv run ruff check .
+
+# Catch-all to allow passing arguments directly after Make targets without "No rule to make target" errors
+%:
+	@:

@@ -70,6 +70,55 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(args)
 
 
+def resolve_input_paths(raw_paths: list[str]) -> list[str]:
+    """Resolve and reconstruct input paths, handling shell expansion and space-split tokens.
+
+    When Make or shells split a path containing spaces into separate arguments
+    (e.g. ['~/Downloads/My', 'Business/file.pdf']), greedily combines adjacent tokens
+    if the combined string forms an existing file or directory. Also expands user
+    home directory tildes (~).
+
+    Args:
+        raw_paths: List of raw input path strings from CLI.
+
+    Returns:
+        List of resolved, existing or normalized path strings.
+    """
+    resolved: list[str] = []
+    i = 0
+    while i < len(raw_paths):
+        current = raw_paths[i]
+        expanded = Path(current).expanduser()
+
+        if len(current) == 64 and all(c in "0123456789abcdefABCDEF" for c in current):
+            resolved.append(current)
+            i += 1
+            continue
+
+        if expanded.exists():
+            resolved.append(str(expanded))
+            i += 1
+            continue
+
+        # Look ahead and attempt to join adjacent tokens if they form a real file/dir
+        found = False
+        accumulated = current
+        for j in range(i + 1, len(raw_paths)):
+            accumulated += " " + raw_paths[j]
+            accumulated_expanded = Path(accumulated).expanduser()
+            if accumulated_expanded.exists():
+                resolved.append(str(accumulated_expanded))
+                i = j + 1
+                found = True
+                break
+
+        if not found:
+            resolved.append(str(expanded))
+            i += 1
+
+    return resolved
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,13 +131,14 @@ def main(cli_args: list[str] | None = None) -> int:
     """
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = parse_args(cli_args)
+    resolved_paths = resolve_input_paths(args.paths)
 
     if args.delete:
         from ingestion.hash import compute_file_hash
         from store import VectorStore
 
         store = VectorStore()
-        for target in args.paths:
+        for target in resolved_paths:
             target_path = Path(target)
             if len(target) == 64 and all(c in "0123456789abcdefABCDEF" for c in target):
                 deleted = store.delete_chunks_by_hash(target.lower())
@@ -117,7 +167,7 @@ def main(cli_args: list[str] | None = None) -> int:
 
     has_errors = False
 
-    for raw_path in args.paths:
+    for raw_path in resolved_paths:
         path = Path(raw_path)
         if not path.exists():
             logger.error("[ingest] Error: Path not found: %s", raw_path)
