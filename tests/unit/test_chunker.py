@@ -11,6 +11,7 @@ from ingestion.chunker import (
     SplitOverflowStrategy,
     WarnOverflowStrategy,
     WordChunkingStrategy,
+    _find_natural_break_point,
     _split_oversized_text,
     _split_words_into_chunks,
     chunk_document,
@@ -251,6 +252,37 @@ def test_split_oversized_text_with_overlap():
     assert first_words[-2:] == second_words[:2]
 
 
+def test_find_natural_break_point_finds_sentence_terminators():
+    # Last word has a period -> break point includes that word
+    words = ["Sentence", "one.", "Sentence", "two", "starts", "here."]
+    assert _find_natural_break_point(words) == 6
+
+    # Terminator in the second half (index 2 out of 5 words = 40% < 50%, index 3 = 60% >= 50%)
+    words_mid = ["word0", "word1", "word2", "word3.", "word4", "word5"]
+    assert _find_natural_break_point(words_mid) == 4
+
+    # Trailing quote after period handled
+    words_quote = ["He", "said,", "yes.", '"Extra"']
+    assert _find_natural_break_point(words_quote) == 3
+
+
+def test_find_natural_break_point_ignores_terminators_below_threshold():
+    # Period is at index 0 (< 50% of 6 words) -> fallback to all words (no tiny fragment)
+    words = ["Start.", "word1", "word2", "word3", "word4", "word5"]
+    assert _find_natural_break_point(words) == 6
+
+
+def test_split_oversized_text_cuts_at_sentence_boundary():
+    # Two clear sentences. Budget is enough for 7 words, but sentence 1 ends at word 3.
+    text = "First phrase here. Second longer phrase goes here."
+    pieces = _split_oversized_text(
+        text, _word_count, max_seq_length=7, overlap_ratio=0.0
+    )
+    assert len(pieces) == 2
+    assert pieces[0] == "First phrase here."
+    assert pieces[1] == "Second longer phrase goes here."
+
+
 # --- WarnOverflowStrategy ---
 
 
@@ -349,6 +381,43 @@ def test_split_strategy_falls_back_to_warn_when_driver_lacks_real_token_counts(
     assert result == chunks
     messages = [str(w.message) for w in record]
     assert any("Falling back" in m for m in messages)
+
+
+def test_split_strategy_preserves_header_path_across_all_pieces():
+    header = "# Main > ## Section"
+    driver = MagicMock()
+    driver.max_sequence_length.return_value = 10
+    driver.count_tokens.side_effect = _word_count
+
+    # Content has header prefixed + body
+    body = "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10"
+    content = f"{header}\n\n{body}"
+    chunks = [
+        {
+            "content": content,
+            "metadata": {
+                "source_file": "doc.md",
+                "header_path": header,
+                "chunk_index": 0,
+            },
+        }
+    ]
+
+    result = SplitOverflowStrategy(overlap_ratio=0.0).apply(chunks, driver)
+    assert len(result) >= 2
+    for chunk in result:
+        assert chunk["content"].startswith(f"{header}\n\n")
+        assert chunk["metadata"]["header_path"] == header
+        # Check token budget respected for the whole piece
+        assert driver.count_tokens(chunk["content"]) <= 10
+
+
+def test_split_strategy_uses_settings_overlap_ratio(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        chunker_module, "settings", settings_override(CHUNK_SPLIT_OVERLAP_RATIO=0.25)
+    )
+    strategy = SplitOverflowStrategy()
+    assert strategy.overlap_ratio == 0.25
 
 
 # --- get_chunk_overflow_strategy ---

@@ -82,6 +82,11 @@ class Settings:
                               ``warn`` estimates via WORDS_PER_TOKEN and logs
                               a warning, but still truncates silently at embed
                               time.
+        CHUNK_SPLIT_OVERLAP_RATIO
+                              Fraction of words or tokens (0.0 to 0.5) to overlap
+                              between pieces when CHUNK_OVERFLOW_STRATEGY=split divides
+                              an oversized chunk (default: 0.15, i.e. 15%). Preserves
+                              sentence and conceptual context across boundaries.
         PDF_EXTRACTION_MODE   ``flat`` (default) joins each page's text with a
                               single space — fast, but paragraph structure is
                               lost. ``blocks`` additionally detects paragraph
@@ -197,6 +202,9 @@ class Settings:
     CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "30"))
     WORDS_PER_TOKEN: float = float(os.getenv("WORDS_PER_TOKEN", "0.75"))
     CHUNK_OVERFLOW_STRATEGY: str = os.getenv("CHUNK_OVERFLOW_STRATEGY", "split")
+    CHUNK_SPLIT_OVERLAP_RATIO: float = float(
+        os.getenv("CHUNK_SPLIT_OVERLAP_RATIO", "0.15")
+    )
     PDF_EXTRACTION_MODE: str = os.getenv("PDF_EXTRACTION_MODE", "flat")
     CHUNKING_STRATEGY: str = os.getenv("CHUNKING_STRATEGY", "word")
 

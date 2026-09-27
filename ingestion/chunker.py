@@ -209,42 +209,56 @@ def _largest_fitting_prefix(
     return fit
 
 
+def _find_natural_break_point(words: list[str]) -> int:
+    """Find the word index of the best natural sentence or clause boundary.
+
+    Scans the words from the end backwards to find a sentence terminator
+    (e.g. '.', '?', '!', '\n'). To prevent creating chunks that are excessively
+    small, only accepts a boundary if it falls in the latter portion of the word
+    sequence (>= 50% of words).
+
+    Args:
+        words: Slice of candidate words fitting within the token budget.
+
+    Returns:
+        Word index where the piece should end (inclusive of the punctuation word),
+        or len(words) if no natural boundary is found within the threshold.
+    """
+    total = len(words)
+    min_threshold = int(total * 0.5)
+
+    terminators = (".", "!", "?", "...", ":", ";")
+    for idx in range(total - 1, min_threshold - 1, -1):
+        token = words[idx].rstrip("\"'”’)")
+        if any(token.endswith(t) for t in terminators) or "\n" in words[idx]:
+            return idx + 1
+
+    return total
+
+
 def _split_oversized_text(
     text: str,
     count_tokens: Callable[[str], int],
     max_seq_length: int,
     overlap_ratio: float = 0.0,
 ) -> list[str]:
-    """Split ``text`` into balanced pieces that each fit within ``max_seq_length`` real tokens.
+    """Split ``text`` into balanced, sentence-aware pieces fitting within ``max_seq_length`` tokens.
 
-    Greedily maxing out each piece up to the hard token limit sounds
-    optimal but isn't: for a chunk only slightly over the limit (say 132
-    tokens vs. a 128 limit), it produces one full 128-token piece and a
-    near-empty ~4-token straggler. That straggler is nearly useless as its
-    own embedding — too little semantic content for retrieval to ever
-    match it well. Instead, this first estimates how many pieces are
-    actually needed (``ceil(total_tokens / max_seq_length)``) and aims
-    each piece at an even share of that, so e.g. 132 tokens over a 128
-    limit becomes two ~66-token pieces instead of 128 + 4.
-
-    Still checks ground truth via ``count_tokens`` after every guess
-    (binary search), same as a pure max-out approach would — the
-    balancing only changes the *target* each piece aims for, not the
-    correctness guarantee that no returned piece exceeds ``max_seq_length``.
+    Balances pieces across the token budget and respects natural sentence boundaries
+    wherever possible (falling back to word boundaries only for single oversized sentences).
+    Maintains sentence overlap between adjacent pieces to prevent loss of cross-boundary
+    context.
 
     Args:
-        text: The oversized chunk's text.
+        text: The oversized chunk's body text.
         count_tokens: Returns the real token count for a given string
             (e.g. :meth:`drivers.embedding.EmbeddingDriver.count_tokens`).
         max_seq_length: The token budget each returned piece must fit within.
         overlap_ratio: Optional fraction of words (0.0 - 0.5) from the end of
-            a piece to repeat at the beginning of the next piece, ensuring
-            sentences or concepts crossing chunk boundaries retain context.
+            a piece to repeat at the beginning of the next piece.
 
     Returns:
-        One or more pieces whose concatenation covers ``text``. A single word
-        longer than ``max_seq_length`` tokens on its own is returned as its
-        own (still-oversized) piece.
+        One or more pieces whose concatenation (with overlap) covers ``text``.
     """
     words = text.split()
     if not words:
@@ -266,13 +280,19 @@ def _split_oversized_text(
             budget = max_seq_length
 
         fit = _largest_fitting_prefix(remaining, count_tokens, budget)
-        pieces.append(" ".join(remaining[:fit]))
+        if fit < len(remaining):
+            cut_point = _find_natural_break_point(remaining[:fit])
+        else:
+            cut_point = fit
 
-        if fit >= len(remaining):
+        piece_words = remaining[:cut_point]
+        pieces.append(" ".join(piece_words))
+
+        if cut_point >= len(remaining):
             break
 
-        overlap_count = int(fit * overlap_ratio) if overlap_ratio > 0.0 else 0
-        step = max(1, fit - overlap_count)
+        overlap_count = int(cut_point * overlap_ratio) if overlap_ratio > 0.0 else 0
+        step = max(1, cut_point - overlap_count)
         remaining = remaining[step:]
         if pieces_left > 0:
             pieces_left -= 1
@@ -318,20 +338,22 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
 
     Uses the driver's real tokenizer (:meth:`EmbeddingDriver.count_tokens`)
     rather than the ``WORDS_PER_TOKEN`` estimate, so nothing is ever
-    silently truncated — at the cost of an extra tokenizer call per chunk.
-    Maintains an overlap between sub-pieces so cross-boundary context is
-    preserved. Falls back to :class:`WarnOverflowStrategy` when the active driver
-    can't report real token counts (e.g. ``OpenAIEmbeddingDriver``): there's no
-    ground truth to split against, so correction isn't possible, only the
-    same estimate-based warning is.
+    silently truncated. Maintains natural sentence overlap between sub-pieces
+    and accounts for hierarchical breadcrumb headers and model prefixes when
+    budgeting tokens. Falls back to :class:`WarnOverflowStrategy` when the
+    active driver can't report real token counts (e.g. ``OpenAIEmbeddingDriver``).
 
     Args:
-        overlap_ratio: Word overlap ratio (0.0 to 0.5) between generated pieces
-            (default: 0.10, i.e. 10%).
+        overlap_ratio: Word overlap ratio (0.0 to 0.5) between generated pieces.
+            Defaults to ``settings.CHUNK_SPLIT_OVERLAP_RATIO``.
     """
 
-    def __init__(self, overlap_ratio: float = 0.10) -> None:
-        self.overlap_ratio = overlap_ratio
+    def __init__(self, overlap_ratio: float | None = None) -> None:
+        self.overlap_ratio = (
+            overlap_ratio
+            if overlap_ratio is not None
+            else settings.CHUNK_SPLIT_OVERLAP_RATIO
+        )
 
     def apply(self, chunks: list[dict], driver: EmbeddingDriver) -> list[dict]:
         max_seq_length = driver.max_sequence_length()
@@ -351,16 +373,35 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
         corrected: list[dict] = []
         next_index = 0
         for chunk in chunks:
+            raw_content = chunk["content"]
+            metadata = chunk["metadata"]
+            header_path = metadata.get("header_path", "")
+
+            # If header_path is present, budget tokens for the header prefix and
+            # a downstream model prefix ("passage: " ~4 tokens) so the final
+            # piece never exceeds max_seq_length.
+            header_prefix = f"{header_path}\n\n" if header_path else ""
+            if header_prefix and raw_content.startswith(header_prefix):
+                body = raw_content[len(header_prefix) :]
+            else:
+                body = raw_content
+
+            header_tokens = driver.count_tokens(header_prefix) if header_prefix else 0
+            safety_margin = 4 if max_seq_length > 16 else 0
+            budget = max_seq_length - header_tokens - safety_margin
+            effective_max_tokens = max(1, min(max_seq_length, budget))
+
             for piece in _split_oversized_text(
-                chunk["content"],
+                body,
                 driver.count_tokens,
-                max_seq_length,
+                effective_max_tokens,
                 overlap_ratio=self.overlap_ratio,
             ):
+                enriched_piece = enrich_chunk_content(piece, header_path)
                 corrected.append(
                     {
-                        "content": piece,
-                        "metadata": {**chunk["metadata"], "chunk_index": next_index},
+                        "content": enriched_piece,
+                        "metadata": {**metadata, "chunk_index": next_index},
                     }
                 )
                 next_index += 1
