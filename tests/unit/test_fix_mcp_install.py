@@ -10,7 +10,15 @@ from scripts.fix_mcp_install import patch_args
 def _config_with_entry(**overrides) -> dict:
     entry = {
         "command": "/Users/x/.local/bin/uv",
-        "args": ["run", "--frozen", "--with", "mcp[cli]==2.2.0", "mcp", "run", "/path/mcp_server.py"],
+        "args": [
+            "run",
+            "--frozen",
+            "--with",
+            "mcp[cli]==2.2.0",
+            "mcp",
+            "run",
+            "/path/mcp_server.py",
+        ],
         "env": {"DATABASE_URL": "postgresql://..."},
     }
     entry.update(overrides)

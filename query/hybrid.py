@@ -49,7 +49,12 @@ def reciprocal_rank_fusion(
         for rank, chunk in enumerate(results, start=1):
             entry = fused.setdefault(
                 chunk["id"],
-                {"id": chunk["id"], "content": chunk["content"], "metadata": chunk["metadata"], "score": 0.0},
+                {
+                    "id": chunk["id"],
+                    "content": chunk["content"],
+                    "metadata": chunk["metadata"],
+                    "score": 0.0,
+                },
             )
             entry["score"] += 1 / (rank + k)
 

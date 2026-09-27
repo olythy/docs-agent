@@ -214,7 +214,9 @@ class LocalSentenceTransformerDriver(EmbeddingDriver):
         """
         if self._passage_prefix:
             texts = [
-                f"{self._passage_prefix}{t}" if not t.startswith(self._passage_prefix) else t
+                f"{self._passage_prefix}{t}"
+                if not t.startswith(self._passage_prefix)
+                else t
                 for t in texts
             ]
         return self.embed_batch(texts)

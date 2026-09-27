@@ -35,4 +35,6 @@ class AddFulltextSearch(Migration):
     def down(self, conn: PgConnection) -> None:
         with conn.cursor() as cur:
             cur.execute("DROP INDEX IF EXISTS document_chunks_content_tsv_idx;")
-            cur.execute("ALTER TABLE document_chunks DROP COLUMN IF EXISTS content_tsv;")
+            cur.execute(
+                "ALTER TABLE document_chunks DROP COLUMN IF EXISTS content_tsv;"
+            )

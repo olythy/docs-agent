@@ -133,7 +133,9 @@ def extract_document_text(pdf_path: Path, mode: str = "flat") -> tuple[str, list
     if mode == "blocks":
         return _extract_blocks_text(pdf_path)
 
-    raise ValueError(f"Unknown PDF_EXTRACTION_MODE: '{mode}'. Valid options are: 'flat', 'blocks'.")
+    raise ValueError(
+        f"Unknown PDF_EXTRACTION_MODE: '{mode}'. Valid options are: 'flat', 'blocks'."
+    )
 
 
 def _extract_blocks_text(pdf_path: Path) -> tuple[str, list[int]]:
@@ -160,14 +162,20 @@ def _extract_blocks_text(pdf_path: Path) -> tuple[str, list[int]]:
             unique_tops = sorted({round(w["top"], 1) for w in words})
             gaps = [b - a for a, b in pairwise(unique_tops)]
             median_gap = statistics.median(gaps) if gaps else 0
-            threshold = median_gap * PARAGRAPH_GAP_MULTIPLIER if median_gap else float("inf")
+            threshold = (
+                median_gap * PARAGRAPH_GAP_MULTIPLIER if median_gap else float("inf")
+            )
 
             prev_top: float | None = None
             for w in words:
                 text = w["text"].replace("\x00", "")
                 if not text:
                     continue
-                if prev_top is not None and (w["top"] - prev_top) > threshold and word_texts:
+                if (
+                    prev_top is not None
+                    and (w["top"] - prev_top) > threshold
+                    and word_texts
+                ):
                     word_texts[-1] += "\n\n"
                 word_texts.append(text)
                 word_page_map.append(page_number)

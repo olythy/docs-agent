@@ -174,7 +174,9 @@ def test_extract_document_text_blocks_no_break_across_pages(monkeypatch, tmp_pat
     pdf_path.write_bytes(b"%PDF-1.4 fake")
 
     page1_words = [{"text": "end", "top": 10}]
-    page2_words = [{"text": "start", "top": 700}]  # huge gap vs. page 1, but different page
+    page2_words = [
+        {"text": "start", "top": 700}
+    ]  # huge gap vs. page 1, but different page
     _open_fake_pdf(
         monkeypatch,
         [_fake_page_with_words(page1_words), _fake_page_with_words(page2_words)],

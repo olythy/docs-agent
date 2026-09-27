@@ -4,7 +4,12 @@ from query.hybrid import reciprocal_rank_fusion
 
 
 def _chunk(chunk_id, content="c", score=0.0, page=1):
-    return {"id": chunk_id, "content": content, "metadata": {"page_number": page}, "score": score}
+    return {
+        "id": chunk_id,
+        "content": content,
+        "metadata": {"page_number": page},
+        "score": score,
+    }
 
 
 def test_chunk_in_both_lists_combines_scores():

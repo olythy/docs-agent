@@ -120,9 +120,7 @@ def _build_prompt(question: str, context_chunks: list[dict]) -> tuple[str, str]:
         meta = chunk.get("metadata", {})
         source = meta.get("source_file", "unknown")
         page = meta.get("page_number", "?")
-        context_parts.append(
-            f"[{i}] Source: {source}, page {page}\n{chunk['content']}"
-        )
+        context_parts.append(f"[{i}] Source: {source}, page {page}\n{chunk['content']}")
     context_text = "\n\n".join(context_parts)
 
     system_prompt = (
@@ -140,10 +138,7 @@ def _build_prompt(question: str, context_chunks: list[dict]) -> tuple[str, str]:
         "documents.'"
     )
 
-    user_message = (
-        f"Document excerpts:\n\n{context_text}\n\n"
-        f"Question: {question}"
-    )
+    user_message = f"Document excerpts:\n\n{context_text}\n\nQuestion: {question}"
 
     return system_prompt, user_message
 

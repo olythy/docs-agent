@@ -156,7 +156,9 @@ def test_local_driver_count_tokens_registers_the_suppression_filter(monkeypatch)
     LocalSentenceTransformerDriver().count_tokens("hello")
 
     target_logger = logging.getLogger("transformers.tokenization_utils_base")
-    assert any(isinstance(f, _SuppressTokenLengthWarning) for f in target_logger.filters)
+    assert any(
+        isinstance(f, _SuppressTokenLengthWarning) for f in target_logger.filters
+    )
 
 
 def test_local_driver_supports_token_counting_is_true():
@@ -214,11 +216,15 @@ def test_local_driver_e5_adds_query_and_passage_prefixes(monkeypatch):
     fake_item = MagicMock()
     fake_item.tolist.return_value = [0.1] * 384
     fake_model.encode.side_effect = lambda texts, **kw: [fake_item for _ in texts]
-    monkeypatch.setattr("sentence_transformers.SentenceTransformer", lambda name: fake_model)
+    monkeypatch.setattr(
+        "sentence_transformers.SentenceTransformer", lambda name: fake_model
+    )
 
     driver = LocalSentenceTransformerDriver(model_name="intfloat/multilingual-e5-small")
     driver.embed_query("What is this?")
-    fake_model.encode.assert_called_with(["query: What is this?"], convert_to_numpy=True)
+    fake_model.encode.assert_called_with(
+        ["query: What is this?"], convert_to_numpy=True
+    )
 
     driver.embed_documents(["doc chunk 1", "doc chunk 2"])
     fake_model.encode.assert_called_with(
@@ -231,9 +237,13 @@ def test_local_driver_non_e5_does_not_add_prefixes(monkeypatch):
     fake_item = MagicMock()
     fake_item.tolist.return_value = [0.1] * 384
     fake_model.encode.side_effect = lambda texts, **kw: [fake_item for _ in texts]
-    monkeypatch.setattr("sentence_transformers.SentenceTransformer", lambda name: fake_model)
+    monkeypatch.setattr(
+        "sentence_transformers.SentenceTransformer", lambda name: fake_model
+    )
 
-    driver = LocalSentenceTransformerDriver(model_name="paraphrase-multilingual-MiniLM-L12-v2")
+    driver = LocalSentenceTransformerDriver(
+        model_name="paraphrase-multilingual-MiniLM-L12-v2"
+    )
     driver.embed_query("What is this?")
     fake_model.encode.assert_called_with(["What is this?"], convert_to_numpy=True)
 

@@ -17,7 +17,12 @@ from drivers.reranker import (
 
 
 def _chunk(content, page=1):
-    return {"id": 1, "content": content, "metadata": {"page_number": page}, "score": 0.5}
+    return {
+        "id": 1,
+        "content": content,
+        "metadata": {"page_number": page},
+        "score": 0.5,
+    }
 
 
 def test_noop_driver_returns_chunks_unchanged():
@@ -28,9 +33,7 @@ def test_noop_driver_returns_chunks_unchanged():
 def test_cross_encoder_driver_sorts_by_predicted_score(monkeypatch):
     fake_model = MagicMock()
     fake_model.predict.return_value = [0.1, 0.9]
-    monkeypatch.setattr(
-        "sentence_transformers.CrossEncoder", lambda name: fake_model
-    )
+    monkeypatch.setattr("sentence_transformers.CrossEncoder", lambda name: fake_model)
 
     chunks = [_chunk("low relevance"), _chunk("high relevance")]
     reranked = CrossEncoderRerankerDriver().rerank("question", chunks)
@@ -43,9 +46,7 @@ def test_cross_encoder_driver_sorts_by_predicted_score(monkeypatch):
 def test_cross_encoder_driver_scores_question_chunk_pairs(monkeypatch):
     fake_model = MagicMock()
     fake_model.predict.return_value = [0.5]
-    monkeypatch.setattr(
-        "sentence_transformers.CrossEncoder", lambda name: fake_model
-    )
+    monkeypatch.setattr("sentence_transformers.CrossEncoder", lambda name: fake_model)
 
     CrossEncoderRerankerDriver().rerank("my question", [_chunk("chunk text")])
 

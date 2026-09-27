@@ -139,7 +139,9 @@ def test_openrouter_driver_uses_base_url_and_referer_header(monkeypatch):
     assert "HTTP-Referer" in captured["default_headers"]
 
 
-def test_get_answer_driver_returns_openrouter_by_default(monkeypatch, settings_override):
+def test_get_answer_driver_returns_openrouter_by_default(
+    monkeypatch, settings_override
+):
     monkeypatch.setattr(
         llm_module, "settings", settings_override(LLM_DRIVER="openrouter")
     )

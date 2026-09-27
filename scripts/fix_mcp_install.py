@@ -37,10 +37,18 @@ SERVER_NAME = "docs-agent"
 # macOS only — Claude Desktop's config also lives at %APPDATA%\Claude\
 # claude_desktop_config.json on Windows, but this project's only ever run
 # on macOS so far; add that path here if that ever changes.
-CONFIG_PATH = Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+CONFIG_PATH = (
+    Path.home()
+    / "Library"
+    / "Application Support"
+    / "Claude"
+    / "claude_desktop_config.json"
+)
 
 
-def patch_args(config: dict, project_root: Path, server_name: str = SERVER_NAME) -> dict:
+def patch_args(
+    config: dict, project_root: Path, server_name: str = SERVER_NAME
+) -> dict:
     """Rewrite ``server_name``'s ``args`` in-place to use ``--project``.
 
     Pure aside from mutating ``config`` (the same shape ``json.loads`` on
@@ -78,7 +86,9 @@ def main() -> None:
     try:
         patch_args(config, PROJECT_ROOT)
     except KeyError:
-        print(f"ERROR: no '{SERVER_NAME}' entry in {CONFIG_PATH} — run `make mcp-install` first.")
+        print(
+            f"ERROR: no '{SERVER_NAME}' entry in {CONFIG_PATH} — run `make mcp-install` first."
+        )
         sys.exit(1)
 
     CONFIG_PATH.write_text(json.dumps(config, indent=2))

@@ -117,7 +117,10 @@ class CrossEncoderRerankerDriver(RerankerDriver):
         pairs = [(question, chunk["content"]) for chunk in chunks]
         scores = model.predict(pairs)
 
-        reranked = [{**chunk, "score": float(score)} for chunk, score in zip(chunks, scores, strict=True)]
+        reranked = [
+            {**chunk, "score": float(score)}
+            for chunk, score in zip(chunks, scores, strict=True)
+        ]
         reranked.sort(key=lambda c: c["score"], reverse=True)
         return reranked
 

@@ -53,7 +53,9 @@ class EventLogger:
         """Return the active log file path."""
         return self._log_path
 
-    def log(self, action: LogAction | str, data: dict[str, Any] | None = None) -> dict[str, Any]:
+    def log(
+        self, action: LogAction | str, data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Append a single structured JSON line to the log file.
 
         Args:
