@@ -132,11 +132,13 @@ class Settings:
                               ``drivers/reranker.py``.
         RERANKER_MODEL        Model name/id for the cross_encoder reranker.
         RERANKER_MIN_SCORE    Minimum logit relevance score required from the
-                              cross-encoder reranker (default: 0.0). When
+                              cross-encoder reranker (default: -2.0). When
                               RERANKER_DRIVER=cross_encoder, candidates scoring
                               below this threshold are dropped, and if no candidate
                               clears it, the query is rejected early as having
-                              no relevant information.
+                              no relevant information. Calibrated to allow
+                              longer/diluted passages (> -2.0) while rejecting
+                              out-of-domain or unanswerable queries (< -3.5).
         RETRIEVAL_CANDIDATE_POOL_SIZE
                               Candidate pool size for the vector + full-text
                               searches feeding RRF fusion (and, if enabled,
@@ -205,7 +207,7 @@ class Settings:
     RERANKER_MODEL: str = os.getenv(
         "RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     )
-    RERANKER_MIN_SCORE: float = float(os.getenv("RERANKER_MIN_SCORE", "0.0"))
+    RERANKER_MIN_SCORE: float = float(os.getenv("RERANKER_MIN_SCORE", "-2.0"))
     RETRIEVAL_CANDIDATE_POOL_SIZE: int = int(
         os.getenv("RETRIEVAL_CANDIDATE_POOL_SIZE", "20")
     )
