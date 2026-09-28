@@ -4,7 +4,7 @@
         db-migrate db-migrate-test db-flush db-refresh setup \
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
         make-migration add-document add-directory delete-document query chat \
-        inspect-chunks extract-text eval eval-rerank eval-lll eval-all \
+        inspect-chunks extract-text eval eval-rerank eval-llm eval-all \
         mcp-dev mcp-install test lint lint-fix format
 
 # Support direct positional arguments without path="...":
