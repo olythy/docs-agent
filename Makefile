@@ -5,11 +5,12 @@
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
         make-migration add-document add-directory delete-document query chat \
         inspect-chunks extract-text eval eval-rerank eval-llm eval-all \
+        log log-tail log-stats log-clear \
         mcp-dev mcp-install test lint lint-fix format
 
 # Support direct positional arguments without path="...":
-# e.g. `make add-document file1.pdf file2.md`
-SUPPORTED_CMD_TARGETS := add-document add-directory delete-document inspect-chunks extract-text
+# e.g. `make add-document file1.pdf file2.md` or `make query "What is X?"`
+SUPPORTED_CMD_TARGETS := add-document add-directory delete-document inspect-chunks extract-text query
 ifeq ($(filter $(firstword $(MAKECMDGOALS)),$(SUPPORTED_CMD_TARGETS)),$(firstword $(MAKECMDGOALS)))
   CMD_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 endif
@@ -91,7 +92,7 @@ add-directory: ## Batch-ingest a directory — usage: make add-directory /path/t
 delete-document: ## Delete document chunks by path or hash — usage: make delete-document file.pdf
 	uv run python scripts/agent_cli.py ingest --delete $(if $(path),$(path),$(CMD_ARGS))
 
-query: ## Ask a question (full pipeline, real LLM call) — usage: make query q="What is X?"
+query: ## Ask a question (full pipeline, real LLM call) — usage: make query "What is X?" (or q="...")
 	uv run python scripts/agent_cli.py query $(if $(q),"$(q)",$(CMD_ARGS))
 
 chat: ## Start the interactive conversational agent REPL terminal
