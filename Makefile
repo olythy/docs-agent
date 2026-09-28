@@ -92,7 +92,7 @@ delete-document: ## Delete document chunks by path or hash — usage: make delet
 	uv run python scripts/agent_cli.py ingest --delete $(if $(path),$(path),$(CMD_ARGS))
 
 query: ## Ask a question (full pipeline, real LLM call) — usage: make query q="What is X?"
-	uv run python scripts/agent_cli.py query $(q)
+	uv run python scripts/agent_cli.py query $(if $(q),"$(q)",$(CMD_ARGS))
 
 chat: ## Start the interactive conversational agent REPL terminal
 	uv run python scripts/agent_cli.py chat
@@ -122,6 +122,20 @@ eval-llm: ## Run retrieval evaluation with real LLM answer generation
 
 eval-all: ## Run full evaluation benchmark: cross_encoder rerank + LLM generation
 	uv run python scripts/eval_cli.py eval --with-rerank --with-llm
+
+# --- Logging & Telemetry (scripts/log_cli.py) ---
+
+log: ## Live-follow structured telemetry events — usage: make log [action=...]
+	uv run python scripts/log_cli.py watch $(if $(action),--action $(action),)
+
+log-tail: ## Print recent formatted events and exit — usage: make log-tail [n=20]
+	uv run python scripts/log_cli.py tail $(if $(n),-n $(n),)
+
+log-stats: ## Show telemetry summary (queries, dropped stopwords, rerank rates)
+	uv run python scripts/log_cli.py stats
+
+log-clear: ## Clear the telemetry log file
+	uv run python scripts/log_cli.py clear
 
 # --- Tests ---
 

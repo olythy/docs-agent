@@ -51,6 +51,7 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 │   ├── db_cli.py             # Database CLI: migrations, flush, make-migration (uv run python scripts/db_cli.py)
 │   ├── agent_cli.py          # Agent & runtime CLI: query, chat, ingest, mcp-dev, mcp-install (uv run python scripts/agent_cli.py)
 │   ├── eval_cli.py           # Evaluation & diagnostics CLI: eval, inspect, extract (uv run python scripts/eval_cli.py)
+│   ├── log_cli.py            # Telemetry & logging CLI: watch/tail, stats, clear (uv run python scripts/log_cli.py)
 │   └── utils.py              # Shared CLI utilities (subprocess runner, paths, terminal formatting)
 ├── docker-compose.yml       # Local Postgres+pgvector (dev + test databases)
 ├── docker/
@@ -177,6 +178,10 @@ Run `make` or `make help` any time for this same list straight from the terminal
 | `make eval-rerank` | `uv run python scripts/eval_cli.py eval --with-rerank` — evaluation with cross_encoder reranking |
 | `make eval-llm` | `uv run python scripts/eval_cli.py eval --with-llm` — evaluation with real LLM answer generation |
 | `make eval-all` | `uv run python scripts/eval_cli.py eval --with-rerank --with-llm` — full benchmark (rerank + LLM) |
+| `make log [action=...]` | `uv run python scripts/log_cli.py watch` — live-follow structured telemetry events |
+| `make log-tail [n=20]` | `uv run python scripts/log_cli.py tail` — print recent formatted events and exit |
+| `make log-stats` | `uv run python scripts/log_cli.py stats` — summarize telemetry entries and stopwords |
+| `make log-clear` | `uv run python scripts/log_cli.py clear` — clear the telemetry log file |
 | `make test` | `AGENT_ENV=test uv run pytest -v` — runs full test suite against test database |
 | `make lint` | `uv run python scripts/dev_cli.py lint` — check code style and rules with ruff |
 | `make lint-fix` | `uv run python scripts/dev_cli.py lint-fix` — auto-fix lint errors and reformat code |
