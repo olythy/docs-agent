@@ -147,41 +147,69 @@ If `AGENT_ENV=test` but no `.env.test` exists, `config.py` raises immediately wi
 
 Run `make` or `make help` any time for this same list straight from the terminal — it's generated from each target's own `## ` comment, so it can't drift out of sync the way a hand-maintained table can.
 
-| Command | Equivalent |
+### Environment & Infrastructure (`scripts/dev_cli.py`)
+
+| Command | Equivalent / Description |
 |---|---|
+| `make help` *(or `make`)* | Print self-documenting list of all available Makefile targets |
 | `make setup` | `uv run python scripts/dev_cli.py setup` — one-shot onboarding (Docker + dev & test DB migrations) |
-| `make docker-up` | `uv run python scripts/dev_cli.py docker-up` — start local Postgres, wait until healthy |
+| `make docker-up` | `uv run python scripts/dev_cli.py docker-up` — start local Postgres (dev+test), wait until healthy |
 | `make docker-down` | `uv run python scripts/dev_cli.py docker-down` — stop the container, keep its data |
-| `make docker-down-clean` | `uv run python scripts/dev_cli.py docker-clean` — stop the container **and delete its data** |
+| `make docker-down-clean` | `uv run python scripts/dev_cli.py docker-clean` — stop the container **and delete its data** (full reset) |
 | `make doctor` | `uv run python scripts/dev_cli.py doctor` — verify environment files, Docker status, and DB connections |
-| `make db-migrate` | `uv run python scripts/db_cli.py up` — migrates `DATABASE_URL` (`.env`) |
-| `make db-migrate-test` | `AGENT_ENV=test uv run python scripts/db_cli.py up` — migrates `DATABASE_URL` from `.env.test` instead |
-| `make db-flush` | `uv run python scripts/db_cli.py flush` — truncates `document_chunks` (rows only, keeps the schema) |
-| `make db-refresh` | `db-flush` then `db-migrate` — empty the table and re-apply any pending migrations in one command |
-| `make migrate-status` | `uv run python scripts/db_cli.py status` — applied vs. pending migrations |
-| `make migrate-install` | `uv run python scripts/db_cli.py install` — create the `schema_migrations` table only |
-| `make migrate-fresh` | `uv run python scripts/db_cli.py fresh` — revert every migration, drop tracking, re-apply everything from scratch |
-| `make migrate-rollback` | `uv run python scripts/db_cli.py rollback` — revert the most recently applied *batch* |
+
+### Database & Migrations (`scripts/db_cli.py`)
+
+| Command | Equivalent / Description |
+|---|---|
+| `make db-migrate` | `uv run python scripts/db_cli.py up` — migrate `DATABASE_URL` (`.env`, dev database) |
+| `make db-migrate-test` | `AGENT_ENV=test uv run python scripts/db_cli.py up` — migrate test database (`.env.test`) |
+| `make db-flush` | `uv run python scripts/db_cli.py flush` — truncate `document_chunks` (rows only, keeps schema) |
+| `make db-refresh` | `uv run python scripts/db_cli.py flush && uv run python scripts/db_cli.py up` — empty table, re-apply pending migrations |
+| `make migrate-status` | `uv run python scripts/db_cli.py status` — show applied vs. pending migrations |
+| `make migrate-install` | `uv run python scripts/db_cli.py install` — create `schema_migrations` tracking table only |
+| `make migrate-fresh` | `uv run python scripts/db_cli.py fresh` — revert everything, drop tracking, re-apply from scratch |
+| `make migrate-rollback` | `uv run python scripts/db_cli.py rollback` — revert the most recently applied migration batch |
 | `make migrate-reset` | `uv run python scripts/db_cli.py reset` — revert every applied migration |
 | `make migrate-refresh` | `uv run python scripts/db_cli.py refresh` — `reset` then `up` |
-| `make make-migration name=<snake_case_name>` | `uv run python scripts/db_cli.py make <snake_case_name>` — scaffold a new migration file |
-| `make add-document path="<file> ..."` | `uv run python scripts/agent_cli.py ingest <file>` — ingest document(s) |
-| `make add-directory path=<dir> [ext=...]` | `uv run python scripts/agent_cli.py ingest <dir>` — batch-ingest a directory |
-| `make delete-document path="<file>"` | `uv run python scripts/agent_cli.py ingest --delete <file>` — delete chunks by path or hash |
-| `make query q="<question>"` | `uv run python scripts/agent_cli.py query "<question>"` — one-shot question (full RAG pipeline) |
+| `make make-migration name=<snake_case>` | `uv run python scripts/db_cli.py make <snake_case>` — scaffold a new migration file |
+
+### Agent & Runtime (`scripts/agent_cli.py`)
+
+| Command | Equivalent / Description |
+|---|---|
+| `make add-document <file1> [file2...]`<br>*(or `path="..."`)* | `uv run python scripts/agent_cli.py ingest <file1> [file2...]` — ingest document(s) |
+| `make add-directory <dir> [ext=.md]`<br>*(or `path=...`)* | `uv run python scripts/agent_cli.py ingest <dir> [--ext <ext>]` — batch-ingest a directory |
+| `make delete-document <file>`<br>*(or `path="..."`)* | `uv run python scripts/agent_cli.py ingest --delete <file>` — delete chunks by path or hash |
+| `make query "<question>"`<br>*(or `q="..."`)* | `uv run python scripts/agent_cli.py query "<question>"` — ask a question (full RAG pipeline, real LLM call) |
 | `make chat` | `uv run python scripts/agent_cli.py chat` — interactive conversational terminal REPL |
 | `make mcp-dev` | `uv run python scripts/agent_cli.py mcp-dev` — run under MCP Inspector |
 | `make mcp-install` | `uv run python scripts/agent_cli.py mcp-install` — register with Claude Desktop and auto-patch launch config |
-| `make inspect-chunks [path=...]` | `uv run python scripts/eval_cli.py inspect [path]` — chunking strategy matrix against token limit |
-| `make extract-text [path=...]` | `uv run python scripts/eval_cli.py extract [path]` — sanity-check raw text extraction |
+
+### Evaluation & Diagnostics (`scripts/eval_cli.py`)
+
+| Command | Equivalent / Description |
+|---|---|
+| `make inspect-chunks [<file>]`<br>*(or `path=...`)* | `uv run python scripts/eval_cli.py inspect [<path>]` — chunking strategy matrix against token limit |
+| `make extract-text [<file>]`<br>*(or `path=...`)* | `uv run python scripts/eval_cli.py extract [<path>]` — preview text extraction grouped by page/section |
 | `make eval` | `uv run python scripts/eval_cli.py eval` — retrieval quality evaluation (vector vs hybrid) |
 | `make eval-rerank` | `uv run python scripts/eval_cli.py eval --with-rerank` — evaluation with cross_encoder reranking |
 | `make eval-llm` | `uv run python scripts/eval_cli.py eval --with-llm` — evaluation with real LLM answer generation |
 | `make eval-all` | `uv run python scripts/eval_cli.py eval --with-rerank --with-llm` — full benchmark (rerank + LLM) |
-| `make log [action=...]` | `uv run python scripts/log_cli.py watch` — live-follow structured telemetry events |
-| `make log-tail [n=20]` | `uv run python scripts/log_cli.py tail` — print recent formatted events and exit |
-| `make log-stats` | `uv run python scripts/log_cli.py stats` — summarize telemetry entries and stopwords |
+
+### Logging & Telemetry (`scripts/log_cli.py`)
+
+| Command | Equivalent / Description |
+|---|---|
+| `make log [action=...]` | `uv run python scripts/log_cli.py watch [--action <action>]` — live-follow structured telemetry events |
+| `make log-tail [n=20]` | `uv run python scripts/log_cli.py tail [-n <n>]` — print recent formatted events and exit |
+| `make log-stats` | `uv run python scripts/log_cli.py stats` — summarize telemetry entries, top dropped stopwords, and rerank ratios |
 | `make log-clear` | `uv run python scripts/log_cli.py clear` — clear the telemetry log file |
+
+### Testing & Code Quality
+
+| Command | Equivalent / Description |
+|---|---|
 | `make test` | `AGENT_ENV=test uv run pytest -v` — runs full test suite against test database |
 | `make lint` | `uv run python scripts/dev_cli.py lint` — check code style and rules with ruff |
 | `make lint-fix` | `uv run python scripts/dev_cli.py lint-fix` — auto-fix lint errors and reformat code |
@@ -251,7 +279,7 @@ The two ranked lists are combined with **Reciprocal Rank Fusion** (`query/hybrid
 
 **A real bug this surfaced**, found while building the eval script below, not by inspection: `search_fulltext()` originally passed the raw question straight into `websearch_to_tsquery('simple', question)`. Because `simple` has no stopword list (that's exactly why it was chosen — see above), every word of the question — including grammar words like "milyen"/"used"/"is" — became a **mandatory** term (`websearch_to_tsquery` ANDs bare words together). A real chunk almost never contains a question's grammar words verbatim, so keyword search was silently returning **zero results for nearly every natural-language question**, undetected until the eval script's real numbers showed `0 keyword result(s)` on every single run. The fix: the question's words are OR-joined (`" or ".join(query_text.split())`) before being passed to `websearch_to_tsquery`, so a chunk matching *any* of the question's content words now contributes to the fusion, ranked by how many/how prominently they matched. Covered by both a unit test (asserts the OR-joined string reaches the query) and a DB test (a real sentence full of grammar words that would have failed pre-fix).
 
-Which retrieval path runs is itself a Strategy (`query/retrieval.py`'s `RetrievalStrategy` ABC, same shape as every other driver/strategy in this project), controlled by `RETRIEVAL_STRATEGY` (`.env`, default `hybrid`): `hybrid` (`HybridRetrievalStrategy`) is everything described above; `vector` (`VectorRetrievalStrategy`) skips keyword search and fusion entirely, reproducing the pre-hybrid-search behavior exactly (same `min_score` filtering, same ordering). Kept as a real, selectable strategy rather than a one-off comparison hack specifically so `scripts/evaluate_retrieval.py` measures the actual production code path, not a hand-rolled stand-in that could quietly drift out of sync with it. In practice there's little reason to prefer `vector` day-to-day — hybrid search only ever adds recall on top of it, at negligible extra cost (one more indexed Postgres query and a pure fusion function, no model involved) — its main use is exactly that eval/debug comparison.
+Which retrieval path runs is itself a Strategy (`query/retrieval.py`'s `RetrievalStrategy` ABC, same shape as every other driver/strategy in this project), controlled by `RETRIEVAL_STRATEGY` (`.env`, default `hybrid`): `hybrid` (`HybridRetrievalStrategy`) is everything described above; `vector` (`VectorRetrievalStrategy`) skips keyword search and fusion entirely, reproducing the pre-hybrid-search behavior exactly (same `min_score` filtering, same ordering). Kept as a real, selectable strategy rather than a one-off comparison hack specifically so `scripts/eval_cli.py eval` (`make eval`) measures the actual production code path, not a hand-rolled stand-in that could quietly drift out of sync with it. In practice there's little reason to prefer `vector` day-to-day — hybrid search only ever adds recall on top of it, at negligible extra cost (one more indexed Postgres query and a pure fusion function, no model involved) — its main use is exactly that eval/debug comparison.
 
 ### Reranking (optional, off by default)
 
@@ -263,7 +291,7 @@ Controlled by `RERANKER_DRIVER` (`.env`, default `none`) — a Strategy pattern 
 
 ### How quality is measured
 
-`scripts/evaluate_retrieval.py` + `tests/data/eval_questions.json` — **25 bilingual questions** (19 answerable, 6 deliberately unanswerable) across three committed fixtures (`tests/data/sample.md`, `tests/data/sample.pdf`, `tests/data/sample_hu.md` — an Hungarian enterprise IT policy). It runs every question through `retrieve_chunks()` with each `RetrievalStrategy` swapped in explicitly — **vector-only** (`VectorRetrievalStrategy`) and **hybrid+rerank** (`HybridRetrievalStrategy`, with whatever `RERANKER_DRIVER` is currently configured) — through the exact same production code path, not a hand-rolled duplicate, and reports:
+`scripts/eval_cli.py eval` (`make eval`) + `tests/data/eval_questions.json` — **25 bilingual questions** (19 answerable, 6 deliberately unanswerable) across three committed fixtures (`tests/data/sample.md`, `tests/data/sample.pdf`, `tests/data/sample_hu.md` — an Hungarian enterprise IT policy). It runs every question through `retrieve_chunks()` with each `RetrievalStrategy` swapped in explicitly — **vector-only** (`VectorRetrievalStrategy`) and **hybrid+rerank** (`HybridRetrievalStrategy`, with whatever `RERANKER_DRIVER` is currently configured) — through the exact same production code path, not a hand-rolled duplicate, and reports:
 
 - **Passage Hit@1**: did the passage containing the expected gold fact land at rank 1?
 - **Passage Recall@k**: did it land anywhere in the top-k?
@@ -276,13 +304,15 @@ Run it with:
 
 ```bash
 # Default (RERANKER_DRIVER=none — RRF fusion only, no cross-encoder):
-uv run python scripts/evaluate_retrieval.py
+make eval
+# or: uv run python scripts/eval_cli.py eval
 
 # With cross-encoder reranker:
-RERANKER_DRIVER=cross_encoder uv run python scripts/evaluate_retrieval.py
+make eval-rerank
+# or: RERANKER_DRIVER=cross_encoder uv run python scripts/eval_cli.py eval
 
 # Controlled corpus (only the 3 committed fixtures, no other documents):
-AGENT_ENV=test RERANKER_DRIVER=cross_encoder uv run python scripts/evaluate_retrieval.py
+AGENT_ENV=test RERANKER_DRIVER=cross_encoder uv run python scripts/eval_cli.py eval
 ```
 
 It's safe to run against any configured `DATABASE_URL`, including a populated dev database: it never deletes anything, only adds the fixtures if they're not already present (`VectorStore.has_chunks_from_source`), and prints which database it's about to touch.
@@ -310,7 +340,7 @@ Two independent layers, not one:
 2. **Cross-encoder reranking gate** (`RERANKER_DRIVER=cross_encoder`, optional): when enabled, `CrossEncoderRerankerDriver` scores each `(question, chunk)` pair jointly and discards any chunk scoring below `RERANKER_MIN_SCORE=-2.0` on the logit scale. This is a *second* gate that fires *after* the cosine gate — it operates on the already-filtered candidate pool, not the raw corpus. Its logit scale (unbounded, centered around 0) has a natural "irrelevant" region confirmed empirically: relevant chunks score +2 to +6, clearly irrelevant ones score -3.5 to -9. With `cross_encoder` enabled, the measured `Fallback = 1.00` (6/6 unanswerable queries correctly rejected at the retrieval layer, zero reaching the LLM), vs. `Fallback = 0.00` without it — a 6-chunk saving per irrelevant query with no LLM call at all.
 3. **Prompt-level grounding instruction** (`drivers/llm.py`'s `_build_prompt`): the system prompt explicitly instructs the model to answer strictly from the provided excerpts and respond with an exact "I could not find this information in the provided documents" if the excerpts don't answer the question. This catches the case the eval script's fallback-rate finding demonstrated above — a topically-relevant chunk that still doesn't contain the specific fact asked for — which a similarity threshold structurally cannot distinguish from a genuine answer.
 
-**Verifying layers 2 and 3 work — `--with-llm`**: `scripts/evaluate_retrieval.py --with-llm` generates a real answer for every question under both configurations, side-by-side, with full (un-truncated) text. For answerable questions, it checks whether the expected gold fact (`expected_text_contains`) is verbatim in the answer (`✅ GOLD FACT MATCH` / `ℹ️ ANSWERED (FACT NOT FOUND)`). For unanswerable ones, it distinguishes between retrieval-layer rejection (`🛡️ RETRIEVAL REJECTED` — 0 chunks passed, 0 LLM calls) and prompt-layer decline (`🛡️ PROMPT DECLINED`), vs. a potential hallucination (`🚨 POTENTIAL HALLUCINATION`). A final **LLM Generation Benchmark Scorecard** summarises gold fact retention %, safe decline rate, API calls made, and average latency across both configurations.
+**Verifying layers 2 and 3 work — `--with-llm`**: `scripts/eval_cli.py eval --with-llm` (`make eval-llm`) generates a real answer for every question under both configurations, side-by-side, with full (un-truncated) text. For answerable questions, it checks whether the expected gold fact (`expected_text_contains`) is verbatim in the answer (`✅ GOLD FACT MATCH` / `ℹ️ ANSWERED (FACT NOT FOUND)`). For unanswerable ones, it distinguishes between retrieval-layer rejection (`🛡️ RETRIEVAL REJECTED` — 0 chunks passed, 0 LLM calls) and prompt-layer decline (`🛡️ PROMPT DECLINED`), vs. a potential hallucination (`🚨 POTENTIAL HALLUCINATION`). A final **LLM Generation Benchmark Scorecard** summarises gold fact retention %, safe decline rate, API calls made, and average latency across both configurations.
 
 The default LLM model is pinned to `google/gemini-3.1-flash-lite` (via OpenRouter) — a fixed, non-`:free` model — to ensure `--with-llm` results are reproducible. Using `openrouter/free` (auto-routed to a random available model) is explicitly not recommended for this kind of measurement: different models on different calls makes the decline-rate numbers meaningless as comparative evidence.
 
@@ -342,9 +372,9 @@ All three fall back to `TEST_DOC_PATH` (`.env`) when no path is given, except `e
 
 **Five real bugs found while verifying this against a real host, not by inspection or by reading the SDK's docs alone:**
 
-1. `ingestion/ingest.py`/`query/retrieval.py` used to report progress via `print()`. Over MCP's stdio transport, stdout is reserved for the JSON-RPC protocol — a stray `print()` line landed on that channel mid-call and broke a real client's message parsing (`Failed to parse JSONRPC message from server`), confirmed by spawning `mcp_server.py` as a real subprocess and calling both tools over the actual protocol (not just a direct Python-level call, which would never have caught this). Fixed by switching both modules to Python's `logging` module (stderr by default, invisible to the protocol stream) — `agent.py`/`scripts/evaluate_retrieval.py`/the `make add-document`/`query` targets configure a bare `logging.basicConfig(format="%(message)s")` so their own CLI output looks exactly as before.
-2. `uv run mcp install`'s own generated launch command (`uv run --with "mcp[cli]==X.Y.Z" mcp run <path>`) is built for a standalone, dependency-free single-file script — the SDK's own docs say so explicitly ("works from any directory... no project needed"). `mcp_server.py` isn't that: it imports the whole project (`psycopg2`, `openai`, `sentence-transformers`, ...). Registering it as-is and actually launching it from Claude Desktop failed immediately with **"Server disconnected"**; reproduced directly by spawning the exact generated command from an unrelated directory with a clean environment (no inherited venv — matching how Claude Desktop actually spawns it): `ModuleNotFoundError: No module named 'psycopg2'`. Fixed with `uv run --project <docs-agent dir> mcp_server.py` instead, which resolves against this project's own environment regardless of the caller's working directory — confirmed working the same way (a real MCP client, unrelated cwd, no inherited venv). `make mcp-install` now runs `scripts/fix_mcp_install.py` right after `mcp install` to rewrite the generated config entry automatically, since `mcp install` itself has no flag for this.
-3. **`add_document()` had no protection against re-ingesting the same file** — asking Claude Desktop to add a document already in the knowledge base silently duplicated its chunks. This isn't just wasted storage: with a small corpus and a fixed `RETRIEVAL_TOP_K`, duplicate copies of the same 2 chunks crowded *out* other, genuinely relevant unique chunks from a real query's top-k results — directly degrading answer quality, not just cleanliness. `add_document()` now raises `ValueError` if `VectorStore.has_chunks_from_source()` says the file's already present (an existing method, previously only used by `scripts/evaluate_retrieval.py`'s own idempotent seeding), with an explicit `force=True` escape hatch for genuinely wanting a duplicate.
+1. `ingestion/ingest.py`/`query/retrieval.py` used to report progress via `print()`. Over MCP's stdio transport, stdout is reserved for the JSON-RPC protocol — a stray `print()` line landed on that channel mid-call and broke a real client's message parsing (`Failed to parse JSONRPC message from server`), confirmed by spawning `mcp_server.py` as a real subprocess and calling both tools over the actual protocol (not just a direct Python-level call, which would never have caught this). Fixed by switching both modules to Python's `logging` module (stderr by default, invisible to the protocol stream) — `agent.py`/`scripts/eval_cli.py`/the `make add-document`/`query` targets configure a bare `logging.basicConfig(format="%(message)s")` so their own CLI output looks exactly as before.
+2. `uv run mcp install`'s own generated launch command (`uv run --with "mcp[cli]==X.Y.Z" mcp run <path>`) is built for a standalone, dependency-free single-file script — the SDK's own docs say so explicitly ("works from any directory... no project needed"). `mcp_server.py` isn't that: it imports the whole project (`psycopg2`, `openai`, `sentence-transformers`, ...). Registering it as-is and actually launching it from Claude Desktop failed immediately with **"Server disconnected"**; reproduced directly by spawning the exact generated command from an unrelated directory with a clean environment (no inherited venv — matching how Claude Desktop actually spawns it): `ModuleNotFoundError: No module named 'psycopg2'`. Fixed with `uv run --project <docs-agent dir> mcp_server.py` instead, which resolves against this project's own environment regardless of the caller's working directory — confirmed working the same way (a real MCP client, unrelated cwd, no inherited venv). `make mcp-install` (`scripts/agent_cli.py mcp-install`) automates this registration and rewrites the generated config entry with the `--project` flag and required environment variables automatically.
+3. **`add_document()` had no protection against re-ingesting the same file** — asking Claude Desktop to add a document already in the knowledge base silently duplicated its chunks. This isn't just wasted storage: with a small corpus and a fixed `RETRIEVAL_TOP_K`, duplicate copies of the same 2 chunks crowded *out* other, genuinely relevant unique chunks from a real query's top-k results — directly degrading answer quality, not just cleanliness. `add_document()` now raises `ValueError` if `VectorStore.has_chunks_from_source()` says the file's already present (an existing method, previously only used by `scripts/eval_cli.py`'s own idempotent seeding), with an explicit `force=True` escape hatch for genuinely wanting a duplicate.
 4. When forced to answer from the knowledge base alone (via `/my-docs`), the model correctly identified that the "Technology Stack" list was retrieved incompletely — the bullet `Nuxt 3 (mobile-first UI, ...)` splits across two adjacent chunks, and the query only surfaced one of them. Root cause, confirmed by inspecting `retrieve_chunks()`'s actual output directly: it was bug 3 above — duplicate chunks were occupying the other top-k slots that should have gone to the chunk with the rest of the list.
 5. Re-adding an already-present document (bug 3's guard, working as designed) surfaced with a **completely blank error message** in Claude Desktop — the model couldn't say what had gone wrong. Cause: `mcp_server.py`'s `add_document` let the plain `ValueError` propagate, and the MCP SDK treats any exception besides its own `ToolError`/`MCPError` as an *unexpected crash* — deliberately hiding the exception's text from the client (only the server's own log gets it), on the reasoning that an unanticipated crash's internals aren't something the model could have avoided anyway. Confirmed via a real client call: `is_error=True` with no usable message. Fixed by catching `ValueError`/`FileNotFoundError` (the specific, "the model could retry with different arguments" cases — an infra failure like a DB being unreachable is deliberately left as a real crash instead) and re-raising as `ToolError`, whose message *does* reach the client — confirmed the same way, the real error text ("... is already in the knowledge base. Pass force=True ...") now comes through intact.
 
