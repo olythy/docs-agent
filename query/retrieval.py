@@ -76,6 +76,7 @@ class RetrievalStrategy(ABC):
         store: VectorStore,
         top_k: int,
         min_score: float,
+        metadata_filter: dict | None = None,
     ) -> list[dict]:
         """Turn an already-fetched vector candidate pool into final chunks.
 
