@@ -79,12 +79,18 @@ def test_read_recent_lines(tmp_path: Path):
 
 
 def test_resolve_log_path():
-    p_dev = resolve_log_path(is_test=False)
-    assert p_dev.name == "log.jsonl"
+    from config import settings
 
+    # is_test=False returns settings.LOG_FILE — environment-dependent (e.g. log-test.jsonl
+    # when AGENT_ENV=test), so compare against the actual settings value instead of a literal.
+    p_dev = resolve_log_path(is_test=False)
+    assert p_dev.name == Path(settings.LOG_FILE).name
+
+    # is_test=True always resolves to the hardcoded log-test.jsonl regardless of settings.
     p_test = resolve_log_path(is_test=True)
     assert p_test.name == "log-test.jsonl"
 
+    # explicit_path always wins.
     p_custom = resolve_log_path(explicit_path="/tmp/custom.jsonl")
     assert p_custom == Path("/tmp/custom.jsonl")
 

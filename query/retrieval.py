@@ -31,6 +31,7 @@ Usage::
 """
 
 import logging
+import time
 from abc import ABC, abstractmethod
 
 from config import settings
@@ -291,7 +292,20 @@ def retrieve_chunks(
                 query_vector, top_k=candidate_k, min_score=0.0
             )
 
-        if not _passes_relevance_gate(vector_results, top_k=k, min_score=threshold):
+        gate_passed = _passes_relevance_gate(vector_results, top_k=k, min_score=threshold)
+        top_score = vector_results[0]["score"] if vector_results else None
+        get_logger().log(
+            LogAction.RELEVANCE_GATE_CHECKED,
+            {
+                "question": question,
+                "passed": gate_passed,
+                "top_score": top_score,
+                "top_k": k,
+                "min_score": threshold,
+                "candidate_count": len(vector_results),
+            },
+        )
+        if not gate_passed:
             logger.info("[query] No relevant chunks found.")
             return []
 
@@ -376,9 +390,21 @@ def query_knowledge_base(
         "[query] Generating answer with LLM driver='%s' ...", settings.LLM_DRIVER
     )
     answer_driver = get_answer_driver()
+    t0 = time.monotonic()
     answer = answer_driver.answer(question=question, context_chunks=chunks)
+    latency = round(time.monotonic() - t0, 3)
 
-    logger.info("[query] Done.")
+    get_logger().log(
+        LogAction.ANSWER_GENERATED,
+        {
+            "question": question,
+            "llm_driver": settings.LLM_DRIVER,
+            "llm_model": settings.LLM_MODEL,
+            "chunk_count": len(chunks),
+            "latency_seconds": latency,
+        },
+    )
+    logger.info("[query] Done (%.3fs).", latency)
     return answer
 
 

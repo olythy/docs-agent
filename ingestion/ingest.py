@@ -27,6 +27,7 @@ from ingestion.extractors import (
     normalize_extensions,
 )
 from ingestion.hash import compute_file_hash
+from logger import LogAction, get_logger
 from store import VectorStore
 
 # Progress logging, not print(): add_document() is called from mcp_server.py
@@ -183,6 +184,15 @@ def add_document(
         # Step 5: Store in Postgres
         inserted = store.save(chunks, embeddings)
         logger.info("[ingest] Stored %d row(s) in document_chunks. Done! ✅", inserted)
+        get_logger().log(
+            LogAction.DOCUMENT_INGESTED,
+            {
+                "path": effective_source_path,
+                "chunks_count": inserted,
+                "content_hash": content_hash[:8],
+                "embedding_driver": settings.EMBEDDING_DRIVER,
+            },
+        )
 
 
 def add_directory(
