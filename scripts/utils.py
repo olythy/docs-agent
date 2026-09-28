@@ -45,6 +45,10 @@ def run_cmd(
             cmd, cwd=cwd, env=env, stdout=stdout, stderr=stderr, check=False
         )
         return proc.returncode
+    except KeyboardInterrupt:
+        # Ctrl+C on an interactive subprocess (e.g. mcp-dev, chat) is normal
+        # user behaviour — exit cleanly with the UNIX convention for SIGINT.
+        return 130
     except FileNotFoundError:
         if not silent:
             print(f"ERROR: Command not found: {cmd[0]}")
