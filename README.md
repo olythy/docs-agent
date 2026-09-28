@@ -47,14 +47,11 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 │   ├── 0001_create_document_chunks_table.py
 │   └── 0002_add_fulltext_search.py
 ├── scripts/
-│   ├── ingest.py             # CLI ingestion for documents and directories (make add-document / make add-directory)
-│   ├── migrate.py            # Migration runner: uv run python scripts/migrate.py [subcommand]
-│   ├── make_migration.py     # Scaffold a new migration file
-│   ├── db_flush.py           # Truncate document_chunks
-│   ├── extract_text.py       # PDF extraction diagnostic CLI
-│   ├── inspect_chunks.py     # Chunking diagnostic CLI: full strategy comparison matrix, with bars
-│   ├── evaluate_retrieval.py # Retrieval-quality eval: vector-only vs hybrid+rerank
-│   └── fix_mcp_install.py    # Patches `mcp install`'s generated Claude Desktop config — see "MCP Server"
+│   ├── dev_cli.py            # Development & infrastructure CLI: docker, setup, doctor, lint (uv run python scripts/dev_cli.py)
+│   ├── db_cli.py             # Database CLI: migrations, flush, make-migration (uv run python scripts/db_cli.py)
+│   ├── agent_cli.py          # Agent & runtime CLI: query, chat, ingest, mcp-dev, mcp-install (uv run python scripts/agent_cli.py)
+│   ├── eval_cli.py           # Evaluation & diagnostics CLI: eval, inspect, extract (uv run python scripts/eval_cli.py)
+│   └── utils.py              # Shared CLI utilities (subprocess runner, paths, terminal formatting)
 ├── docker-compose.yml       # Local Postgres+pgvector (dev + test databases)
 ├── docker/
 │   └── init-test-db.sql      # Creates the "docs_agent_test" database on first startup
@@ -151,28 +148,39 @@ Run `make` or `make help` any time for this same list straight from the terminal
 
 | Command | Equivalent |
 |---|---|
-| `make setup` | `docker-up` + `db-migrate` + `db-migrate-test` — one-shot onboarding |
-| `make docker-up` | `docker compose up -d --wait` — start local Postgres, wait until healthy |
-| `make docker-down` | `docker compose down` — stop the container, keep its data |
-| `make docker-down-clean` | `docker compose down -v` — stop the container **and delete its data** |
-| `make db-migrate` | `uv run python scripts/migrate.py up` — migrates `DATABASE_URL` (`.env`) |
-| `make db-migrate-test` | `AGENT_ENV=test uv run python scripts/migrate.py up` — migrates `DATABASE_URL` from `.env.test` instead |
-| `make db-flush` | `uv run python scripts/db_flush.py` — truncates `document_chunks` (rows only, keeps the schema) |
+| `make setup` | `uv run python scripts/dev_cli.py setup` — one-shot onboarding (Docker + dev & test DB migrations) |
+| `make docker-up` | `uv run python scripts/dev_cli.py docker-up` — start local Postgres, wait until healthy |
+| `make docker-down` | `uv run python scripts/dev_cli.py docker-down` — stop the container, keep its data |
+| `make docker-down-clean` | `uv run python scripts/dev_cli.py docker-clean` — stop the container **and delete its data** |
+| `make doctor` | `uv run python scripts/dev_cli.py doctor` — verify environment files, Docker status, and DB connections |
+| `make db-migrate` | `uv run python scripts/db_cli.py up` — migrates `DATABASE_URL` (`.env`) |
+| `make db-migrate-test` | `AGENT_ENV=test uv run python scripts/db_cli.py up` — migrates `DATABASE_URL` from `.env.test` instead |
+| `make db-flush` | `uv run python scripts/db_cli.py flush` — truncates `document_chunks` (rows only, keeps the schema) |
 | `make db-refresh` | `db-flush` then `db-migrate` — empty the table and re-apply any pending migrations in one command |
-| `make migrate-status` | `uv run python scripts/migrate.py status` — applied vs. pending migrations |
-| `make migrate-install` | `uv run python scripts/migrate.py install` — create the `schema_migrations` table only |
-| `make migrate-fresh` | `uv run python scripts/migrate.py fresh` — revert every migration, drop tracking, re-apply everything from scratch |
-| `make migrate-rollback` | `uv run python scripts/migrate.py rollback` — revert the most recently applied *batch* |
-| `make migrate-reset` | `uv run python scripts/migrate.py reset` — revert every applied migration |
-| `make migrate-refresh` | `uv run python scripts/migrate.py refresh` — `reset` then `up` |
-| `make make-migration name=<snake_case_name>` | `uv run python scripts/make_migration.py <snake_case_name>` — scaffold a new migration file |
-| `make add-document path="<file> ..."` | Ingest one or more documents via `scripts/ingest.py` |
-| `make add-directory path=<dir> [ext=...]` | Batch-ingest a directory via `scripts/ingest.py` |
-| `make query q="<question>"` | One-shot question — full pipeline (`query.retrieval.query_knowledge_base()`), real LLM call |
-| `make mcp-dev` | `uv run mcp dev mcp_server.py` — runs `mcp_server.py` under the MCP Inspector for local testing |
-| `make mcp-install` | `uv run mcp install mcp_server.py --name "docs-agent" -f .env` — registers it with Claude Desktop |
-| `make test` | `AGENT_ENV=test uv run pytest -v` — a session-scoped pytest fixture (`tests/db/conftest.py`) migrates and truncates the test DB itself, so this works regardless of how pytest gets invoked |
-| `make lint` | `uv run ruff check .` |
+| `make migrate-status` | `uv run python scripts/db_cli.py status` — applied vs. pending migrations |
+| `make migrate-install` | `uv run python scripts/db_cli.py install` — create the `schema_migrations` table only |
+| `make migrate-fresh` | `uv run python scripts/db_cli.py fresh` — revert every migration, drop tracking, re-apply everything from scratch |
+| `make migrate-rollback` | `uv run python scripts/db_cli.py rollback` — revert the most recently applied *batch* |
+| `make migrate-reset` | `uv run python scripts/db_cli.py reset` — revert every applied migration |
+| `make migrate-refresh` | `uv run python scripts/db_cli.py refresh` — `reset` then `up` |
+| `make make-migration name=<snake_case_name>` | `uv run python scripts/db_cli.py make <snake_case_name>` — scaffold a new migration file |
+| `make add-document path="<file> ..."` | `uv run python scripts/agent_cli.py ingest <file>` — ingest document(s) |
+| `make add-directory path=<dir> [ext=...]` | `uv run python scripts/agent_cli.py ingest <dir>` — batch-ingest a directory |
+| `make delete-document path="<file>"` | `uv run python scripts/agent_cli.py ingest --delete <file>` — delete chunks by path or hash |
+| `make query q="<question>"` | `uv run python scripts/agent_cli.py query "<question>"` — one-shot question (full RAG pipeline) |
+| `make chat` | `uv run python scripts/agent_cli.py chat` — interactive conversational terminal REPL |
+| `make mcp-dev` | `uv run python scripts/agent_cli.py mcp-dev` — run under MCP Inspector |
+| `make mcp-install` | `uv run python scripts/agent_cli.py mcp-install` — register with Claude Desktop and auto-patch launch config |
+| `make inspect-chunks [path=...]` | `uv run python scripts/eval_cli.py inspect [path]` — chunking strategy matrix against token limit |
+| `make extract-text [path=...]` | `uv run python scripts/eval_cli.py extract [path]` — sanity-check raw text extraction |
+| `make eval` | `uv run python scripts/eval_cli.py eval` — retrieval quality evaluation (vector vs hybrid) |
+| `make eval-rerank` | `uv run python scripts/eval_cli.py eval --with-rerank` — evaluation with cross_encoder reranking |
+| `make eval-llm` | `uv run python scripts/eval_cli.py eval --with-llm` — evaluation with real LLM answer generation |
+| `make eval-all` | `uv run python scripts/eval_cli.py eval --with-rerank --with-llm` — full benchmark (rerank + LLM) |
+| `make test` | `AGENT_ENV=test uv run pytest -v` — runs full test suite against test database |
+| `make lint` | `uv run python scripts/dev_cli.py lint` — check code style and rules with ruff |
+| `make lint-fix` | `uv run python scripts/dev_cli.py lint-fix` — auto-fix lint errors and reformat code |
+| `make format` | `uv run python scripts/dev_cli.py format` — format code with ruff format |
 
 Every `db-*` and `migrate-*` command (except `db-migrate-test`, and `test`) acts on whatever `DATABASE_URL` is currently set to in `.env` — with the local Docker setup that's the separate `docs_agent` database, so this is safe by default; if you point `DATABASE_URL` at a shared/managed database, double-check `.env` before running them.
 

@@ -1,4 +1,4 @@
-"""Tests for scripts.migrate's pure logic (no DB required).
+"""Tests for scripts.db_cli's pure logic (no live DB required).
 
 Anything that actually runs a migration's up()/down() against Postgres is
 covered separately in tests/db/, gated on AGENT_ENV=test.
@@ -10,11 +10,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from migrations.base import Migration
-from scripts.migrate import (
+from scripts.db_cli import (
+    cmd_flush,
     compute_pending,
     discover_migration_files,
     last_batch_stems_reversed,
     load_migration,
+    make_migration,
+    next_migration_number,
+    to_class_name,
 )
 
 
@@ -104,3 +108,35 @@ def test_real_migration_0002_up_and_down_use_only_cursor():
     instance.down(fake_conn)
 
     assert fake_conn.cursor.called
+
+
+def test_to_class_name():
+    assert to_class_name("add_foo_column") == "AddFooColumn"
+    assert to_class_name("create_users_table") == "CreateUsersTable"
+
+
+def test_next_migration_number_empty(tmp_path: Path):
+    assert next_migration_number(tmp_path) == 1
+
+
+def test_next_migration_number_increment(tmp_path: Path):
+    (tmp_path / "0001_first.py").write_text("")
+    (tmp_path / "0002_second.py").write_text("")
+    assert next_migration_number(tmp_path) == 3
+
+
+def test_make_migration_creates_valid_file(tmp_path: Path):
+    created = make_migration("add_bar_column", migrations_dir=tmp_path)
+    assert created.name == "0001_add_bar_column.py"
+    assert created.exists()
+    content = created.read_text(encoding="utf-8")
+    assert "class AddBarColumn(Migration):" in content
+    assert "def up(" in content
+    assert "def down(" in content
+
+
+def test_cmd_flush_executes_truncate():
+    fake_conn = MagicMock()
+    cmd_flush(fake_conn)
+    assert fake_conn.cursor.called
+    assert fake_conn.commit.called

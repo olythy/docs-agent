@@ -40,7 +40,7 @@ Decided 2026-09-17 after explicit discussion — don't reintroduce these without
 ### Migrations (`migrations/`)
 - Each migration is a Python file (e.g. `0001_create_document_chunks_table.py`) defining exactly one class that subclasses `migrations.base.Migration`, with `up()`/`down()` methods running raw SQL directly (no ORM). See `migrations/base.py`.
 - Every migration file must start with a module-level docstring explaining what it does and why (e.g. "Creates the document_chunks table for pgvector RAG storage").
-- `down()` must be safe to call even if `up()` was never applied (e.g. `DROP TABLE IF EXISTS`) — `scripts/migrate.py fresh` calls `down()` on every migration file unconditionally.
+- `down()` must be safe to call even if `up()` was never applied (e.g. `DROP TABLE IF EXISTS`) — `scripts/db_cli.py fresh` calls `down()` on every migration file unconditionally.
 - Migrations are tracked by filename stem (without extension) in the `schema_migrations` table. Never rename an already-applied migration file without also reconciling its `schema_migrations` row.
 - Use `make make-migration name=<snake_case_name>` to scaffold a new one — don't hand-roll the filename/numbering.
 

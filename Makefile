@@ -1,118 +1,132 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help docker-up docker-down docker-down-clean \
+.PHONY: help docker-up docker-down docker-down-clean doctor \
         db-migrate db-migrate-test db-flush db-refresh setup \
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
-        make-migration add-document add-directory delete-document query mcp-dev mcp-install test lint
+        make-migration add-document add-directory delete-document query chat \
+        inspect-chunks extract-text eval eval-rerank eval-lll eval-all \
+        mcp-dev mcp-install test lint lint-fix format
 
 # Support direct positional arguments without path="...":
 # e.g. `make add-document file1.pdf file2.md`
-SUPPORTED_CMD_TARGETS := add-document add-directory delete-document
+SUPPORTED_CMD_TARGETS := add-document add-directory delete-document inspect-chunks extract-text
 ifeq ($(filter $(firstword $(MAKECMDGOALS)),$(SUPPORTED_CMD_TARGETS)),$(firstword $(MAKECMDGOALS)))
   CMD_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 endif
 
 # Self-documenting: every target's `## ` comment is both its Makefile
 # documentation and its `make help` output — one source, so it can't drift
-# out of sync the way a hand-maintained list (e.g. README's old Makefile
-# table) can.
+# out of sync the way a hand-maintained list can.
 help: ## Show this list of commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
+# --- Dev Environment & Containers (scripts/dev_cli.py) ---
+
 docker-up: ## Start local Postgres (dev+test), wait until healthy
-	docker compose up -d --wait
+	uv run python scripts/dev_cli.py docker-up
 
 docker-down: ## Stop the local Postgres container, keep its data
-	docker compose down
+	uv run python scripts/dev_cli.py docker-down
 
-# Also deletes the data volume — full reset, re-runs docker/init-test-db.sql
-# on next docker-up.
 docker-down-clean: ## Stop the container AND delete its data (full reset)
-	docker compose down -v
+	uv run python scripts/dev_cli.py docker-clean
+
+doctor: ## Check configuration files, Docker status, and database health
+	uv run python scripts/dev_cli.py doctor
+
+setup: ## One-shot onboarding: start Postgres + migrate both DBs
+	uv run python scripts/dev_cli.py setup
+
+lint: ## Check code style and rules with ruff
+	uv run python scripts/dev_cli.py lint
+
+lint-fix: ## Auto-fix lint errors and format code
+	uv run python scripts/dev_cli.py lint-fix
+
+format: ## Format code with ruff
+	uv run python scripts/dev_cli.py format
+
+# --- Database & Migrations (scripts/db_cli.py) ---
 
 db-migrate: ## Migrate DATABASE_URL (.env) — the dev database
-	uv run python scripts/migrate.py up
+	uv run python scripts/db_cli.py up
 
-# Runs migrations with AGENT_ENV=test, so config.py loads .env.test on top
-# of .env and settings.DATABASE_URL resolves to the test database for this
-# one process — same mechanism `test` below uses.
 db-migrate-test: ## Migrate DATABASE_URL from .env.test — the test database
-	AGENT_ENV=test uv run python scripts/migrate.py up
-
-# One-shot onboarding: start the local Postgres, migrate both databases.
-setup: docker-up db-migrate db-migrate-test ## One-shot onboarding: start Postgres + migrate both DBs
-	@echo "Ready — dev and test databases are both migrated."
+	AGENT_ENV=test uv run python scripts/db_cli.py up
 
 db-flush: ## Truncate document_chunks (rows only, keeps the schema)
-	uv run python scripts/db_flush.py
+	uv run python scripts/db_cli.py flush
 
-# Empty document_chunks, then re-apply any pending migrations — a clean,
-# schema-up-to-date slate in one command. Runs in this order (flush before
-# migrate) because `make` executes prerequisites left to right.
 db-refresh: db-flush db-migrate ## Empty the table, then re-apply pending migrations
 
-# Laravel-artisan-style migration commands (colon names like `migrate:fresh`
-# don't work in Make — `:` is the target/prerequisite separator — so these
-# use hyphens instead).
 migrate-status: ## Show applied vs. pending migrations
-	uv run python scripts/migrate.py status
+	uv run python scripts/db_cli.py status
 
 migrate-install: ## Create the schema_migrations tracking table only
-	uv run python scripts/migrate.py install
+	uv run python scripts/db_cli.py install
 
 migrate-fresh: ## Revert everything, drop tracking, re-apply from scratch
-	uv run python scripts/migrate.py fresh
+	uv run python scripts/db_cli.py fresh
 
 migrate-rollback: ## Revert the most recently applied migration batch
-	uv run python scripts/migrate.py rollback
+	uv run python scripts/db_cli.py rollback
 
 migrate-reset: ## Revert every applied migration
-	uv run python scripts/migrate.py reset
+	uv run python scripts/db_cli.py reset
 
 migrate-refresh: ## migrate-reset then db-migrate
-	uv run python scripts/migrate.py refresh
+	uv run python scripts/db_cli.py refresh
 
 make-migration: ## Scaffold a new migration file — usage: make make-migration name=add_foo_column
-	uv run python scripts/make_migration.py $(name)
+	uv run python scripts/db_cli.py make $(name)
 
-# -c one-liners configure logging themselves: ingestion.ingest/query.retrieval
-# log progress via `logging` (silent by default) rather than print(), so
-# mcp_server.py's stdout stays clean for the MCP protocol.
+# --- Agent & Runtime (scripts/agent_cli.py) ---
+
 add-document: ## Ingest document(s) — usage: make add-document file1.pdf [file2.md]
-	uv run python scripts/ingest.py $(if $(path),$(path),$(CMD_ARGS))
+	uv run python scripts/agent_cli.py ingest $(if $(path),$(path),$(CMD_ARGS))
 
 add-directory: ## Batch-ingest a directory — usage: make add-directory /path/to/dir [ext=.md]
-	uv run python scripts/ingest.py $(if $(path),$(path),$(CMD_ARGS)) $(if $(ext),--ext $(ext),)
+	uv run python scripts/agent_cli.py ingest $(if $(path),$(path),$(CMD_ARGS)) $(if $(ext),--ext $(ext),)
 
 delete-document: ## Delete document chunks by path or hash — usage: make delete-document file.pdf
-	uv run python scripts/ingest.py --delete $(if $(path),$(path),$(CMD_ARGS))
+	uv run python scripts/agent_cli.py ingest --delete $(if $(path),$(path),$(CMD_ARGS))
 
 query: ## Ask a question (full pipeline, real LLM call) — usage: make query q="What is X?"
-	uv run python -c "import logging; logging.basicConfig(level=logging.INFO, format='%(message)s'); from query.retrieval import query_knowledge_base; print(query_knowledge_base('$(q)'))"
+	uv run python scripts/agent_cli.py query $(q)
+
+chat: ## Start the interactive conversational agent REPL terminal
+	uv run python scripts/agent_cli.py chat
 
 mcp-dev: ## Run mcp_server.py under the MCP Inspector, for local testing
-	uv run mcp dev mcp_server.py
+	uv run python scripts/agent_cli.py mcp-dev
 
-# `mcp install`'s own generated launch command is built for a standalone,
-# dependency-free script ("works from any directory, no project needed") —
-# docs-agent isn't that, so scripts/fix_mcp_install.py rewrites it to use
-# --project right after. See that script's docstring for why (confirmed via
-# a real Claude Desktop failure: ModuleNotFoundError on a bare `mcp install`
-# config).
-mcp-install: ## Register mcp_server.py with Claude Desktop (env vars loaded from .env)
-	uv run mcp install mcp_server.py --name "docs-agent" -f .env
-	uv run python scripts/fix_mcp_install.py
+mcp-install: ## Register mcp_server.py with Claude Desktop and patch config
+	uv run python scripts/agent_cli.py mcp-install
 
-# No db-migrate-test prerequisite here on purpose: schema setup is handled
-# by a session-scoped autouse pytest fixture (tests/db/conftest.py) instead
-# of a Make-level dependency, so the test database is ready regardless of
-# how pytest gets invoked — this target, a bare `AGENT_ENV=test uv run
-# pytest`, or an IDE's "run test" button, which bypasses Make entirely.
+# --- Evaluation & Diagnostics (scripts/eval_cli.py) ---
+
+inspect-chunks: ## Compare chunking strategies for a file — usage: make inspect-chunks [path=file.pdf]
+	uv run python scripts/eval_cli.py inspect $(if $(path),$(path),$(CMD_ARGS))
+
+extract-text: ## Preview text extraction grouped by section — usage: make extract-text [path=file.pdf]
+	uv run python scripts/eval_cli.py extract $(if $(path),$(path),$(CMD_ARGS))
+
+eval: ## Run retrieval quality evaluation (vector vs hybrid)
+	uv run python scripts/eval_cli.py eval
+
+eval-rerank: ## Run retrieval evaluation with cross_encoder reranking
+	uv run python scripts/eval_cli.py eval --with-rerank
+
+eval-llm: ## Run retrieval evaluation with real LLM answer generation
+	uv run python scripts/eval_cli.py eval --with-llm
+
+eval-all: ## Run full evaluation benchmark: cross_encoder rerank + LLM generation
+	uv run python scripts/eval_cli.py eval --with-rerank --with-llm
+
+# --- Tests ---
+
 test: ## Run the full test suite (unit + tests/db/)
 	AGENT_ENV=test uv run pytest -v
-
-lint: ## Run ruff
-	uv run ruff check .
 
 # Catch-all to allow passing arguments directly after Make targets without "No rule to make target" errors
 %:

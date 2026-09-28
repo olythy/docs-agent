@@ -1,28 +1,30 @@
-"""Migration runner with Laravel-artisan-style subcommands.
+"""Database and migration CLI with Laravel-artisan-style subcommands.
 
-Migrations are Python files under ``migrations/`` (one ``Migration``
-subclass per file, see ``migrations/base.py``), tracked by filename stem
-(without extension) in a ``schema_migrations`` table in the same database
-``DATABASE_URL`` points at.
+Consolidates all database lifecycle tasks into a single entry point:
+- Running, inspecting, and rolling back migrations
+- Scaffolding new migration files
+- Flushing document chunk rows for local testing
 
 Usage:
-    uv run python scripts/migrate.py [up|status|install|rollback|reset|refresh|fresh]
+    uv run python scripts/db_cli.py [command] [args]
 
-    (no argument defaults to "up" — this is what `make db-migrate` runs)
-
-Subcommands:
-    up        Run all pending migrations (default).
-    status    Show which migrations are applied vs. pending.
-    install   Create the schema_migrations tracking table, nothing else.
-    rollback  Revert the most recently applied *batch* of migrations.
-    reset     Revert every applied migration, in reverse order.
-    fresh     Revert every migration file (regardless of tracked state),
-              drop the tracking table, then run everything from scratch.
-    refresh   Shorthand for reset + up.
+Commands:
+    up                  Run all pending migrations (default, used by `make db-migrate`).
+    status              Show applied vs. pending migrations.
+    install             Create the schema_migrations tracking table only.
+    rollback            Revert the most recently applied batch of migrations.
+    reset               Revert every applied migration, in reverse order.
+    fresh               Revert all migration files unconditionally, drop tracking table,
+                        and re-run migrations from scratch.
+    refresh             Shorthand for reset + up.
+    flush               Truncate the document_chunks table (rows only, keeps schema).
+    make <name>         Scaffold a new migration file under migrations/
+                        (alias: make-migration).
 """
 
 import importlib.util
 import inspect
+import re
 import sys
 import time
 from pathlib import Path
@@ -39,6 +41,30 @@ from db import get_connection
 from migrations.base import Migration
 
 MIGRATIONS_DIR = PROJECT_ROOT / "migrations"
+
+MIGRATION_TEMPLATE = '''"""TODO: describe what this migration does and why."""
+
+from psycopg2.extensions import connection as PgConnection
+
+from migrations.base import Migration
+
+
+class {class_name}(Migration):
+    def up(self, conn: PgConnection) -> None:
+        with conn.cursor() as cur:
+            cur.execute("""
+                -- TODO
+            """)
+
+    def down(self, conn: PgConnection) -> None:
+        with conn.cursor() as cur:
+            cur.execute("""
+                -- TODO
+            """)
+'''
+
+
+# --- Migration Discovery & Dynamic Loading ---
 
 
 def ensure_migrations_table(conn: PgConnection) -> None:
@@ -60,7 +86,8 @@ def ensure_migrations_table(conn: PgConnection) -> None:
 def discover_migration_files(migrations_dir: Path = MIGRATIONS_DIR) -> list[Path]:
     """Return every migration file in ``migrations_dir``, sorted by name.
 
-    Excludes ``base.py`` (the ``Migration`` ABC, not a migration itself).
+    Excludes ``base.py`` (the ``Migration`` ABC, not a migration itself) and
+    any ``__init__.py``.
     """
     return sorted(
         f for f in migrations_dir.glob("*.py") if f.stem not in {"base", "__init__"}
@@ -79,6 +106,8 @@ def load_migration_class(path: Path) -> type[Migration]:
         ValueError: If the file defines zero or more than one such class.
     """
     spec = importlib.util.spec_from_file_location(f"migration_{path.stem}", path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"Could not load module spec for {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
@@ -181,6 +210,9 @@ def _apply_down(conn: PgConnection, path: Path) -> None:
         sys.exit(1)
 
 
+# --- Migration Subcommands ---
+
+
 def cmd_up(conn: PgConnection) -> None:
     """Run all pending migrations."""
     files = discover_migration_files()
@@ -217,10 +249,9 @@ def cmd_status(conn: PgConnection) -> None:
 def cmd_install(_conn: PgConnection) -> None:
     """Create the schema_migrations tracking table, nothing else.
 
-    Takes an unused ``conn`` parameter so every command in ``COMMANDS``
-    shares the same signature for uniform dispatch — ``main()`` already
-    calls ``ensure_migrations_table`` before dispatching, which is this
-    command's entire job.
+    Takes an unused ``conn`` parameter so every command in ``DB_COMMANDS``
+    shares the same signature for uniform dispatch — ``ensure_migrations_table``
+    is called before dispatching.
     """
     print("Migration table ready (schema_migrations).")
 
@@ -284,7 +315,69 @@ def cmd_fresh(conn: PgConnection) -> None:
     cmd_up(conn)
 
 
-COMMANDS = {
+# --- Data Management Subcommands ---
+
+
+def cmd_flush(conn: PgConnection) -> None:
+    """Truncate the document_chunks table, resetting its identity sequence."""
+    with conn.cursor() as cur:
+        cur.execute("TRUNCATE document_chunks RESTART IDENTITY;")
+    conn.commit()
+    print("document_chunks flushed.")
+
+
+def flush_document_chunks() -> None:
+    """Truncate document_chunks using a freshly opened connection (helper)."""
+    try:
+        conn = get_connection()
+    except RuntimeError as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
+
+    try:
+        cmd_flush(conn)
+    finally:
+        conn.close()
+
+
+# --- Migration File Scaffolding ---
+
+
+def next_migration_number(migrations_dir: Path = MIGRATIONS_DIR) -> int:
+    """Return one higher than the highest existing NNNN migration prefix."""
+    numbers = []
+    for f in migrations_dir.glob("*.py"):
+        match = re.match(r"(\d+)_", f.stem)
+        if match:
+            numbers.append(int(match.group(1)))
+    return (max(numbers) + 1) if numbers else 1
+
+
+def to_class_name(snake_case_name: str) -> str:
+    """Convert e.g. 'add_foo_column' to 'AddFooColumn'."""
+    return "".join(word.capitalize() for word in snake_case_name.split("_"))
+
+
+def make_migration(name: str, migrations_dir: Path = MIGRATIONS_DIR) -> Path:
+    """Create a new numbered migration file and return its path."""
+    number = next_migration_number(migrations_dir)
+    filename = f"{number:04d}_{name}.py"
+    path = migrations_dir / filename
+    path.write_text(
+        MIGRATION_TEMPLATE.format(class_name=to_class_name(name)), encoding="utf-8"
+    )
+    return path
+
+
+def cmd_make(name: str) -> None:
+    """Scaffold a new migration file and report its creation."""
+    path = make_migration(name)
+    print(f"Created {path.relative_to(PROJECT_ROOT)}")
+
+
+# --- Command Dispatch ---
+
+DB_COMMANDS = {
     "up": cmd_up,
     "status": cmd_status,
     "install": cmd_install,
@@ -292,14 +385,38 @@ COMMANDS = {
     "reset": cmd_reset,
     "refresh": cmd_refresh,
     "fresh": cmd_fresh,
+    "flush": cmd_flush,
 }
+
+ALL_COMMANDS = list(DB_COMMANDS.keys()) + ["make", "make-migration"]
+
+
+def print_help() -> None:
+    """Print command usage and descriptions."""
+    print(__doc__.strip())
 
 
 def main() -> None:
+    """CLI entry point for database and migration management."""
+    if len(sys.argv) > 1 and sys.argv[1] in {"--help", "-h", "help"}:
+        print_help()
+        sys.exit(0)
+
     command = sys.argv[1] if len(sys.argv) > 1 else "up"
-    if command not in COMMANDS:
+
+    # Scaffolding commands do not require a live database connection
+    if command in {"make", "make-migration"}:
+        if len(sys.argv) < 3:
+            print("Usage: uv run python scripts/db_cli.py make <snake_case_name>")
+            print("   or: make make-migration name=<snake_case_name>")
+            sys.exit(1)
+        name = sys.argv[2]
+        cmd_make(name)
+        return
+
+    if command not in DB_COMMANDS:
         print(f"Unknown command: '{command}'")
-        print(f"Available commands: {', '.join(COMMANDS)}")
+        print(f"Available commands: {', '.join(ALL_COMMANDS)}")
         sys.exit(1)
 
     try:
@@ -310,7 +427,7 @@ def main() -> None:
 
     try:
         ensure_migrations_table(conn)
-        COMMANDS[command](conn)
+        DB_COMMANDS[command](conn)
     finally:
         conn.close()
 

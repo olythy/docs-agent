@@ -1,9 +1,80 @@
-"""Tests for scripts.ingest CLI entry point."""
+"""Tests for scripts.agent_cli (ingest commands, path resolution, MCP configuration patching)."""
 
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from scripts.ingest import main, parse_args
+import pytest
+
+from scripts.agent_cli import (
+    cmd_ingest,
+    patch_args,
+    resolve_input_paths,
+)
+from scripts.agent_cli import (
+    parse_ingest_args as parse_args,
+)
+
+# --- MCP Registration & Config Patching Tests ---
+
+
+def _config_with_entry(**overrides) -> dict:
+    entry = {
+        "command": "/Users/x/.local/bin/uv",
+        "args": [
+            "run",
+            "--frozen",
+            "--with",
+            "mcp[cli]==2.2.0",
+            "mcp",
+            "run",
+            "/path/mcp_server.py",
+        ],
+        "env": {"DATABASE_URL": "postgresql://..."},
+    }
+    entry.update(overrides)
+    return {"mcpServers": {"docs-agent": entry}}
+
+
+def test_patch_args_rewrites_to_use_project_flag():
+    config = _config_with_entry()
+
+    patch_args(config, project_root=Path("/Users/x/Sites/docs-agent"))
+
+    assert config["mcpServers"]["docs-agent"]["args"] == [
+        "run",
+        "--project",
+        "/Users/x/Sites/docs-agent",
+        "/Users/x/Sites/docs-agent/mcp_server.py",
+    ]
+
+
+def test_patch_args_leaves_env_and_command_untouched():
+    config = _config_with_entry()
+    original_env = config["mcpServers"]["docs-agent"]["env"]
+    original_command = config["mcpServers"]["docs-agent"]["command"]
+
+    patch_args(config, project_root=Path("/Users/x/Sites/docs-agent"))
+
+    assert config["mcpServers"]["docs-agent"]["env"] == original_env
+    assert config["mcpServers"]["docs-agent"]["command"] == original_command
+
+
+def test_patch_args_raises_when_entry_missing():
+    config = {"mcpServers": {}}
+
+    with pytest.raises(KeyError):
+        patch_args(config, project_root=Path("/Users/x/Sites/docs-agent"))
+
+
+def test_patch_args_uses_given_server_name():
+    config = {"mcpServers": {"other-name": {"args": []}}}
+
+    patch_args(config, project_root=Path("/x"), server_name="other-name")
+
+    assert config["mcpServers"]["other-name"]["args"][:2] == ["run", "--project"]
+
+
+# --- Document Ingestion & Deletion Tests ---
 
 
 def test_parse_args_defaults():
@@ -27,9 +98,9 @@ def test_main_calls_add_document_for_file(tmp_path, monkeypatch):
     f.write_text("# Hello")
 
     fake_add_document = MagicMock()
-    monkeypatch.setattr("scripts.ingest.add_document", fake_add_document)
+    monkeypatch.setattr("scripts.agent_cli.add_document", fake_add_document)
 
-    exit_code = main([str(f), "--force"])
+    exit_code = cmd_ingest([str(f), "--force"])
 
     assert exit_code == 0
     fake_add_document.assert_called_once_with(Path(f), force=True)
@@ -40,9 +111,9 @@ def test_main_calls_add_directory_for_directory(tmp_path, monkeypatch):
     d.mkdir()
 
     fake_add_directory = MagicMock(return_value={"failed": []})
-    monkeypatch.setattr("scripts.ingest.add_directory", fake_add_directory)
+    monkeypatch.setattr("scripts.agent_cli.add_directory", fake_add_directory)
 
-    exit_code = main([str(d), "--ext", ".md,.markdown", "--no-recursive"])
+    exit_code = cmd_ingest([str(d), "--ext", ".md,.markdown", "--no-recursive"])
 
     assert exit_code == 0
     fake_add_directory.assert_called_once_with(
@@ -54,7 +125,7 @@ def test_main_calls_add_directory_for_directory(tmp_path, monkeypatch):
 
 
 def test_main_returns_error_code_on_missing_path():
-    exit_code = main(["/nonexistent/path/for/sure/12345.pdf"])
+    exit_code = cmd_ingest(["/nonexistent/path/for/sure/12345.pdf"])
     assert exit_code == 1
 
 
@@ -65,9 +136,9 @@ def test_main_returns_error_code_when_directory_has_failures(tmp_path, monkeypat
     fake_add_directory = MagicMock(
         return_value={"failed": [{"file": "bad.pdf", "error": "corrupt"}]}
     )
-    monkeypatch.setattr("scripts.ingest.add_directory", fake_add_directory)
+    monkeypatch.setattr("scripts.agent_cli.add_directory", fake_add_directory)
 
-    exit_code = main([str(d)])
+    exit_code = cmd_ingest([str(d)])
     assert exit_code == 1
 
 
@@ -82,7 +153,7 @@ def test_main_delete_by_hash(monkeypatch):
     monkeypatch.setattr("store.VectorStore", lambda: fake_store)
 
     target_hash = "a" * 64
-    exit_code = main(["--delete", target_hash])
+    exit_code = cmd_ingest(["--delete", target_hash])
 
     assert exit_code == 0
     fake_store.delete_chunks_by_hash.assert_called_once_with(target_hash)
@@ -96,7 +167,7 @@ def test_main_delete_by_file(tmp_path, monkeypatch):
     fake_store.delete_chunks_by_hash.return_value = 2
     monkeypatch.setattr("store.VectorStore", lambda: fake_store)
 
-    exit_code = main(["--delete", str(f)])
+    exit_code = cmd_ingest(["--delete", str(f)])
 
     assert exit_code == 0
     assert fake_store.delete_chunks_by_hash.call_count == 1
@@ -107,15 +178,13 @@ def test_main_delete_by_missing_source_path(monkeypatch):
     fake_store.delete_chunks_from_source.return_value = 1
     monkeypatch.setattr("store.VectorStore", lambda: fake_store)
 
-    exit_code = main(["--delete", "nonexistent/doc.md"])
+    exit_code = cmd_ingest(["--delete", "nonexistent/doc.md"])
 
     assert exit_code == 0
     fake_store.delete_chunks_from_source.assert_called_once_with("nonexistent/doc.md")
 
 
 def test_resolve_input_paths_reconstructs_spaces(tmp_path):
-    from scripts.ingest import resolve_input_paths
-
     doc_dir = tmp_path / "My Folder"
     doc_dir.mkdir()
     doc_file = doc_dir / "Special File.md"

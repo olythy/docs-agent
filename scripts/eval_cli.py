@@ -1,108 +1,46 @@
-"""Retrieval-quality evaluation: pure-vector vs. hybrid+rerank.
+"""Evaluation and diagnostics CLI for docs-agent.
 
-Purpose:
-    Answers "how do you measure quality?" with our own, repeatable numbers
-    instead of an ad-hoc manual check. Loads a small, hand-written question
-    set (``tests/data/eval_questions.json``) against the two real, committed
-    fixtures (``tests/data/sample.md``/``sample.pdf``), and compares two
-    retrieval configurations:
-
-        - "vector-only": ``query.retrieval.VectorRetrievalStrategy`` — the
-          pre-hybrid-search behavior.
-        - "hybrid+rerank": ``query.retrieval.HybridRetrievalStrategy``
-          (vector + keyword search fused with RRF, then whichever
-          ``RERANKER_DRIVER`` is configured — ``none`` by default).
-
-    Both run through the exact same ``query.retrieval.retrieve_chunks()``
-    entry point production code uses (with an explicit ``strategy=``
-    override for each comparison), not a hand-rolled stand-in — so this
-    never drifts out of sync with what ``query_knowledge_base()`` actually
-    does. Each question is embedded exactly once up front
-    (``_precompute_embeddings``) and passed to both strategies via
-    ``retrieve_chunks()``'s ``query_vector=`` override — without this,
-    every one of the 26 (13 questions x 2 strategies) calls would create
-    its own embedding driver and re-trigger its lazy model load, 26 times
-    over for what's really just 13 unique embeddings.
-
-    Measures, per configuration:
-        - Recall@k: for each answerable question, did a chunk from the
-          expected source file appear anywhere in the returned top-k?
-        - MRR (Mean Reciprocal Rank): how high up was the first chunk from
-          the expected source file?
-        - Fallback rate: for deliberately unanswerable questions, did
-          retrieval correctly return nothing (the signal
-          ``query.retrieval.query_knowledge_base`` uses to return
-          ``NO_RESULTS_MESSAGE`` instead of asking the LLM to guess)? This
-          only measures the *retrieval-layer* gate (``RETRIEVAL_MIN_SCORE``
-          on cosine similarity) — it is NOT the whole safety story. See
-          ``print_comparison_table``'s printed note for why a low number
-          here doesn't mean the system hallucinates: the LLM prompt has
-          its own, separate instruction to admit when the given context
-          doesn't actually answer the question. Pass ``--with-llm`` to
-          actually measure that second layer too (see below).
-
-    On a small corpus the two configurations can easily land on identical
-    aggregate numbers by coincidence, which hides whether they actually
-    behave differently per question — ``print_per_question_breakdown``
-    shows each question's result side by side specifically to catch that.
-
-    Honesty note: at minimum this corpus is two documents and ~13
-    questions — the actual corpus is whatever's already in document_chunks
-    plus these two (see "Which database?" below), so Recall@k/MRR will
-    vary with it. Either way, these are numbers for comparing our own
-    configurations against each other, not a statistically meaningful
-    benchmark.
-
-    Which database?
-        Deliberately **not** gated on AGENT_ENV=test, and safe to run
-        against a populated dev database: earlier versions of this script
-        truncated document_chunks first for a clean slate, which is a
-        destructive operation — the same class of accident that once ran
-        against the real Supabase DATABASE_URL in this project (because
-        AGENT_ENV wasn't checked first). This version only *adds* the two
-        fixtures if they're not already present
-        (``VectorStore.has_chunks_from_source``) and never deletes
-        anything, so there's nothing destructive left to gate. Prints
-        which database it's about to touch either way, for visibility.
-        Run against ``AGENT_ENV=test`` instead when you want a fully
-        controlled, repeatable comparison (no other documents mixed in).
-
-    ``--with-llm``:
-        Also generates a real answer via ``LLM_DRIVER`` for every
-        question, comparing both configurations side-by-side. For
-        answerable questions, checks whether the expected gold fact
-        is included in the completion. For deliberately unanswerable
-        questions, checks whether retrieval filtered them out (0 chunks)
-        or the prompt safely declined, versus potential hallucinations.
-        Prints a consolidated LLM Benchmark Scorecard at the end with
-        gold fact retention %, hallucination resistance %, API call counts,
-        and latency. Makes real network calls via LLM_DRIVER (skipped by
-        default to stay fast and free to run).
+Consolidates all quality evaluation, chunk inspection, and document extraction diagnostics:
+- Automated RAG quality evaluation (recall, MRR, fallback rate, and optional LLM scorecard)
+- Multi-strategy chunking diagnostic matrix against embedding model token limits
+- Document extraction sanity check (raw text and page/section preview)
 
 Usage:
-    uv run python scripts/evaluate_retrieval.py
-    uv run python scripts/evaluate_retrieval.py --with-llm
-    AGENT_ENV=test uv run python scripts/evaluate_retrieval.py  # controlled corpus
+    uv run python scripts/eval_cli.py [command] [args]
+
+Commands:
+    eval, benchmark        Run the 25-question retrieval quality evaluation suite (default).
+                           Options:
+                             --with-llm         Generate real answers via LLM and measure hallucinations.
+                             --with-rerank      Run hybrid retrieval with cross_encoder reranking.
+                             --reranker <name>  Explicitly specify RERANKER_DRIVER (e.g. cross_encoder).
+    inspect [path]         Compare chunking strategies and token overflows for a document.
+                           (Defaults to TEST_DOC_PATH from .env if omitted).
+    extract [path]         Preview raw text extraction grouped by page or markdown section.
+                           (Defaults to TEST_DOC_PATH from .env if omitted).
 """
 
 import argparse
 import json
 import logging
 import sys
-import textwrap
 import time
+from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
-# ---------------------------------------------------------------------------
-# Ensure the project root is importable (needed for running as a script)
-# ---------------------------------------------------------------------------
+# Ensure project root is on sys.path for direct script execution
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from config import settings
 from drivers.embedding import get_embedding_driver
+from drivers.llm import get_answer_driver
+from ingestion.chunker import (
+    SplitOverflowStrategy,
+)
+from ingestion.extractors import get_extractor
 from ingestion.ingest import add_document
 from query.retrieval import (
     NO_RESULTS_MESSAGE,
@@ -110,30 +48,219 @@ from query.retrieval import (
     VectorRetrievalStrategy,
     retrieve_chunks,
 )
-from scripts.format_utils import truncate, wrap
+from scripts.utils import (
+    format_paragraphs,
+    resolve_doc_path,
+    truncate,
+    wrap,
+)
 from store import VectorStore
 
-EVAL_QUESTIONS_PATH = PROJECT_ROOT / "tests" / "data" / "eval_questions.json"
-FIXTURE_DOCS = [
-    PROJECT_ROOT / "tests" / "data" / "sample.md",
-    PROJECT_ROOT / "tests" / "data" / "sample.pdf",
-    PROJECT_ROOT / "tests" / "data" / "sample_hu.md",
-]
+BAR_WIDTH = 30
+PREVIEW_CHARS = 500
+OVERFLOW_STRATEGIES = ["warn", "split"]
 
-# All console output in this script is sized to stay under 80 columns —
-# the conservative, universally-safe terminal width — even for the widest
-# row (the per-question breakdown table's "<- differs" marker included).
+EVAL_DATA_DIR = PROJECT_ROOT / "tests" / "data"
+EVAL_QUESTIONS_PATH = EVAL_DATA_DIR / "eval_questions.json"
+
+
+def discover_eval_fixtures(data_dir: Path = EVAL_DATA_DIR) -> list[Path]:
+    """Discover all document fixtures in tests/data (excluding JSON files and hidden files)."""
+    return sorted(
+        p
+        for p in data_dir.iterdir()
+        if p.is_file()
+        and p.suffix.lower() in {".md", ".pdf", ".txt"}
+        and not p.name.startswith(".")
+    )
+
+
 QUESTION_COLUMN_WIDTH = 42
 STATUS_COLUMN_WIDTH = 11
 
 
-def _print_target_database() -> None:
-    """Print which database this run will read from (and add fixtures to).
+# --- Extraction Diagnostics ---
 
-    Never prints credentials — just enough of DATABASE_URL to recognize
-    which database this is. This script no longer deletes anything (see
-    the module docstring), so this is transparency, not a safety gate.
-    """
+
+def print_extraction_report(
+    doc_path: Path, full_text: str, word_page_map: list[int]
+) -> None:
+    """Print human-readable extraction report grouped by page/section."""
+    words = full_text.split()
+
+    print("=" * 60)
+    print(f"File          : {doc_path.name}")
+    print(f"Pages/sections: {len(set(word_page_map))}")
+    print(f"Total words   : {len(words)}")
+    print(f"Total chars   : {len(full_text)}")
+    print("=" * 60)
+
+    if not words:
+        print("\n⚠️  WARNING: No text found.")
+        print("   For a PDF, this usually means it is scanned (image-based) —")
+        print("   OCR would be required to extract text.")
+        return
+
+    section_order: list[int] = []
+    section_words: dict[int, list[str]] = {}
+    for word, page in zip(words, word_page_map, strict=True):
+        if page not in section_words:
+            section_words[page] = []
+            section_order.append(page)
+        section_words[page].append(word)
+
+    for page in section_order:
+        text = " ".join(section_words[page])
+        print(f"\n--- Page/section {page} ({len(text)} chars) ---")
+        print(truncate(text, PREVIEW_CHARS))
+        if len(text) > PREVIEW_CHARS:
+            print(f"  ... [{len(text) - PREVIEW_CHARS} more characters]")
+
+
+def cmd_extract(argv: list[str]) -> int:
+    """Run text extraction diagnostic."""
+    path_arg = argv[0] if argv else None
+    doc_path = resolve_doc_path(path_arg)
+
+    print(f"\n📄 Extracting text from: {doc_path}\n")
+    extractor = get_extractor(doc_path)
+    full_text, word_page_map = extractor.extract(doc_path)
+    print_extraction_report(doc_path, full_text, word_page_map)
+    return 0
+
+
+# --- Chunk Inspection Diagnostics ---
+
+
+def _combinations_for(doc_path: Path) -> list[tuple[str, str]]:
+    if doc_path.suffix.lower() == ".pdf":
+        return [("flat", "word"), ("flat", "langchain"), ("blocks", "langchain")]
+    return [("native", "word"), ("native", "langchain")]
+
+
+def render_bar(tokens: int, max_seq_length: int, width: int = BAR_WIDTH) -> str:
+    """Render a text bar representing token length against max_sequence_length."""
+    if max_seq_length <= 0:
+        return ""
+    fill_len = min(width, round((tokens / max_seq_length) * width))
+    bar = "█" * fill_len + "░" * (width - fill_len)
+    pct = (tokens / max_seq_length) * 100
+    return f"[{bar}] {pct:>5.1f}%"
+
+
+def _chunks_for(
+    doc_path: Path, extraction_mode: str, strategy: str, driver
+) -> list[dict]:
+    import ingestion.chunker as chunker_module
+    from ingestion.chunker import chunk_document
+    from ingestion.extractors import get_extractor
+
+    original_settings = chunker_module.settings
+    try:
+        chunker_module.settings = replace(original_settings, CHUNKING_STRATEGY=strategy)
+        extractor = get_extractor(doc_path)
+        full_text, word_page_map, word_header_map = extractor.extract_with_headers(
+            doc_path, mode=extraction_mode
+        )
+        return chunk_document(
+            full_text,
+            word_page_map,
+            source_file=doc_path.name,
+            driver=driver,
+            word_header_map=word_header_map,
+        )
+    finally:
+        chunker_module.settings = original_settings
+
+
+def print_comparison_matrix(doc_path: Path, driver, max_seq_length: int) -> None:
+    """Print one row per (extraction, chunking, overflow) combination, each with a bar."""
+    driver.count_tokens("warm-up")
+    import langchain_text_splitters  # noqa: F401
+
+    print(
+        "\nConfiguration comparison — every extraction x chunking x "
+        "CHUNK_OVERFLOW_STRATEGY combination for this file:\n"
+    )
+    header = (
+        f"  {'extraction':<11}{'strategy':<11}{'overflow':<9}"
+        f"{'chunks':>7}{'avg':>6}{'max':>6}{'ms':>8}  bar (worst chunk vs. limit)"
+    )
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+
+    for extraction_mode, strategy in _combinations_for(doc_path):
+        start = time.perf_counter()
+        raw_chunks = _chunks_for(doc_path, extraction_mode, strategy, driver)
+        extract_and_chunk_seconds = time.perf_counter() - start
+
+        start = time.perf_counter()
+        corrected_chunks = SplitOverflowStrategy().apply(raw_chunks, driver)
+        correction_seconds = time.perf_counter() - start
+
+        raw_tokens = [driver.count_tokens(c["content"]) for c in raw_chunks]
+        corrected_tokens = [driver.count_tokens(c["content"]) for c in corrected_chunks]
+
+        for overflow_strategy, chunks, tokens, elapsed_seconds in [
+            ("warn", raw_chunks, raw_tokens, extract_and_chunk_seconds),
+            (
+                "split",
+                corrected_chunks,
+                corrected_tokens,
+                extract_and_chunk_seconds + correction_seconds,
+            ),
+        ]:
+            avg_tok = sum(tokens) / len(tokens) if tokens else 0
+            worst = max(tokens, default=0)
+            flag = "  OVERFLOW" if worst > max_seq_length else ""
+            print(
+                f"  {extraction_mode:<11}{strategy:<11}{overflow_strategy:<9}"
+                f"{len(chunks):>7}{avg_tok:>6.0f}{worst:>6}{elapsed_seconds * 1000:>8.1f}  "
+                f"{render_bar(worst, max_seq_length)}{flag}"
+            )
+
+    print(
+        "\n"
+        + wrap(
+            "Note: 'word' relies on CHUNK_OVERFLOW_STRATEGY=split to prevent truncation; "
+            "'langchain' sizes chunks in tokens from the start. "
+            "Timing is indicative of local processing overhead."
+        )
+    )
+
+
+def cmd_inspect(argv: list[str]) -> int:
+    """Run chunking strategy diagnostic matrix."""
+    path_arg = argv[0] if argv else None
+    doc_path = resolve_doc_path(path_arg)
+
+    driver = get_embedding_driver()
+    max_seq_length = driver.max_sequence_length()
+    if max_seq_length is None:
+        print(
+            f"EMBEDDING_DRIVER={settings.EMBEDDING_DRIVER} has no max_sequence_length "
+            "to check against (e.g. OpenAI driver) — nothing to visualize."
+        )
+        return 0
+
+    print("=" * 60)
+    print(f"File      : {doc_path.name}")
+    print(
+        f"CHUNK_SIZE={settings.CHUNK_SIZE} words, CHUNK_OVERLAP={settings.CHUNK_OVERLAP} words"
+    )
+    print(
+        f"EMBEDDING_DRIVER={settings.EMBEDDING_DRIVER}, max_sequence_length={max_seq_length}"
+    )
+    print("=" * 60)
+
+    print_comparison_matrix(doc_path, driver, max_seq_length)
+    return 0
+
+
+# --- Retrieval Quality Evaluation ---
+
+
+def _print_target_database() -> None:
     parsed = urlsplit(settings.DATABASE_URL)
     print(
         f"[eval] Target database: {parsed.hostname}:{parsed.port}{parsed.path} "
@@ -142,14 +269,8 @@ def _print_target_database() -> None:
 
 
 def _ensure_fixtures_seeded() -> None:
-    """Add each fixture document only if it isn't already in the database.
-
-    Idempotent and non-destructive: safe to run repeatedly, and safe to
-    run against a database that already has real, unrelated documents in
-    it — nothing is ever removed or duplicated.
-    """
     store = VectorStore()
-    for doc_path in FIXTURE_DOCS:
+    for doc_path in discover_eval_fixtures():
         if store.has_chunks_from_source(doc_path.name):
             print(f"[eval] {doc_path.name} already present — skipping re-ingest.")
         else:
@@ -157,23 +278,12 @@ def _ensure_fixtures_seeded() -> None:
 
 
 def _precompute_embeddings(questions: list[dict]) -> dict[str, list[float]]:
-    """Embed every question once, so both strategies can reuse the same vector.
-
-    Without this, ``retrieve_chunks()`` creates its own
-    ``EmbeddingDriver`` (and re-triggers its lazy model load) on every one
-    of its calls — redundant model loads for each strategy.
-    """
     driver = get_embedding_driver()
     print(f"[eval] Pre-embedding {len(questions)} question(s) ...")
     return {q["question"]: driver.embed_query(q["question"]) for q in questions}
 
 
 def _match_ranks(chunks: list[dict], q: dict) -> tuple[int | None, int | None]:
-    """Return (file_rank, passage_rank) for a question against retrieved chunks.
-
-    file_rank is the 1-based rank of the first chunk from expected_source_file.
-    passage_rank is the 1-based rank of the first chunk containing expected_text_contains.
-    """
     expected_file = q.get("expected_source_file")
     expected_text = q.get("expected_text_contains")
 
@@ -199,19 +309,6 @@ def _match_ranks(chunks: list[dict], q: dict) -> tuple[int | None, int | None]:
 
 
 def evaluate(config_name: str, retrieve_fn, questions: list[dict]) -> dict:
-    """Run every eval question through ``retrieve_fn`` and compute metrics.
-
-    Args:
-        config_name: Label for the results table.
-        retrieve_fn: Callable taking a question string and returning a
-            list of chunk dicts.
-        questions: Parsed ``eval_questions.json`` entries.
-
-    Returns:
-        A dict with comprehensive evaluation metrics, including passage-level
-        Hit@1, Recall@k, MRR, Fallback rate, language-specific breakdowns, and
-        per-question details.
-    """
     passage_hits_at_1 = []
     passage_recalls = []
     passage_mrr_list = []
@@ -301,7 +398,6 @@ def evaluate(config_name: str, retrieve_fn, questions: list[dict]) -> dict:
 
 
 def print_comparison_table(results: list[dict]) -> None:
-    """Print a plain-text comparison table across configurations."""
     print()
     print(
         f"{'Config':<30} {'Hit@1':>8} {'Recall@k':>10} {'Passage MRR':>13} {'Fallback':>10}"
@@ -333,7 +429,6 @@ def print_comparison_table(results: list[dict]) -> None:
 
 
 def _status_label(entry: dict) -> str:
-    """One-line status for a single question's retrieval result."""
     if entry["expected_source_file"] is None:
         return "rejected" if entry["n_chunks"] == 0 else f"kept ({entry['n_chunks']})"
     if entry["passage_rank"] == 1:
@@ -346,7 +441,6 @@ def _status_label(entry: dict) -> str:
 
 
 def print_per_question_breakdown(vector_result: dict, hybrid_result: dict) -> None:
-    """Print one row per question, showing where vector and hybrid agree or differ."""
     print("\nPer-question breakdown (vector vs. hybrid):\n")
     header = (
         f"  {'Question':<{QUESTION_COLUMN_WIDTH}} "
@@ -375,35 +469,7 @@ def print_per_question_breakdown(vector_result: dict, hybrid_result: dict) -> No
     )
 
 
-def _format_answer(text: str, indent: str = "  ", width: int = 76) -> str:
-    """Format and word-wrap an LLM answer, preserving paragraphs.
-
-    Args:
-        text: Raw answer string from the LLM.
-        indent: Prefix prepended to every line of output.
-        width: Maximum terminal width for wrapped lines.
-
-    Returns:
-        Reflowed multi-line string.
-    """
-    paragraphs = text.split("\n")
-    formatted = []
-    wrap_width = max(width - len(indent), 20)
-    for p in paragraphs:
-        stripped = p.strip()
-        if not stripped:
-            formatted.append("")
-        else:
-            lines = textwrap.wrap(stripped, width=wrap_width)
-            formatted.append("\n".join(f"{indent}{line}" for line in lines))
-    return "\n".join(formatted)
-
-
 def _looks_like_a_decline(answer: str) -> bool:
-    """Heuristic: does ``answer`` look like the model declined to answer?
-
-    Checks for common English and Hungarian decline and refusal phrases.
-    """
     lower = answer.lower()
     decline_phrases = [
         "could not find",
@@ -426,7 +492,6 @@ def _looks_like_a_decline(answer: str) -> bool:
 
 
 def _print_llm_scorecard(v_stats: dict, h_stats: dict) -> None:
-    """Print a comparative summary scorecard of LLM generation performance."""
     print("\n" + "=" * 80)
     print("                    LLM GENERATION BENCHMARK SCORECARD")
     print("=" * 80)
@@ -449,20 +514,24 @@ def _print_llm_scorecard(v_stats: dict, h_stats: dict) -> None:
     h_fact = _fmt_rate(h_stats["gold_matches"], ans_tot)
     print(f"{'  - Gold Fact Inclusion Rate':<42} {v_fact:>17} {h_fact:>17}")
 
-    v_decl = _fmt_rate(v_stats["ans_declined"], ans_tot)
-    h_decl = _fmt_rate(h_stats["ans_declined"], ans_tot)
-    print(f"{'  - Declined / Unanswered':<42} {v_decl:>17} {h_decl:>17}")
+    v_dec = _fmt_rate(v_stats["ans_declined"], ans_tot)
+    h_dec = _fmt_rate(h_stats["ans_declined"], ans_tot)
+    print(f"{'  - Declined / Unanswered':<42} {v_dec:>17} {h_dec:>17}")
 
     unans_tot = v_stats["unans_total"]
     print(f"\nUnanswerable / Hallucination Gate ({unans_tot}):")
 
-    v_rej = _fmt_rate(v_stats["unans_retrieval_rejected"], unans_tot)
-    h_rej = _fmt_rate(h_stats["unans_retrieval_rejected"], unans_tot)
-    print(f"{'  - Filtered at Retrieval (0 chunks)':<42} {v_rej:>17} {h_rej:>17}")
+    v_ret_rej = _fmt_rate(v_stats["unans_retrieval_rejected"], unans_tot)
+    h_ret_rej = _fmt_rate(h_stats["unans_retrieval_rejected"], unans_tot)
+    print(
+        f"{'  - Filtered at Retrieval (0 chunks)':<42} {v_ret_rej:>17} {h_ret_rej:>17}"
+    )
 
-    v_pdecl = _fmt_rate(v_stats["unans_prompt_declined"], unans_tot)
-    h_pdecl = _fmt_rate(h_stats["unans_prompt_declined"], unans_tot)
-    print(f"{'  - Safely Declined by Prompt':<42} {v_pdecl:>17} {h_pdecl:>17}")
+    v_prompt_dec = _fmt_rate(v_stats["unans_prompt_declined"], unans_tot)
+    h_prompt_dec = _fmt_rate(h_stats["unans_prompt_declined"], unans_tot)
+    print(
+        f"{'  - Safely Declined by Prompt':<42} {v_prompt_dec:>17} {h_prompt_dec:>17}"
+    )
 
     v_safe_tot = v_stats["unans_retrieval_rejected"] + v_stats["unans_prompt_declined"]
     h_safe_tot = h_stats["unans_retrieval_rejected"] + h_stats["unans_prompt_declined"]
@@ -494,14 +563,6 @@ def _print_llm_scorecard(v_stats: dict, h_stats: dict) -> None:
 
 
 def print_llm_answers(vector_result: dict, hybrid_result: dict) -> None:
-    """Generate and compare real LLM answers side-by-side for every question.
-
-    Evaluates gold fact inclusion for answerable questions, and checks
-    retrieval filtering / prompt decline behavior for unanswerable questions.
-    Prints an LLM Generation Benchmark Scorecard upon completion.
-    """
-    from drivers.llm import get_answer_driver
-
     driver = get_answer_driver()
 
     stats = {
@@ -588,43 +649,51 @@ def print_llm_answers(vector_result: dict, hybrid_result: dict) -> None:
                         tag = "🚨 POTENTIAL HALLUCINATION"
                 else:
                     s["ans_total"] += 1
-                    has_fact = bool(
-                        expected_fact and expected_fact.lower() in answer.lower()
-                    )
-                    if has_fact:
+                    if is_decline:
+                        s["ans_declined"] += 1
+                        tag = "⚠️  DECLINED BY PROMPT"
+                    elif expected_fact and expected_fact.lower() in answer.lower():
                         s["gold_matches"] += 1
                         tag = "✅ GOLD FACT MATCH"
-                    elif is_decline:
-                        s["ans_declined"] += 1
-                        tag = "⚠️  DECLINED / REFUSED"
                     else:
                         tag = "ℹ️  ANSWERED (FACT NOT FOUND)"
 
             print(f"[{cfg_name}] ({len(chunks)} chunks, {latency:.2f}s) [{tag}]")
-            print(_format_answer(answer, indent="  ", width=76))
+            print(format_paragraphs(answer, indent="  ", width=76))
             print()
 
     _print_llm_scorecard(stats["vec"], stats["hyb"])
 
 
-def main() -> None:
-    # retrieve_chunks()/add_document() log their progress via `logging`, not
-    # print() — configure a bare, print()-like handler so this script's
-    # output stays exactly as before (logging is silent by default).
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-
-    parser = argparse.ArgumentParser(description="Retrieval-quality evaluation.")
+def cmd_eval(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="eval_cli.py eval",
+        description="Retrieval-quality evaluation and LLM generation benchmark.",
+    )
     parser.add_argument(
         "--with-llm",
         action="store_true",
-        help=(
-            "Also generate real LLM answers for every question (both "
-            "configs) and report the decline rate for unanswerable "
-            "questions. Makes real network calls via LLM_DRIVER — off by "
-            "default to stay fast and free to run."
-        ),
+        help="Generate real LLM answers and benchmark hallucination rejection rate.",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--with-rerank",
+        action="store_true",
+        help="Run hybrid retrieval with cross_encoder reranking enabled.",
+    )
+    parser.add_argument(
+        "--reranker",
+        type=str,
+        default=None,
+        help="Explicitly override RERANKER_DRIVER (e.g. 'cross_encoder').",
+    )
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    if args.with_rerank and not args.reranker:
+        settings.RERANKER_DRIVER = "cross_encoder"
+    elif args.reranker:
+        settings.RERANKER_DRIVER = args.reranker
 
     _print_target_database()
     _ensure_fixtures_seeded()
@@ -674,7 +743,46 @@ def main() -> None:
             "statistically significant benchmark."
         )
     )
+    return 0
+
+
+# --- CLI Dispatcher ---
+
+
+def print_help() -> None:
+    print(__doc__.strip())
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
+    if not argv:
+        return cmd_eval([])
+
+    command = argv[0]
+    sub_args = argv[1:]
+
+    if command in {"--help", "-h", "help"}:
+        print_help()
+        return 0
+
+    if command in {"eval", "benchmark"}:
+        return cmd_eval(sub_args)
+
+    if command in {"--with-llm", "--with-rerank", "--reranker"}:
+        return cmd_eval(argv)
+
+    if command == "inspect":
+        return cmd_inspect(sub_args)
+
+    if command == "extract":
+        return cmd_extract(sub_args)
+
+    print(f"Unknown command: '{command}'")
+    print("Available commands: eval (default), inspect, extract")
+    return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -24,7 +24,7 @@ import pytest
 
 from config import settings
 from db import get_connection
-from scripts.migrate import cmd_up, ensure_migrations_table
+from scripts.db_cli import cmd_up, ensure_migrations_table
 
 
 @pytest.fixture(scope="session", autouse=True)
