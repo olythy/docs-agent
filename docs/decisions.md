@@ -2,6 +2,16 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-09-29 — Chunk packaging: rejected `ProcessedChunk`/`ChunkPacker`, extracted a smaller fix (`64a3c75`)
+
+Károly asked for a `ProcessedChunk` type (distinct from `Chunk`) and a `ChunkPacker`/`ChunkEnricher` component to own header-breadcrumb prefixing *and* token-budget enforcement, motivated by a real observation: `SplitOverflowStrategy.apply()` was reverse-engineering `chunk_document()`'s header-embedding format — stripping `enrich_chunk_content()`'s output back off via a string-prefix check — to re-split an already-packaged chunk without duplicating or double-counting its header. That coupling is real and worth fixing.
+
+The two-part proposal was scoped down before implementing, for reasons that mirror the 2026-09-29 Clean Architecture entry below:
+- **No `ProcessedChunk` type.** `Chunk` already *is* the packaged, embedding-ready shape — in `chunk_document()`, `Chunk.content` is already header-enriched. A second type with no new fields would just be `Chunk` under another name, working against the same day's minimal-model-set decision (see the Clean Architecture entry below, which introduced `models.py`).
+- **No `ChunkPacker` owning token-budget enforcement.** That's already `ChunkOverflowStrategy`'s explicit, `.env`-selected job (`WarnOverflowStrategy` vs. `SplitOverflowStrategy`). Giving a second component that same authority would blur `WarnOverflowStrategy`'s whole point (warn, don't correct) and create two places that could disagree about whether a chunk fits.
+
+What actually landed instead: `_strip_header_prefix()` in `ingestion/chunker.py`, written as `enrich_chunk_content()`'s explicit inverse and kept immediately next to it, plus `_package_chunk(content, metadata) -> Chunk` as the single place both `chunk_document()` and `SplitOverflowStrategy.apply()` go through to build a chunk — removing the implicit, unenforced format contract without adding a new type or a competing authority over the token budget.
+
 ## 2026-09-29 — Clean Architecture re-discussion: targeted fixes instead of a layered rewrite (`c91b35c`)
 
 Károly proposed migrating to Clean Architecture (Entities/Use Cases/Interface Adapters/Frameworks, with a strict Dependency Rule) ahead of scaling up to the 10,000+ document legal corpus, explicitly as both a real concern and a hands-on learning goal. `AGENTS.md` already had a dated, considered rejection of DDD/layered ceremony for this project (2026-09-17) — the honest way to answer "should we revisit that" was to actually check the current code against the three concrete complaints (SOLID/SRP, OCP, DIP) rather than debate architecture styles in the abstract.
