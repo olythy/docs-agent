@@ -4,10 +4,13 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from ingestion.extractors import (
     EXTRACTOR_REGISTRY,
     SUPPORTED_EXTENSIONS,
+    DocxExtractor,
     MarkdownExtractor,
     PDFExtractor,
     _markdown_headers_and_sections,
@@ -15,6 +18,16 @@ from ingestion.extractors import (
     get_extractor,
     normalize_extensions,
 )
+
+
+def _write_docx(path: Path, paragraphs: list[tuple[str, bool]]) -> None:
+    """Writes a real .docx file — (text, is_centered) per paragraph."""
+    document = Document()
+    for text, centered in paragraphs:
+        paragraph = document.add_paragraph(text)
+        if centered:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    document.save(path)
 
 
 def _open_fake_pdf(monkeypatch, pages: list):
@@ -37,8 +50,10 @@ def test_extractor_registry_and_supported_extensions():
     assert ".pdf" in EXTRACTOR_REGISTRY
     assert ".md" in EXTRACTOR_REGISTRY
     assert ".markdown" in EXTRACTOR_REGISTRY
+    assert ".docx" in EXTRACTOR_REGISTRY
     assert EXTRACTOR_REGISTRY[".pdf"] is PDFExtractor
     assert EXTRACTOR_REGISTRY[".md"] is MarkdownExtractor
+    assert EXTRACTOR_REGISTRY[".docx"] is DocxExtractor
     assert EXTRACTOR_REGISTRY[".markdown"] is MarkdownExtractor
     assert SUPPORTED_EXTENSIONS == frozenset(EXTRACTOR_REGISTRY.keys())
 
@@ -291,3 +306,131 @@ def test_pdf_extractor_extract_with_headers_returns_none_for_headers(
     assert full_text == "pdf text"
     assert page_map == [1, 1]
     assert headers is None
+
+
+# --- DocxExtractor ---
+
+
+def test_get_extractor_returns_docx_extractor_for_docx():
+    assert isinstance(get_extractor(Path("file.docx")), DocxExtractor)
+
+
+def test_docx_extractor_validate_raises_on_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        DocxExtractor().validate(tmp_path / "missing.docx")
+
+
+def test_docx_extractor_validate_raises_on_empty_document(tmp_path):
+    docx_path = tmp_path / "empty.docx"
+    _write_docx(docx_path, [])
+    with pytest.raises(ValueError, match="no extractable text"):
+        DocxExtractor().validate(docx_path)
+
+
+def test_docx_extractor_validate_raises_on_corrupted_file(tmp_path):
+    docx_path = tmp_path / "corrupted.docx"
+    docx_path.write_bytes(b"not actually a docx")
+    with pytest.raises(ValueError, match="not a valid DOCX"):
+        DocxExtractor().validate(docx_path)
+
+
+def test_docx_extractor_validate_passes_for_real_content(tmp_path):
+    docx_path = tmp_path / "real.docx"
+    _write_docx(docx_path, [("Some real content.", False)])
+    DocxExtractor().validate(docx_path)  # must not raise
+
+
+def test_docx_extractor_extract_joins_paragraphs(tmp_path):
+    docx_path = tmp_path / "doc.docx"
+    _write_docx(
+        docx_path,
+        [
+            ("First paragraph.", False),
+            ("Second paragraph.", False),
+        ],
+    )
+
+    full_text, word_section_map = DocxExtractor().extract(docx_path)
+
+    assert full_text == "First paragraph. Second paragraph."
+    assert word_section_map == [1, 1, 1, 1]
+
+
+def test_docx_extractor_extract_ignores_blank_paragraphs(tmp_path):
+    docx_path = tmp_path / "doc.docx"
+    _write_docx(docx_path, [("Real text.", False), ("   ", False)])
+
+    full_text, _ = DocxExtractor().extract(docx_path)
+
+    assert full_text == "Real text."
+
+
+def test_docx_extractor_extract_collapses_embedded_whitespace(tmp_path):
+    docx_path = tmp_path / "doc.docx"
+    _write_docx(docx_path, [("Word1   \n  Word2", False)])
+
+    full_text, _ = DocxExtractor().extract(docx_path)
+
+    assert full_text == "Word1 Word2"
+
+
+def test_docx_extractor_extract_ignores_mode_parameter(tmp_path):
+    docx_path = tmp_path / "doc.docx"
+    _write_docx(docx_path, [("Text.", False)])
+
+    flat_text, flat_sections = DocxExtractor().extract(docx_path, mode="flat")
+    blocks_text, blocks_sections = DocxExtractor().extract(docx_path, mode="blocks")
+
+    assert flat_text == blocks_text
+    assert flat_sections == blocks_sections
+
+
+def test_docx_extractor_section_index_increments_on_centered_paragraph(tmp_path):
+    docx_path = tmp_path / "doc.docx"
+    _write_docx(
+        docx_path,
+        [
+            ("Preamble.", False),
+            ("ítélete", True),
+            ("Body text one.", False),
+            ("Indokolás", True),
+            ("Body text two.", False),
+        ],
+    )
+
+    full_text, word_section_map = DocxExtractor().extract(docx_path)
+
+    words = full_text.split()
+    sections_by_word = dict(zip(words, word_section_map, strict=True))
+    assert sections_by_word["Preamble."] == 1
+    assert sections_by_word["ítélete"] == 2
+    assert sections_by_word["one."] == 2
+    assert sections_by_word["Indokolás"] == 3
+    assert sections_by_word["two."] == 3
+
+
+def test_docx_extractor_extract_with_headers_tracks_most_recent_centered_title(
+    tmp_path,
+):
+    docx_path = tmp_path / "doc.docx"
+    _write_docx(
+        docx_path,
+        [
+            ("Court name.", False),
+            ("ítélete", True),
+            ("Body text one.", False),
+            ("Indokolás", True),
+            ("Body text two.", False),
+        ],
+    )
+
+    full_text, _sections, headers = DocxExtractor().extract_with_headers(docx_path)
+
+    assert headers is not None
+    assert len(headers) == len(full_text.split())
+    words = full_text.split()
+    headers_by_word = dict(zip(words, headers, strict=True))
+    assert headers_by_word["Court"] == ""
+    assert headers_by_word["ítélete"] == "ítélete"
+    assert headers_by_word["one."] == "ítélete"
+    assert headers_by_word["two."] == "Indokolás"

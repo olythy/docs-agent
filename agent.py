@@ -50,7 +50,7 @@ TOOLS = [
         "function": {
             "name": "add_document",
             "description": (
-                "Ingest a single new document (PDF or Markdown) into the knowledge "
+                "Ingest a single new document (PDF, Markdown, or DOCX) into the knowledge "
                 "base, so its content becomes searchable by "
                 "query_knowledge_base. Use this when the user asks to add, "
                 "upload, or ingest a specific file."
@@ -62,7 +62,7 @@ TOOLS = [
                         "type": "string",
                         "description": (
                             "Path to the document file to ingest "
-                            "(.pdf, .md, or .markdown)."
+                            "(.pdf, .md, .markdown, or .docx)."
                         ),
                     }
                 },
@@ -75,7 +75,7 @@ TOOLS = [
         "function": {
             "name": "add_directory",
             "description": (
-                "Batch-ingest all supported documents (PDF or Markdown) from "
+                "Batch-ingest all supported documents (PDF, Markdown, or DOCX) from "
                 "a directory into the knowledge base. Use this when the user "
                 "asks to add or ingest an entire folder or directory."
             ),

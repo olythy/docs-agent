@@ -273,12 +273,12 @@ def test_add_directory_logs_warning_for_unregistered_extensions(
 ):
     folder = tmp_path / "docs"
     folder.mkdir()
-    (folder / "file.docx").write_text("docx dummy")
+    (folder / "file.doc").write_text("legacy doc dummy")
 
     import logging
 
     with caplog.at_level(logging.WARNING):
-        summary = add_directory(folder, allowed_extensions=[".docx"])
+        summary = add_directory(folder, allowed_extensions=[".doc"])
 
     assert summary["total_found"] == 0
     assert any("have no registered extractor" in r.message for r in caplog.records)

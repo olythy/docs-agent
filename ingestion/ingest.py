@@ -1,7 +1,7 @@
 """Document ingestion pipeline.
 
 Orchestrates the document ingestion flow:
-    - ``add_document``: Ingest a single file (PDF or Markdown).
+    - ``add_document``: Ingest a single file (PDF, Markdown, or DOCX).
     - ``add_directory``: Batch-ingest all qualifying files in a directory.
 
 This module exposes two public functions: :func:`add_document` and :func:`add_directory`.

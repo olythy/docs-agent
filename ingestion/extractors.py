@@ -9,6 +9,7 @@ Unlike every other Strategy in this project (``EMBEDDING_DRIVER``,
 ``settings`` — it's chosen by the file's extension, via :func:`get_extractor`:
     - ``.pdf``                → :class:`PDFExtractor`
     - ``.md`` / ``.markdown`` → :class:`MarkdownExtractor`
+    - ``.docx``               → :class:`DocxExtractor`
 
 That's deliberate: which extractor applies is a fact about the file, not a
 preference — there's nothing to configure.
@@ -17,6 +18,7 @@ Key exports:
     Extractor            -- Abstract base class defining the two-step extract contract.
     PDFExtractor         -- Concrete extractor for .pdf files.
     MarkdownExtractor    -- Concrete extractor for .md / .markdown files.
+    DocxExtractor        -- Concrete extractor for .docx files.
     EXTRACTOR_REGISTRY   -- Dict mapping file extensions to their Extractor classes.
     SUPPORTED_EXTENSIONS -- frozenset of all registered extensions (derived from registry).
     get_extractor        -- Returns the correct Extractor instance for a given file path.
@@ -30,9 +32,14 @@ Usage::
     full_text, word_page_map = extractor.extract(path)
 """
 
+import zipfile
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from pathlib import Path
+
+import docx
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.opc.exceptions import PackageNotFoundError
 
 from ingestion.pdf_loader import extract_document_text, extract_pages, is_scanned_pdf
 
@@ -193,11 +200,101 @@ def _markdown_section_map(full_text: str) -> list[int]:
     return word_section_map
 
 
+class DocxExtractor(Extractor):
+    """Reads a .docx file, using paragraph **alignment** as the header signal.
+
+    Word documents in this project's corpus (Hungarian court decisions)
+    don't use Word's "Heading 1"/"Heading 2" paragraph styles for section
+    titles — confirmed empirically across several real documents: every
+    style-info lookup came back "Normal", never a heading style. What they
+    *do* consistently use is **centered alignment** for section titles
+    ("ítélete", "Indokolás", ...), confirmed the same way: centered
+    paragraphs are rare (2-4 out of 100-400 per document) and are always a
+    section title, never body text — a cheap, reliable, markup-level
+    signal, unlike PDF's coordinate/font-size heuristics for the same job.
+    Letter-spacing ("Í T É L E T") turned out not to be a reliable marker on
+    its own (some titles are plain "INDOKOLÁS"), so alignment alone is what
+    this checks.
+
+    Unlike Markdown's ``#``...``######`` levels, these titles are flat, not
+    hierarchical — there's no nesting to track, just "which title came most
+    recently before this word", the same shape :func:`_markdown_headers_and_sections`
+    produces, so it reuses the same ``ChunkMetadata.header_path``/section-index
+    convention downstream.
+
+    The ``mode`` parameter (PDF's flat-vs-blocks choice) doesn't apply here
+    and is ignored, the same way :class:`MarkdownExtractor` ignores it.
+    """
+
+    def validate(self, file_path: Path) -> None:
+        if not file_path.exists():
+            raise FileNotFoundError(f"DOCX file not found: {file_path}")
+        try:
+            document = docx.Document(file_path)
+        except (PackageNotFoundError, zipfile.BadZipFile) as exc:
+            raise ValueError(f"'{file_path.name}' is not a valid DOCX file.") from exc
+        if not any(p.text.strip() for p in document.paragraphs):
+            raise ValueError(f"'{file_path.name}' has no extractable text content.")
+
+    def extract(self, file_path: Path, mode: str = "flat") -> tuple[str, list[int]]:
+        full_text, word_section_map, _ = _docx_text_and_headers(file_path)
+        return full_text, word_section_map
+
+    def extract_with_headers(
+        self, file_path: Path, mode: str = "flat"
+    ) -> tuple[str, list[int], list[str] | None]:
+        return _docx_text_and_headers(file_path)
+
+
+def _docx_text_and_headers(file_path: Path) -> tuple[str, list[int], list[str]]:
+    """Read a .docx file's paragraphs into (full_text, word_section_map, word_header_map).
+
+    Mirrors :func:`_markdown_headers_and_sections`'s output shape: a
+    1-based section index and the most recent section title, per word in
+    ``full_text.split()``. A paragraph becomes the new "current title" for
+    every word from itself onward whenever it's center-aligned (see
+    :class:`DocxExtractor`'s docstring for why that's the header signal here).
+
+    Args:
+        file_path: Path to the source .docx file.
+
+    Returns:
+        A ``(full_text, word_section_map, word_header_map)`` tuple.
+    """
+    document = docx.Document(file_path)
+
+    full_text_parts: list[str] = []
+    word_section_map: list[int] = []
+    word_header_map: list[str] = []
+    section = 1
+    current_header = ""
+
+    for paragraph in document.paragraphs:
+        # Collapse embedded line breaks (python-docx renders <w:br/> as "\n"
+        # inside .text) and stray runs of whitespace into single spaces.
+        text = " ".join(paragraph.text.split())
+        if not text:
+            continue
+
+        if paragraph.alignment == WD_ALIGN_PARAGRAPH.CENTER:
+            section += 1
+            current_header = text
+
+        full_text_parts.append(text)
+        num_words = len(text.split())
+        word_section_map.extend([section] * num_words)
+        word_header_map.extend([current_header] * num_words)
+
+    full_text = " ".join(full_text_parts)
+    return full_text, word_section_map, word_header_map
+
+
 #: Registry mapping lowercase file extensions to their Extractor classes.
 EXTRACTOR_REGISTRY: dict[str, type[Extractor]] = {
     ".pdf": PDFExtractor,
     ".md": MarkdownExtractor,
     ".markdown": MarkdownExtractor,
+    ".docx": DocxExtractor,
 }
 
 #: File extensions recognized by the ingestion pipeline.
