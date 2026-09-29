@@ -19,6 +19,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "requests>=2.34.2",
     "sentence-transformers>=3.0.0,<3.4.0",
+    "striprtf>=0.0.33",
 ]
 
 [tool.uv]

@@ -38,7 +38,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── llm.py                # AnswerDriver strategy: openrouter vs openai
 │   └── reranker.py           # RerankerDriver strategy: none vs cross_encoder
 ├── ingestion/
-│   ├── extractors.py         # Extractor strategy: PDF vs Markdown, chosen by file extension
+│   ├── extractors.py         # Extractor strategy: PDF/Markdown/DOCX/RTF, chosen by file extension
 │   ├── pdf_loader.py         # PDF text extraction (pdfplumber), flat/blocks modes
 │   ├── chunker.py            # Chunking strategies (word/langchain) + overflow correction
 │   └── ingest.py             # add_document and add_directory orchestration
@@ -251,15 +251,21 @@ Since `CHUNK_SIZE` (`chunker.py`) is configured in *words*, not tokens, what hap
 
 Current defaults — `CHUNK_SIZE=250` words, `CHUNK_OVERLAP=30` words — were tuned to fit comfortably within the 512-token limit of the default embedding model even under dense tokenization.
 
-Run `uv run python scripts/eval_cli.py inspect` (uses `TEST_DOC_PATH` by default, or pass a path — PDF, Markdown, or DOCX) to see all of this at once for your own documents: one table, every `PDF_EXTRACTION_MODE` x `CHUNKING_STRATEGY` x `CHUNK_OVERFLOW_STRATEGY` combination as its own row, each with a bar showing that row's *worst* chunk against the model's real token limit, plus real processing time in milliseconds (model-load and other one-time import costs are explicitly warmed up beforehand so they don't unfairly inflate whichever row happens to run first) — so which combination actually needs the least correction, and whether that correction is worth its cost, is a glance, not six separate reports to compare by hand.
+Run `uv run python scripts/eval_cli.py inspect` (uses `TEST_DOC_PATH` by default, or pass a path — PDF, Markdown, DOCX, or RTF) to see all of this at once for your own documents: one table, every `PDF_EXTRACTION_MODE` x `CHUNKING_STRATEGY` x `CHUNK_OVERFLOW_STRATEGY` combination as its own row, each with a bar showing that row's *worst* chunk against the model's real token limit, plus real processing time in milliseconds (model-load and other one-time import costs are explicitly warmed up beforehand so they don't unfairly inflate whichever row happens to run first) — so which combination actually needs the least correction, and whether that correction is worth its cost, is a glance, not six separate reports to compare by hand.
 
 **Known limitation:** the `CHUNK_OVERLAP` (an absolute word count) isn't reconsidered by either strategy. If `CHUNK_SIZE` were drastically lowered to match a tight token limit, a fixed `CHUNK_OVERLAP` could become a disproportionately large fraction of it. Not addressed yet.
 
 ## Supported Formats, Extraction Mode & Chunking Strategy
 
-`add_document()` and `add_directory()` accept PDF (`.pdf`) and Markdown (`.md`/`.markdown`) files — the format is detected from the extension via `ingestion/extractors.py`'s `EXTRACTOR_REGISTRY` and `get_extractor()`. The system-wide list of allowed extensions can be configured in `.env` via `INGEST_EXTENSIONS` (default: `.pdf,.md,.markdown`), or overridden at runtime without restarting via the `allowed_extensions` parameter. `PDFExtractor` wraps `pdf_loader.py`'s pdfplumber-based extraction; `MarkdownExtractor` just reads the file directly — Markdown already marks its own paragraph breaks (blank lines) and structure (`#` headers), so there's no coordinate-based heuristic to run, unlike PDF.
+`add_document()` and `add_directory()` accept PDF (`.pdf`), Markdown (`.md`/`.markdown`), DOCX (`.docx`), and RTF (`.rtf`) files — the format is detected from the extension via `ingestion/extractors.py`'s `EXTRACTOR_REGISTRY` and `get_extractor()`. The system-wide list of allowed extensions can be configured in `.env` via `INGEST_EXTENSIONS` (default: `.pdf,.md,.markdown,.docx,.rtf`), or overridden at runtime without restarting via the `allowed_extensions` parameter. `PDFExtractor` wraps `pdf_loader.py`'s pdfplumber-based extraction; `MarkdownExtractor` just reads the file directly — Markdown already marks its own paragraph breaks (blank lines) and structure (`#` headers), so there's no coordinate-based heuristic to run, unlike PDF.
 
 Markdown files have no real "pages", so chunk metadata's `page_number` is instead a **header-based section index** for them (every `#`...`######` line starts a new section) — the same field, same purpose (citing roughly where in the document a chunk came from), just a different unit depending on the source format. A `#` inside a fenced code block (e.g. a Python/shell comment in a documentation example) is correctly not treated as a header.
+
+### DOCX and RTF (added for the large-scale legal-corpus eval work)
+
+`DocxExtractor` uses `python-docx`, with a header signal that isn't Word's "Heading 1"/"Heading 2" paragraph styles — the actual court-decision documents in this project's corpus never use them (every paragraph came back styled "Normal", confirmed by inspecting several real documents' raw XML). What they consistently use for section titles ("ítélete", "Indokolás", ...) is **centered paragraph alignment** — confirmed empirically across 5 real documents: centered paragraphs are rare (2-4 per document) and were a title in every occurrence checked, never body text. Letter-spacing ("Í T É L E T") was considered as a second signal and rejected — some real titles are plain, unspaced caps ("INDOKOLÁS"), so it would have missed genuine titles. Same flat (non-hierarchical), section-index/`header_path` output shape as `MarkdownExtractor`, just built from alignment instead of `#` markers. See `docs/decisions.md` for the full empirical writeup.
+
+`RtfExtractor` uses `striprtf` for plain-text extraction only — **no header detection**, unlike DOCX. `striprtf` discards paragraph-level formatting (alignment, bold, ...) entirely, so replicating DOCX's centered-paragraph signal would need a hand-rolled RTF parser; deferred deliberately, since 0 of the corpus documents downloaded so far are RTF (all are DOCX). `word_page_map` is uniformly `1` (no known sub-structure), and `header_path` is never set — same level of detail as `PDFExtractor`. Revisit if RTF documents actually show up in meaningful numbers.
 
 Two independent settings control how a PDF becomes chunks, both in `.env` (Markdown ignores both — see above):
 

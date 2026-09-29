@@ -10,6 +10,7 @@ Unlike every other Strategy in this project (``EMBEDDING_DRIVER``,
     - ``.pdf``                → :class:`PDFExtractor`
     - ``.md`` / ``.markdown`` → :class:`MarkdownExtractor`
     - ``.docx``               → :class:`DocxExtractor`
+    - ``.rtf``                → :class:`RtfExtractor`
 
 That's deliberate: which extractor applies is a fact about the file, not a
 preference — there's nothing to configure.
@@ -19,6 +20,7 @@ Key exports:
     PDFExtractor         -- Concrete extractor for .pdf files.
     MarkdownExtractor    -- Concrete extractor for .md / .markdown files.
     DocxExtractor        -- Concrete extractor for .docx files.
+    RtfExtractor         -- Concrete extractor for .rtf files (plain text only, no headers).
     EXTRACTOR_REGISTRY   -- Dict mapping file extensions to their Extractor classes.
     SUPPORTED_EXTENSIONS -- frozenset of all registered extensions (derived from registry).
     get_extractor        -- Returns the correct Extractor instance for a given file path.
@@ -32,6 +34,7 @@ Usage::
     full_text, word_page_map = extractor.extract(path)
 """
 
+import re
 import zipfile
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
@@ -40,6 +43,7 @@ from pathlib import Path
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.opc.exceptions import PackageNotFoundError
+from striprtf.striprtf import rtf_to_text
 
 from ingestion.pdf_loader import extract_document_text, extract_pages, is_scanned_pdf
 
@@ -289,12 +293,91 @@ def _docx_text_and_headers(file_path: Path) -> tuple[str, list[int], list[str]]:
     return full_text, word_section_map, word_header_map
 
 
+#: Maps an RTF file's declared \ansicpg codepage number to a Python codec
+#: name. Defaults to cp1250 (Central European) when \ansicpg is missing or
+#: unrecognized, since this project's corpus is Hungarian legal text.
+_ANSICPG_TO_CODEC: dict[str, str] = {
+    "1250": "cp1250",  # Central European (Hungarian, Polish, Czech, ...)
+    "1252": "cp1252",  # Western European (Word's own ANSI default)
+    "1251": "cp1251",  # Cyrillic
+}
+
+
+def _detect_rtf_codec(raw_text: str) -> str:
+    """Returns the Python codec matching an RTF file's own \\ansicpg declaration."""
+    match = re.search(r"\\ansicpg(\d+)", raw_text)
+    if match:
+        return _ANSICPG_TO_CODEC.get(match.group(1), "cp1250")
+    return "cp1250"
+
+
+def _rtf_to_plain_text(file_path: Path) -> str:
+    """Reads an .rtf file's real text, resolving its own declared character encoding.
+
+    The raw bytes are decoded as latin-1 first — a 1:1 byte-to-codepoint
+    mapping that never raises, since RTF's control words are pure ASCII and
+    non-ASCII characters are hex-escaped (``\\'XX``) rather than embedded as
+    raw high bytes. ``striprtf`` then interprets those hex escapes using
+    the codec :func:`_detect_rtf_codec` found in the file's own header.
+
+    Args:
+        file_path: Path to the source .rtf file.
+
+    Returns:
+        The document's plain text, with RTF control words/groups stripped.
+    """
+    raw_text = file_path.read_bytes().decode("latin-1")
+    codec = _detect_rtf_codec(raw_text)
+    return rtf_to_text(raw_text, encoding=codec)
+
+
+class RtfExtractor(Extractor):
+    """Plain-text extraction for .rtf files — no header detection (yet).
+
+    Unlike :class:`DocxExtractor`, there's no equally cheap, reliable
+    structural signal available here: ``striprtf`` (the standard choice for
+    turning RTF into clean text) discards paragraph-level formatting
+    (alignment, bold, ...) entirely, so detecting the same
+    "centered-paragraph section title" convention confirmed for DOCX would
+    need a hand-rolled RTF parser. Deferred deliberately: as of this
+    extractor's introduction, 0 of this project's downloaded corpus
+    documents are RTF (all are DOCX) — not worth building against zero
+    real documents. Revisit if RTF documents actually show up in numbers.
+
+    ``word_page_map`` is uniformly ``1`` for every word (no sub-document
+    structure is known), and :meth:`extract_with_headers` returns ``None``
+    for ``word_header_map``, same as :class:`PDFExtractor`.
+
+    **Known limitation:** ``striprtf`` sometimes swallows the space right
+    after a hex-escaped character (``\\'e9``), merging it with the next
+    word — confirmed directly against the library, not assumed. Only
+    matters for letter-spaced text, which happens to be exactly how real
+    corpus documents write centered section titles ("í t é l e t e t :")
+    — but since this extractor doesn't detect headers at all yet, that's a
+    cosmetic spacing slip in body text, not something currently relied on.
+    """
+
+    def validate(self, file_path: Path) -> None:
+        if not file_path.exists():
+            raise FileNotFoundError(f"RTF file not found: {file_path}")
+        if not file_path.read_bytes().lstrip().startswith(b"{\\rtf"):
+            raise ValueError(f"'{file_path.name}' does not look like a valid RTF file.")
+        if not _rtf_to_plain_text(file_path).strip():
+            raise ValueError(f"'{file_path.name}' has no extractable text content.")
+
+    def extract(self, file_path: Path, mode: str = "flat") -> tuple[str, list[int]]:
+        full_text = _rtf_to_plain_text(file_path)
+        word_page_map = [1] * len(full_text.split())
+        return full_text, word_page_map
+
+
 #: Registry mapping lowercase file extensions to their Extractor classes.
 EXTRACTOR_REGISTRY: dict[str, type[Extractor]] = {
     ".pdf": PDFExtractor,
     ".md": MarkdownExtractor,
     ".markdown": MarkdownExtractor,
     ".docx": DocxExtractor,
+    ".rtf": RtfExtractor,
 }
 
 #: File extensions recognized by the ingestion pipeline.

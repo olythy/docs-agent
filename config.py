@@ -106,7 +106,7 @@ class Settings:
     Ingestion:
         INGEST_EXTENSIONS     Comma-separated list of file extensions permitted
                               during batch directory ingestion (default:
-                              ``.pdf,.md,.markdown,.docx``). Can be overridden at runtime
+                              ``.pdf,.md,.markdown,.docx,.rtf``). Can be overridden at runtime
                               via ``allowed_extensions`` argument.
 
     LLM (answer generation):
@@ -165,7 +165,7 @@ class Settings:
         LOG_FILE              Path to the structured JSONL audit/events log file
                               (default: ``logs/log.jsonl`` in local, ``logs/log-test.jsonl``
                               when AGENT_ENV=test).
-        TEST_DOC_PATH         Path to a local document (PDF, Markdown, or DOCX) used
+        TEST_DOC_PATH         Path to a local document (PDF, Markdown, DOCX, or RTF) used
                               by ``scripts/extract_text.py``,
                               ``scripts/inspect_chunks.py``, and the tests/db/
                               add_document() end-to-end test. The format is
@@ -213,7 +213,7 @@ class Settings:
     CHUNKING_STRATEGY: str = os.getenv("CHUNKING_STRATEGY", "word")
 
     # --- Ingestion ---
-    INGEST_EXTENSIONS: str = os.getenv("INGEST_EXTENSIONS", ".pdf,.md,.markdown,.docx")
+    INGEST_EXTENSIONS: str = os.getenv("INGEST_EXTENSIONS", ".pdf,.md,.markdown,.docx,.rtf")
 
     @property
     def parsed_ingest_extensions(self) -> frozenset[str]:

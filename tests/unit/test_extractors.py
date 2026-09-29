@@ -13,6 +13,7 @@ from ingestion.extractors import (
     DocxExtractor,
     MarkdownExtractor,
     PDFExtractor,
+    RtfExtractor,
     _markdown_headers_and_sections,
     _markdown_section_map,
     get_extractor,
@@ -28,6 +29,15 @@ def _write_docx(path: Path, paragraphs: list[tuple[str, bool]]) -> None:
         if centered:
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     document.save(path)
+
+
+def _write_rtf(path: Path, body: str) -> None:
+    """Writes a minimal, real RTF file wrapping ``body`` (already RTF-escaped if needed)."""
+    path.write_text(
+        r"{\rtf1\ansi\ansicpg1250\deff0 {\fonttbl{\f0 Times New Roman;}}"
+        rf"\pard {body}\par }}",
+        encoding="latin-1",
+    )
 
 
 def _open_fake_pdf(monkeypatch, pages: list):
@@ -51,9 +61,11 @@ def test_extractor_registry_and_supported_extensions():
     assert ".md" in EXTRACTOR_REGISTRY
     assert ".markdown" in EXTRACTOR_REGISTRY
     assert ".docx" in EXTRACTOR_REGISTRY
+    assert ".rtf" in EXTRACTOR_REGISTRY
     assert EXTRACTOR_REGISTRY[".pdf"] is PDFExtractor
     assert EXTRACTOR_REGISTRY[".md"] is MarkdownExtractor
     assert EXTRACTOR_REGISTRY[".docx"] is DocxExtractor
+    assert EXTRACTOR_REGISTRY[".rtf"] is RtfExtractor
     assert EXTRACTOR_REGISTRY[".markdown"] is MarkdownExtractor
     assert SUPPORTED_EXTENSIONS == frozenset(EXTRACTOR_REGISTRY.keys())
 
@@ -434,3 +446,97 @@ def test_docx_extractor_extract_with_headers_tracks_most_recent_centered_title(
     assert headers_by_word["ítélete"] == "ítélete"
     assert headers_by_word["one."] == "ítélete"
     assert headers_by_word["two."] == "Indokolás"
+
+
+# --- RtfExtractor ---
+
+
+def test_get_extractor_returns_rtf_extractor_for_rtf():
+    assert isinstance(get_extractor(Path("file.rtf")), RtfExtractor)
+
+
+def test_rtf_extractor_validate_raises_on_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        RtfExtractor().validate(tmp_path / "missing.rtf")
+
+
+def test_rtf_extractor_validate_raises_on_non_rtf_content(tmp_path):
+    rtf_path = tmp_path / "fake.rtf"
+    rtf_path.write_text("This is just plain text, not RTF.")
+    with pytest.raises(ValueError, match="does not look like a valid RTF"):
+        RtfExtractor().validate(rtf_path)
+
+
+def test_rtf_extractor_validate_raises_on_empty_body(tmp_path):
+    rtf_path = tmp_path / "empty.rtf"
+    _write_rtf(rtf_path, "")
+    with pytest.raises(ValueError, match="no extractable text"):
+        RtfExtractor().validate(rtf_path)
+
+
+def test_rtf_extractor_validate_passes_for_real_content(tmp_path):
+    rtf_path = tmp_path / "real.rtf"
+    _write_rtf(rtf_path, "Some real content.")
+    RtfExtractor().validate(rtf_path)  # must not raise
+
+
+def test_rtf_extractor_extract_strips_control_words(tmp_path):
+    rtf_path = tmp_path / "doc.rtf"
+    _write_rtf(rtf_path, r"\qc Centered title\par Body text here.")
+
+    full_text, word_page_map = RtfExtractor().extract(rtf_path)
+
+    assert "Centered title" in full_text
+    assert "Body text here." in full_text
+    assert "\\qc" not in full_text
+    assert len(word_page_map) == len(full_text.split())
+
+
+def test_rtf_extractor_extract_decodes_hex_escaped_hungarian_characters(tmp_path):
+    """Regression/documentation test for a real striprtf quirk: the space
+    immediately after a hex-escaped character (``\\'e9 ``) is sometimes
+    swallowed, merging it with the next word ("t\\'e9 l" -> "té l", not
+    "t é l"). Confirmed against the library directly, not assumed — this
+    only matters for letter-spaced text (the exact convention real
+    corpus documents use for centered section titles, e.g. "í t é l e t
+    e t :"), and RtfExtractor doesn't do header detection at all yet (see
+    its docstring), so a cosmetic spacing slip here doesn't affect
+    anything this extractor is actually relied on for today.
+    """
+    rtf_path = tmp_path / "doc.rtf"
+    _write_rtf(rtf_path, r"\'ed t\'e9 l e t")
+
+    full_text, _ = RtfExtractor().extract(rtf_path)
+
+    assert full_text.strip() == "í té l e t"
+
+
+def test_rtf_extractor_extract_word_page_map_is_uniformly_one(tmp_path):
+    rtf_path = tmp_path / "doc.rtf"
+    _write_rtf(rtf_path, "one two three four")
+
+    full_text, word_page_map = RtfExtractor().extract(rtf_path)
+
+    assert word_page_map == [1] * len(full_text.split())
+
+
+def test_rtf_extractor_extract_ignores_mode_parameter(tmp_path):
+    rtf_path = tmp_path / "doc.rtf"
+    _write_rtf(rtf_path, "Some text.")
+
+    flat_text, flat_pages = RtfExtractor().extract(rtf_path, mode="flat")
+    blocks_text, blocks_pages = RtfExtractor().extract(rtf_path, mode="blocks")
+
+    assert flat_text == blocks_text
+    assert flat_pages == blocks_pages
+
+
+def test_rtf_extractor_extract_with_headers_returns_none_for_headers(tmp_path):
+    rtf_path = tmp_path / "doc.rtf"
+    _write_rtf(rtf_path, "Some text.")
+
+    full_text, word_page_map, headers = RtfExtractor().extract_with_headers(rtf_path)
+
+    assert full_text.strip() == "Some text."
+    assert word_page_map == [1] * len(full_text.split())
+    assert headers is None

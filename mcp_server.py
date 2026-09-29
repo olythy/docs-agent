@@ -113,7 +113,7 @@ def search_knowledge_base(question: str, source_file: str | None = None) -> list
 
 @mcp.tool()
 def add_document(file_path: str) -> str:
-    """Ingest a document (PDF, Markdown, or DOCX) into the knowledge base.
+    """Ingest a document (PDF, Markdown, DOCX, or RTF) into the knowledge base.
 
     Args:
         file_path: Path to the document file to ingest.
@@ -143,7 +143,7 @@ def add_document(file_path: str) -> str:
 
 @mcp.tool()
 def add_directory(dir_path: str, recursive: bool = True) -> str:
-    """Batch-ingest all supported documents (PDF, Markdown, or DOCX) from a directory.
+    """Batch-ingest all supported documents (PDF, Markdown, DOCX, or RTF) from a directory.
 
     Scans the directory for supported files, automatically skipping hidden
     files/directories and already-ingested documents, and returns an overall

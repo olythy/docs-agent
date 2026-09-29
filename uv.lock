@@ -279,6 +279,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "requests" },
     { name = "sentence-transformers" },
+    { name = "striprtf" },
 ]
 
 [package.dev-dependencies]
@@ -299,6 +300,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "sentence-transformers", specifier = ">=3.0.0,<3.4.0" },
+    { name = "striprtf", specifier = ">=0.0.33" },
 ]
 
 [package.metadata.requires-dev]
@@ -1499,6 +1501,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b5/b4/205b0d5241d934e8add0c38aa924c4f9fb7330834ff11e5444db964ec3f9/starlette-1.6.0.tar.gz", hash = "sha256:d4e3ac5e546444960c710297a3c9fc3f7ebae1b7e963f3d36173b49da535be9b", size = 2716969, upload-time = "2026-08-08T18:27:57.512Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/cb/6a6a47d5b464bd08695d254f3da6e7986cc70c9fa5d778eda57538edfe56/starlette-1.6.0-py3-none-any.whl", hash = "sha256:a86dd39d14bb45f85a3d18525215a9ef0cfd1f192ac793220e72598c90335f0c", size = 75969, upload-time = "2026-08-08T18:27:56.196Z" },
+]
+
+[[package]]
+name = "striprtf"
+version = "0.0.33"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3e/3b/c42830804cb2da515d0cb8aa200fb199ce57f7dcc344ff73db9dfe37cf3b/striprtf-0.0.33.tar.gz", hash = "sha256:c2d3d9ff3118df6dab558675f10a31ff8bb999ac1f8921f00c6dc9ea19961f18", size = 8010, upload-time = "2026-08-17T21:11:15.706Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f5/85/bee751fd2096accfc8b76186d49fbb2871163723e45f1e721e03c3f044ae/striprtf-0.0.33-py3-none-any.whl", hash = "sha256:f9637632a4414de05b1c399ee34d324dc336133ae45769992143a024e0f919ef", size = 8446, upload-time = "2026-08-17T21:11:14.696Z" },
 ]
 
 [[package]]
