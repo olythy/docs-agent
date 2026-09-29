@@ -406,4 +406,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        # Ctrl+C during a long-running command (e.g. `ingest` on a large
+        # directory) is normal user behaviour, not a crash — exit cleanly
+        # with the UNIX convention for SIGINT rather than a raw traceback.
+        # scripts/utils.py's run_cmd() only covers subprocess-spawned
+        # commands (e.g. mcp-dev); ingest/query/chat run in this same
+        # process, so they need their own handler here.
+        print("\nInterrupted.")
+        sys.exit(130)
