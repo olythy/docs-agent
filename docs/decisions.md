@@ -2,6 +2,12 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-09-29 — Retry transient OpenRouter embedding failures (`3233bcb`)
+
+Added while preparing to run the full ~10,000-document corpus ingestion (many hours, many hundred API calls) with the new `openrouter` embedding driver (see the entry below): without retries, a single transient blip (network error, 429 rate limit, 5xx) failed that one document outright — not fatal to the whole run (`add_directory()` already catches per-file errors and continues), but avoidable busywork, since the failed file's own dedup state meant a later re-run would've retried it anyway. `OpenRouterEmbeddingDriver._embed_one_batch()` now retries network exceptions/429/5xx with exponential backoff (3 attempts), mirroring `corpus/download_court_decisions.py`'s already-established `request_with_retries()` pattern.
+
+**Validated live, not just in tests, within the hour**: a real `402 Payment Required` (OpenRouter account balance depleted) came back from a real ingestion run. Confirmed this is exactly the case the retry logic is *supposed* to skip — 402 isn't 429 or 5xx, so it's raised immediately rather than wasting 3 retries and ~14s of backoff on an error no amount of waiting fixes. Real fix was topping up the account, not a code change.
+
 ## 2026-09-29 — Switched to `EMBEDDING_DRIVER=openrouter`; made `RERANKER_DRIVER=cross_encoder` the default (`ca9e225`)
 
 Ingesting the real-estate-law corpus with the local embedding driver measured ~17.8s/document (10 real documents, 177.76s total) — projected to **~2 days** of continuous CPU-bound embedding for the full ~10,000-document corpus. Looked for a faster alternative before committing to that.
