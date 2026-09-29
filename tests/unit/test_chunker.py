@@ -12,10 +12,13 @@ from ingestion.chunker import (
     WarnOverflowStrategy,
     WordChunkingStrategy,
     _find_natural_break_point,
+    _package_chunk,
     _split_oversized_text,
     _split_words_into_chunks,
+    _strip_header_prefix,
     chunk_document,
     chunk_pages,
+    enrich_chunk_content,
     get_chunk_overflow_strategy,
     get_chunking_strategy,
     validate_chunk_size_against_model,
@@ -671,8 +674,6 @@ def test_chunk_document_uses_langchain_strategy_when_configured(
 
 
 def test_enrich_chunk_content():
-    from ingestion.chunker import enrich_chunk_content
-
     # 1. Empty header_path leaves content untouched
     assert enrich_chunk_content("hello world", "") == "hello world"
 
@@ -688,6 +689,56 @@ def test_enrich_chunk_content():
     # 4. Body text without header: prepends header
     body_chunk = "Some details without header."
     assert enrich_chunk_content(body_chunk, path) == f"{path}\n\n{body_chunk}"
+
+
+class TestStripHeaderPrefix:
+    """_strip_header_prefix is enrich_chunk_content's inverse — see its
+    docstring for why the two are kept side by side."""
+
+    PATH = "# Doc > ## Section"
+
+    def test_empty_header_path_leaves_content_untouched(self):
+        assert _strip_header_prefix("hello world", "") == "hello world"
+
+    def test_strips_an_embedded_prefix(self):
+        content = f"{self.PATH}\n\nhello world"
+        assert _strip_header_prefix(content, self.PATH) == "hello world"
+
+    def test_leaves_content_unchanged_when_prefix_not_present(self):
+        assert _strip_header_prefix("hello world", self.PATH) == "hello world"
+
+    def test_round_trips_with_enrich_chunk_content(self):
+        """enrich() then strip() must return the original body — the whole
+        point of keeping the two functions paired."""
+        body = "Some details without header."
+        enriched = enrich_chunk_content(body, self.PATH)
+        assert _strip_header_prefix(enriched, self.PATH) == body
+
+
+class TestPackageChunk:
+    """_package_chunk is the single place that builds a final Chunk from
+    raw content + metadata — both chunk_document() and
+    SplitOverflowStrategy.apply() go through it instead of each calling
+    enrich_chunk_content() themselves."""
+
+    def test_embeds_header_path_from_metadata(self):
+        metadata = ChunkMetadata(
+            source_file="doc.md",
+            page_number=None,
+            chunk_index=0,
+            header_path="# Main > ## Section",
+        )
+        chunk = _package_chunk("some text", metadata)
+
+        assert chunk.content == "# Main > ## Section\n\nsome text"
+        assert chunk.metadata is metadata
+
+    def test_leaves_content_unchanged_when_no_header_path(self):
+        metadata = ChunkMetadata(source_file="doc.pdf", page_number=1, chunk_index=0)
+        chunk = _package_chunk("some text", metadata)
+
+        assert chunk.content == "some text"
+        assert chunk.metadata is metadata
 
 
 def test_chunk_document_with_word_header_map(monkeypatch, settings_override):

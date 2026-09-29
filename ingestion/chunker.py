@@ -373,19 +373,14 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
         corrected: list[Chunk] = []
         next_index = 0
         for chunk in chunks:
-            raw_content = chunk.content
             metadata = chunk.metadata
             header_path = metadata.header_path or ""
+            body = _strip_header_prefix(chunk.content, header_path)
 
             # If header_path is present, budget tokens for the header prefix and
             # a downstream model prefix ("passage: " ~4 tokens) so the final
             # piece never exceeds max_seq_length.
             header_prefix = f"{header_path}\n\n" if header_path else ""
-            if header_prefix and raw_content.startswith(header_prefix):
-                body = raw_content[len(header_prefix) :]
-            else:
-                body = raw_content
-
             header_tokens = driver.count_tokens(header_prefix) if header_prefix else 0
             safety_margin = 4 if max_seq_length > 16 else 0
             budget = max_seq_length - header_tokens - safety_margin
@@ -397,11 +392,9 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
                 effective_max_tokens,
                 overlap_ratio=self.overlap_ratio,
             ):
-                enriched_piece = enrich_chunk_content(piece, header_path)
                 corrected.append(
-                    Chunk(
-                        content=enriched_piece,
-                        metadata=dataclasses.replace(metadata, chunk_index=next_index),
+                    _package_chunk(
+                        piece, dataclasses.replace(metadata, chunk_index=next_index)
                     )
                 )
                 next_index += 1
@@ -597,6 +590,53 @@ def enrich_chunk_content(content: str, header_path: str) -> str:
     return f"{header_path}\n\n{content}"
 
 
+def _strip_header_prefix(content: str, header_path: str) -> str:
+    """Removes a previously-:func:`enrich_chunk_content`-embedded header, if present.
+
+    The inverse of :func:`enrich_chunk_content` — kept right next to it so
+    the two can't silently drift apart. Needed when re-splitting an
+    already-packaged :class:`models.Chunk` (see :meth:`SplitOverflowStrategy.apply`):
+    without this, the header would be counted against the token budget once
+    per split piece and duplicated in each piece's content.
+
+    Args:
+        content: A chunk's content, possibly already carrying an embedded header.
+        header_path: The same breadcrumb that was passed to
+            :func:`enrich_chunk_content` when this content was built.
+
+    Returns:
+        ``content`` with the embedded header prefix removed, or unchanged if
+        ``header_path`` is empty or wasn't actually embedded as a prefix.
+    """
+    if not header_path:
+        return content
+    prefix = f"{header_path}\n\n"
+    if content.startswith(prefix):
+        return content[len(prefix) :]
+    return content
+
+
+def _package_chunk(content: str, metadata: ChunkMetadata) -> Chunk:
+    """Builds the final, embedding-ready Chunk from raw content and its metadata.
+
+    The single place that knows how a header breadcrumb gets embedded into
+    a chunk's content — :func:`chunk_document` and
+    :meth:`SplitOverflowStrategy.apply` both go through this instead of
+    each calling :func:`enrich_chunk_content` (and, for the latter,
+    reverse-engineering the embedded format) themselves.
+
+    Args:
+        content: Raw chunk text, not yet header-enriched.
+        metadata: This chunk's :class:`models.ChunkMetadata` — its
+            ``header_path`` (if any) is what gets embedded.
+
+    Returns:
+        The packaged :class:`models.Chunk`.
+    """
+    enriched_content = enrich_chunk_content(content, metadata.header_path or "")
+    return Chunk(content=enriched_content, metadata=metadata)
+
+
 def chunk_document(
     full_text: str,
     word_page_map: list[int],
@@ -656,8 +696,6 @@ def chunk_document(
             if headers_in_chunk:
                 header_path = Counter(headers_in_chunk).most_common(1)[0][0]
 
-        enriched_content = enrich_chunk_content(content, header_path)
-
         metadata = ChunkMetadata(
             source_file=source_file,
             source_path=effective_source_path,
@@ -668,5 +706,5 @@ def chunk_document(
             header_path=header_path or None,
         )
 
-        chunks.append(Chunk(content=enriched_content, metadata=metadata))
+        chunks.append(_package_chunk(content, metadata))
     return chunks
