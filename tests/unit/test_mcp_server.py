@@ -13,15 +13,16 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 import mcp_server
+from models import ChunkMetadata, RetrievedChunk
 
 
 def _chunk(chunk_id, content="c", source="a.pdf", page=1, score=0.9):
-    return {
-        "id": chunk_id,
-        "content": content,
-        "metadata": {"source_file": source, "page_number": page},
-        "score": score,
-    }
+    return RetrievedChunk(
+        id=chunk_id,
+        content=content,
+        metadata=ChunkMetadata(source_file=source, page_number=page, chunk_index=0),
+        score=score,
+    )
 
 
 def test_to_search_result_maps_expected_fields():
@@ -40,7 +41,12 @@ def test_to_search_result_drops_id_and_score():
 
 
 def test_to_search_result_defaults_missing_metadata():
-    chunk = {"id": 1, "content": "x", "metadata": {}, "score": 0.5}
+    chunk = RetrievedChunk(
+        id=1,
+        content="x",
+        metadata=ChunkMetadata(source_file="", page_number=None, chunk_index=0),
+        score=0.5,
+    )
 
     result = mcp_server._to_search_result(chunk)
 

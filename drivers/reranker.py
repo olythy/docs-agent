@@ -21,23 +21,26 @@ Usage::
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from functools import lru_cache
 
 from config import settings
+from models import RetrievedChunk
 
 
 class RerankerDriver(ABC):
     """Abstract base class for all reranker backends."""
 
     @abstractmethod
-    def rerank(self, question: str, chunks: list[dict]) -> list[dict]:
+    def rerank(
+        self, question: str, chunks: list[RetrievedChunk]
+    ) -> list[RetrievedChunk]:
         """Reorder ``chunks`` by relevance to ``question``.
 
         Args:
             question: The user's query text.
-            chunks: Candidate chunk dicts (as returned by
-                :func:`query.hybrid.reciprocal_rank_fusion`), each with at
-                least a ``content`` key.
+            chunks: Candidate chunks (as returned by
+                :func:`query.hybrid.reciprocal_rank_fusion`).
 
         Returns:
             The same chunks, in descending relevance order. Implementations
@@ -55,7 +58,9 @@ class NoopRerankerDriver(RerankerDriver):
     existing setup changes just from this feature existing.
     """
 
-    def rerank(self, question: str, chunks: list[dict]) -> list[dict]:
+    def rerank(
+        self, question: str, chunks: list[RetrievedChunk]
+    ) -> list[RetrievedChunk]:
         """Return ``chunks`` unchanged, in their existing order."""
         return chunks
 
@@ -97,15 +102,17 @@ class CrossEncoderRerankerDriver(RerankerDriver):
             self._model = CrossEncoder(self._model_name)
         return self._model
 
-    def rerank(self, question: str, chunks: list[dict]) -> list[dict]:
+    def rerank(
+        self, question: str, chunks: list[RetrievedChunk]
+    ) -> list[RetrievedChunk]:
         """Score every (question, chunk.content) pair and sort descending.
 
         Args:
             question: The user's query text.
-            chunks: Candidate chunk dicts, each with a ``content`` key.
+            chunks: Candidate chunks.
 
         Returns:
-            The same chunk dicts, each with ``score`` replaced by the
+            The same chunks, each with ``score`` replaced by the
             cross-encoder's relevance score, sorted descending. Returns
             ``[]`` unchanged for an empty candidate list, avoiding a
             pointless model load.
@@ -114,14 +121,14 @@ class CrossEncoderRerankerDriver(RerankerDriver):
             return []
 
         model = self._get_model()
-        pairs = [(question, chunk["content"]) for chunk in chunks]
+        pairs = [(question, chunk.content) for chunk in chunks]
         scores = model.predict(pairs)
 
         reranked = [
-            {**chunk, "score": float(score)}
+            replace(chunk, score=float(score))
             for chunk, score in zip(chunks, scores, strict=True)
         ]
-        reranked.sort(key=lambda c: c["score"], reverse=True)
+        reranked.sort(key=lambda c: c.score, reverse=True)
         return reranked
 
 

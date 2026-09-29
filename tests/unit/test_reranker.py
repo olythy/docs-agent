@@ -14,15 +14,16 @@ from drivers.reranker import (
     NoopRerankerDriver,
     get_reranker_driver,
 )
+from models import ChunkMetadata, RetrievedChunk
 
 
 def _chunk(content, page=1):
-    return {
-        "id": 1,
-        "content": content,
-        "metadata": {"page_number": page},
-        "score": 0.5,
-    }
+    return RetrievedChunk(
+        id=1,
+        content=content,
+        metadata=ChunkMetadata(source_file="doc.pdf", page_number=page, chunk_index=0),
+        score=0.5,
+    )
 
 
 def test_noop_driver_returns_chunks_unchanged():
@@ -38,9 +39,9 @@ def test_cross_encoder_driver_sorts_by_predicted_score(monkeypatch):
     chunks = [_chunk("low relevance"), _chunk("high relevance")]
     reranked = CrossEncoderRerankerDriver().rerank("question", chunks)
 
-    assert [c["content"] for c in reranked] == ["high relevance", "low relevance"]
-    assert reranked[0]["score"] == 0.9
-    assert reranked[1]["score"] == 0.1
+    assert [c.content for c in reranked] == ["high relevance", "low relevance"]
+    assert reranked[0].score == 0.9
+    assert reranked[1].score == 0.1
 
 
 def test_cross_encoder_driver_scores_question_chunk_pairs(monkeypatch):

@@ -13,7 +13,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ingestion.ingest import add_directory, add_document
+from ingestion.ingest import (
+    IngestAction,
+    _resolve_ingest_action,
+    add_directory,
+    add_document,
+)
+from models import Chunk, ChunkMetadata
 
 
 def test_add_document_propagates_extractor_validation_error(tmp_path):
@@ -43,7 +49,14 @@ def _mock_ingest_pipeline(monkeypatch, *, already_present: bool):
     monkeypatch.setattr("ingestion.ingest.get_embedding_driver", lambda: MagicMock())
     monkeypatch.setattr(
         "ingestion.ingest.chunk_document",
-        lambda *a, **kw: [{"content": "x", "metadata": {}}],
+        lambda *a, **kw: [
+            Chunk(
+                content="x",
+                metadata=ChunkMetadata(
+                    source_file="x", page_number=None, chunk_index=0
+                ),
+            )
+        ],
     )
     fake_overflow_strategy = MagicMock()
     fake_overflow_strategy.apply.side_effect = lambda chunks, driver: chunks
@@ -269,3 +282,91 @@ def test_add_directory_logs_warning_for_unregistered_extensions(
 
     assert summary["total_found"] == 0
     assert any("have no registered extractor" in r.message for r in caplog.records)
+
+
+class TestResolveIngestAction:
+    """Isolated coverage for the pure dedup/versioning decision extracted out
+    of add_document/add_directory — see ingestion.ingest.IngestAction's
+    docstring for what each case means. No I/O, no mocking needed: every
+    case is just the four (existing_hash, hash_already_stored, force)
+    inputs mapped to the expected decision.
+    """
+
+    CONTENT_HASH = "abc123"
+
+    def test_skip_unchanged_when_same_hash_and_not_forced(self):
+        decision = _resolve_ingest_action(
+            existing_hash=self.CONTENT_HASH,
+            hash_already_stored=True,
+            content_hash=self.CONTENT_HASH,
+            force=False,
+        )
+        assert decision.action is IngestAction.SKIP_UNCHANGED
+        assert decision.hash_to_delete is None
+
+    def test_alias_when_content_exists_elsewhere_and_not_forced(self):
+        decision = _resolve_ingest_action(
+            existing_hash=None,
+            hash_already_stored=True,
+            content_hash=self.CONTENT_HASH,
+            force=False,
+        )
+        assert decision.action is IngestAction.ALIAS_EXISTING_CONTENT
+        assert decision.hash_to_delete is None
+
+    def test_replace_previous_version_when_source_has_a_different_hash(self):
+        decision = _resolve_ingest_action(
+            existing_hash="old_hash",
+            hash_already_stored=False,
+            content_hash=self.CONTENT_HASH,
+            force=False,
+        )
+        assert decision.action is IngestAction.REPLACE_PREVIOUS_VERSION
+        assert decision.hash_to_delete == "old_hash"
+
+    def test_replace_previous_version_also_applies_when_forced(self):
+        """force=True re-processes a changed source unconditionally — same
+        REPLACE outcome as the unforced case, just reached without the
+        skip/alias checks running first."""
+        decision = _resolve_ingest_action(
+            existing_hash="old_hash",
+            hash_already_stored=False,
+            content_hash=self.CONTENT_HASH,
+            force=True,
+        )
+        assert decision.action is IngestAction.REPLACE_PREVIOUS_VERSION
+        assert decision.hash_to_delete == "old_hash"
+
+    def test_force_replace_duplicate_when_forced_past_an_alias_case(self):
+        """The force=True counterpart to the alias case: this source path is
+        new (no existing_hash), but the content duplicates chunks already
+        stored under another path — force reingests it anyway, deleting the
+        other path's chunks by content_hash first."""
+        decision = _resolve_ingest_action(
+            existing_hash=None,
+            hash_already_stored=True,
+            content_hash=self.CONTENT_HASH,
+            force=True,
+        )
+        assert decision.action is IngestAction.FORCE_REPLACE_DUPLICATE
+        assert decision.hash_to_delete == self.CONTENT_HASH
+
+    def test_insert_new_when_nothing_matches(self):
+        decision = _resolve_ingest_action(
+            existing_hash=None,
+            hash_already_stored=False,
+            content_hash=self.CONTENT_HASH,
+            force=False,
+        )
+        assert decision.action is IngestAction.INSERT_NEW
+        assert decision.hash_to_delete is None
+
+    def test_insert_new_also_applies_when_forced_with_nothing_to_replace(self):
+        decision = _resolve_ingest_action(
+            existing_hash=None,
+            hash_already_stored=False,
+            content_hash=self.CONTENT_HASH,
+            force=True,
+        )
+        assert decision.action is IngestAction.INSERT_NEW
+        assert decision.hash_to_delete is None

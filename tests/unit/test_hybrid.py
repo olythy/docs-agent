@@ -1,15 +1,16 @@
 """Tests for query.hybrid.reciprocal_rank_fusion (pure logic, no DB needed)."""
 
+from models import ChunkMetadata, RetrievedChunk
 from query.hybrid import reciprocal_rank_fusion
 
 
-def _chunk(chunk_id, content="c", score=0.0, page=1):
-    return {
-        "id": chunk_id,
-        "content": content,
-        "metadata": {"page_number": page},
-        "score": score,
-    }
+def _chunk(chunk_id, content="c", score=0.0, page=1) -> RetrievedChunk:
+    return RetrievedChunk(
+        id=chunk_id,
+        content=content,
+        metadata=ChunkMetadata(source_file="doc.pdf", page_number=page, chunk_index=0),
+        score=score,
+    )
 
 
 def test_chunk_in_both_lists_combines_scores():
@@ -20,7 +21,7 @@ def test_chunk_in_both_lists_combines_scores():
 
     assert len(fused) == 1
     expected = 1 / (1 + 60) + 1 / (1 + 60)
-    assert fused[0]["score"] == expected
+    assert fused[0].score == expected
 
 
 def test_chunk_in_only_one_list_still_included():
@@ -30,8 +31,8 @@ def test_chunk_in_only_one_list_still_included():
     fused = reciprocal_rank_fusion(vector_results, fulltext_results, k=60)
 
     assert len(fused) == 1
-    assert fused[0]["id"] == 1
-    assert fused[0]["score"] == 1 / (1 + 60)
+    assert fused[0].id == 1
+    assert fused[0].score == 1 / (1 + 60)
 
 
 def test_result_is_sorted_by_descending_fused_score():
@@ -41,7 +42,7 @@ def test_result_is_sorted_by_descending_fused_score():
 
     fused = reciprocal_rank_fusion(vector_results, fulltext_results, k=60)
 
-    assert [c["id"] for c in fused] == [2, 1, 3]
+    assert [c.id for c in fused] == [2, 1, 3]
 
 
 def test_k_parameter_changes_relative_weighting():
@@ -51,9 +52,9 @@ def test_k_parameter_changes_relative_weighting():
     fused_small_k = reciprocal_rank_fusion(vector_results, fulltext_results, k=0)
     fused_large_k = reciprocal_rank_fusion(vector_results, fulltext_results, k=1000)
 
-    assert fused_small_k[0]["score"] == 1 / (1 + 0)
-    assert fused_large_k[0]["score"] == 1 / (1 + 1000)
-    assert fused_small_k[0]["score"] > fused_large_k[0]["score"]
+    assert fused_small_k[0].score == 1 / (1 + 0)
+    assert fused_large_k[0].score == 1 / (1 + 1000)
+    assert fused_small_k[0].score > fused_large_k[0].score
 
 
 def test_preserves_content_and_metadata():
@@ -61,5 +62,7 @@ def test_preserves_content_and_metadata():
 
     fused = reciprocal_rank_fusion(vector_results, [])
 
-    assert fused[0]["content"] == "hello world"
-    assert fused[0]["metadata"] == {"page_number": 3}
+    assert fused[0].content == "hello world"
+    assert fused[0].metadata == ChunkMetadata(
+        source_file="doc.pdf", page_number=3, chunk_index=0
+    )

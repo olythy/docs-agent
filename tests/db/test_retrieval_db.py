@@ -29,7 +29,9 @@ pytestmark = [
 ]
 
 
-def _insert_chunk(db_conn, content, embedding, source_file="t.pdf", page=1):
+def _insert_chunk(
+    db_conn, content, embedding, source_file="t.pdf", page=1, chunk_index=0
+):
     with db_conn.cursor() as cur:
         cur.execute(
             """
@@ -38,7 +40,13 @@ def _insert_chunk(db_conn, content, embedding, source_file="t.pdf", page=1):
             """,
             (
                 content,
-                json.dumps({"source_file": source_file, "page_number": page}),
+                json.dumps(
+                    {
+                        "source_file": source_file,
+                        "page_number": page,
+                        "chunk_index": chunk_index,
+                    }
+                ),
                 _to_pgvector_literal(embedding),
             ),
         )
@@ -56,7 +64,7 @@ def test_search_orders_results_by_similarity(db_conn):
     query_vec = driver.embed_text("What is the capital of France?")
     results = VectorStore().search(query_vec, top_k=5, min_score=0.0)
 
-    assert results[0]["content"] == close_text
+    assert results[0].content == close_text
 
 
 def test_search_filters_below_min_score(db_conn):
@@ -98,7 +106,7 @@ def test_search_fulltext_finds_keyword_match(db_conn):
     results = VectorStore().search_fulltext("tennis booking", top_k=5)
 
     assert len(results) == 1
-    assert results[0]["content"] == on_topic
+    assert results[0].content == on_topic
 
 
 def test_search_fulltext_finds_keyword_match_in_a_natural_language_question(db_conn):
@@ -120,7 +128,7 @@ def test_search_fulltext_finds_keyword_match_in_a_natural_language_question(db_c
     )
 
     assert len(results) == 1
-    assert results[0]["content"] == on_topic
+    assert results[0].content == on_topic
 
 
 def test_search_fulltext_returns_empty_when_no_keyword_match(db_conn):
@@ -195,8 +203,8 @@ def test_search_with_metadata_filter_against_real_pgvector(db_conn):
     )
 
     assert len(results) == 1
-    assert results[0]["metadata"]["source_file"] == "doc_2.pdf"
-    assert results[0]["content"] == "Chunk from doc 2"
+    assert results[0].metadata.source_file == "doc_2.pdf"
+    assert results[0].content == "Chunk from doc 2"
 
 
 def test_search_fulltext_with_metadata_filter_against_real_postgres(db_conn):
@@ -220,5 +228,5 @@ def test_search_fulltext_with_metadata_filter_against_real_postgres(db_conn):
     )
 
     assert len(results) == 1
-    assert results[0]["metadata"]["source_file"] == "doc_1.pdf"
-    assert results[0]["content"] == "Player Central booking system"
+    assert results[0].metadata.source_file == "doc_1.pdf"
+    assert results[0].content == "Player Central booking system"

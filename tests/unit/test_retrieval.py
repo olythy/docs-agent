@@ -7,12 +7,14 @@ are exercised directly with plain chunk dicts. Full end-to-end coverage
 (embedding + real Postgres) lives in tests/db/test_retrieval_db.py.
 """
 
+from dataclasses import replace
 from unittest.mock import MagicMock
 
 import pytest
 
 import query.retrieval as retrieval_module
 from drivers.reranker import CrossEncoderRerankerDriver
+from models import ChunkMetadata, RetrievedChunk
 from query.retrieval import (
     HybridRetrievalStrategy,
     VectorRetrievalStrategy,
@@ -23,12 +25,12 @@ from query.retrieval import (
 
 
 def _chunk(chunk_id, score=0.0, source="a.pdf"):
-    return {
-        "id": chunk_id,
-        "content": f"chunk {chunk_id}",
-        "metadata": {"source_file": source},
-        "score": score,
-    }
+    return RetrievedChunk(
+        id=chunk_id,
+        content=f"chunk {chunk_id}",
+        metadata=ChunkMetadata(source_file=source, page_number=None, chunk_index=0),
+        score=score,
+    )
 
 
 class _NoopFakeReranker:
@@ -44,8 +46,10 @@ class _FakeCrossEncoderReranker(CrossEncoderRerankerDriver):
     def __init__(self, scores: list[float]) -> None:
         self._scores = scores
 
-    def rerank(self, question: str, chunks: list[dict]) -> list[dict]:
-        return [{**c, "score": s} for c, s in zip(chunks, self._scores)]
+    def rerank(
+        self, question: str, chunks: list[RetrievedChunk]
+    ) -> list[RetrievedChunk]:
+        return [replace(c, score=s) for c, s in zip(chunks, self._scores, strict=True)]
 
 
 def test_passes_relevance_gate_true_when_top_result_clears_threshold():
@@ -77,7 +81,7 @@ def test_vector_strategy_filters_by_min_score_and_truncates_to_top_k():
         "q", vector_results, store=MagicMock(), top_k=1, min_score=0.25
     )
 
-    assert [c["id"] for c in result] == [1]
+    assert [c.id for c in result] == [1]
 
 
 def test_vector_strategy_returns_all_qualifying_when_under_top_k():
@@ -88,7 +92,7 @@ def test_vector_strategy_returns_all_qualifying_when_under_top_k():
         "q", vector_results, store=MagicMock(), top_k=5, min_score=0.25
     )
 
-    assert [c["id"] for c in result] == [1, 2]
+    assert [c.id for c in result] == [1, 2]
 
 
 def test_hybrid_strategy_fuses_vector_and_fulltext_results(monkeypatch):
@@ -104,7 +108,7 @@ def test_hybrid_strategy_fuses_vector_and_fulltext_results(monkeypatch):
         "q", vector_results, fake_store, top_k=5, min_score=0.25
     )
 
-    assert {c["id"] for c in result} == {1, 2}
+    assert {c.id for c in result} == {1, 2}
     fake_store.search_fulltext.assert_called_once_with("q", top_k=1)
 
 
@@ -146,8 +150,8 @@ def test_hybrid_strategy_cross_encoder_filters_low_scores(
     )
 
     assert len(result) == 1
-    assert result[0]["id"] == 1
-    assert result[0]["score"] == 1.5
+    assert result[0].id == 1
+    assert result[0].score == 1.5
 
 
 def test_hybrid_strategy_cross_encoder_rejects_when_all_below_threshold(

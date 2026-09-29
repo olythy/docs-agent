@@ -42,6 +42,7 @@ from ingestion.chunker import (
 )
 from ingestion.extractors import get_extractor
 from ingestion.ingest import add_document
+from models import Chunk, RetrievedChunk
 from query.retrieval import (
     NO_RESULTS_MESSAGE,
     HybridRetrievalStrategy,
@@ -150,7 +151,7 @@ def render_bar(tokens: int, max_seq_length: int, width: int = BAR_WIDTH) -> str:
 
 def _chunks_for(
     doc_path: Path, extraction_mode: str, strategy: str, driver
-) -> list[dict]:
+) -> list[Chunk]:
     import ingestion.chunker as chunker_module
     from ingestion.chunker import chunk_document
     from ingestion.extractors import get_extractor
@@ -198,8 +199,8 @@ def print_comparison_matrix(doc_path: Path, driver, max_seq_length: int) -> None
         corrected_chunks = SplitOverflowStrategy().apply(raw_chunks, driver)
         correction_seconds = time.perf_counter() - start
 
-        raw_tokens = [driver.count_tokens(c["content"]) for c in raw_chunks]
-        corrected_tokens = [driver.count_tokens(c["content"]) for c in corrected_chunks]
+        raw_tokens = [driver.count_tokens(c.content) for c in raw_chunks]
+        corrected_tokens = [driver.count_tokens(c.content) for c in corrected_chunks]
 
         for overflow_strategy, chunks, tokens, elapsed_seconds in [
             ("warn", raw_chunks, raw_tokens, extract_and_chunk_seconds),
@@ -283,7 +284,9 @@ def _precompute_embeddings(questions: list[dict]) -> dict[str, list[float]]:
     return {q["question"]: driver.embed_query(q["question"]) for q in questions}
 
 
-def _match_ranks(chunks: list[dict], q: dict) -> tuple[int | None, int | None]:
+def _match_ranks(
+    chunks: list[RetrievedChunk], q: dict
+) -> tuple[int | None, int | None]:
     expected_file = q.get("expected_source_file")
     expected_text = q.get("expected_text_contains")
 
@@ -294,10 +297,10 @@ def _match_ranks(chunks: list[dict], q: dict) -> tuple[int | None, int | None]:
     passage_rank: int | None = None
 
     for rank, chunk in enumerate(chunks, start=1):
-        if chunk["metadata"].get("source_file") == expected_file:
+        if chunk.metadata.source_file == expected_file:
             if file_rank is None:
                 file_rank = rank
-            if expected_text and expected_text.lower() in chunk["content"].lower():
+            if expected_text and expected_text.lower() in chunk.content.lower():
                 if passage_rank is None:
                     passage_rank = rank
                     break

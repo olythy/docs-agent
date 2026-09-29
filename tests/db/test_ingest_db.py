@@ -12,6 +12,7 @@ import pytest
 from config import settings
 from drivers.embedding import get_embedding_driver
 from ingestion.ingest import add_directory, add_document
+from models import Chunk, ChunkMetadata
 from store import VectorStore
 
 pytestmark = [
@@ -30,14 +31,14 @@ pytestmark = [
 
 def test_save_inserts_rows_that_are_readable_back(db_conn):
     chunks = [
-        {
-            "content": "hello world",
-            "metadata": {"source_file": "t.pdf", "page_number": 1},
-        },
-        {
-            "content": "second chunk",
-            "metadata": {"source_file": "t.pdf", "page_number": 2},
-        },
+        Chunk(
+            content="hello world",
+            metadata=ChunkMetadata(source_file="t.pdf", page_number=1, chunk_index=0),
+        ),
+        Chunk(
+            content="second chunk",
+            metadata=ChunkMetadata(source_file="t.pdf", page_number=2, chunk_index=1),
+        ),
     ]
     embeddings = [[0.1] * 384, [0.2] * 384]
 
@@ -49,7 +50,11 @@ def test_save_inserts_rows_that_are_readable_back(db_conn):
         rows = cur.fetchall()
 
     assert [r[0] for r in rows] == ["hello world", "second chunk"]
-    assert rows[0][1] == {"source_file": "t.pdf", "page_number": 1}
+    assert rows[0][1] == {
+        "source_file": "t.pdf",
+        "page_number": 1,
+        "chunk_index": 0,
+    }
 
 
 def test_add_document_end_to_end_with_real_document(db_conn):
@@ -99,8 +104,18 @@ def test_delete_chunks_from_source_removes_only_target_file(db_conn):
     """Proves VectorStore.delete_chunks_from_source deletes rows for that file only."""
     driver = get_embedding_driver()
     chunks = [
-        {"content": "c1", "metadata": {"source_file": "file_a.pdf"}},
-        {"content": "c2", "metadata": {"source_file": "file_b.pdf"}},
+        Chunk(
+            content="c1",
+            metadata=ChunkMetadata(
+                source_file="file_a.pdf", page_number=None, chunk_index=0
+            ),
+        ),
+        Chunk(
+            content="c2",
+            metadata=ChunkMetadata(
+                source_file="file_b.pdf", page_number=None, chunk_index=0
+            ),
+        ),
     ]
     embeddings = [driver.embed_text("c1"), driver.embed_text("c2")]
     VectorStore().save(chunks, embeddings)

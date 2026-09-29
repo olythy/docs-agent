@@ -20,6 +20,7 @@ from ingestion.chunker import (
     get_chunking_strategy,
     validate_chunk_size_against_model,
 )
+from models import Chunk, ChunkMetadata
 
 
 def _fake_driver(max_seq_length=None, supports_tokens=False):
@@ -74,13 +75,11 @@ def test_chunk_pages_builds_content_and_metadata():
     pages = [{"page_number": 1, "text": "one two three four"}]
     chunks = chunk_pages(pages, source_file="doc.pdf", chunk_size=2, chunk_overlap=0)
 
-    assert [c["content"] for c in chunks] == ["one two", "three four"]
-    assert chunks[0]["metadata"] == {
-        "source_file": "doc.pdf",
-        "page_number": 1,
-        "chunk_index": 0,
-    }
-    assert chunks[1]["metadata"]["chunk_index"] == 1
+    assert [c.content for c in chunks] == ["one two", "three four"]
+    assert chunks[0].metadata == ChunkMetadata(
+        source_file="doc.pdf", page_number=1, chunk_index=0
+    )
+    assert chunks[1].metadata.chunk_index == 1
 
 
 def test_chunk_pages_skips_blank_pages():
@@ -90,7 +89,7 @@ def test_chunk_pages_skips_blank_pages():
     ]
     chunks = chunk_pages(pages, source_file="doc.pdf", chunk_size=5, chunk_overlap=0)
     assert len(chunks) == 1
-    assert chunks[0]["metadata"]["page_number"] == 2
+    assert chunks[0].metadata.page_number == 2
 
 
 def test_chunk_pages_chunk_index_is_global_across_pages():
@@ -99,7 +98,7 @@ def test_chunk_pages_chunk_index_is_global_across_pages():
         {"page_number": 2, "text": "c d"},
     ]
     chunks = chunk_pages(pages, source_file="doc.pdf", chunk_size=2, chunk_overlap=0)
-    assert [c["metadata"]["chunk_index"] for c in chunks] == [0, 1]
+    assert [c.metadata.chunk_index for c in chunks] == [0, 1]
 
 
 def test_chunk_pages_uses_settings_defaults_when_not_overridden(
@@ -114,7 +113,7 @@ def test_chunk_pages_uses_settings_defaults_when_not_overridden(
 
     chunks = chunk_pages(pages, source_file="doc.pdf")
 
-    assert [c["content"] for c in chunks] == ["one two three", "four five six"]
+    assert [c.content for c in chunks] == ["one two three", "four five six"]
 
 
 def test_chunk_pages_propagates_invalid_overlap_error():
@@ -286,10 +285,18 @@ def test_split_oversized_text_cuts_at_sentence_boundary():
 # --- WarnOverflowStrategy ---
 
 
+def _chunk(content: str, **metadata_kwargs) -> Chunk:
+    """Build a Chunk for tests, filling in ChunkMetadata's required fields with sensible defaults."""
+    metadata_kwargs.setdefault("source_file", "doc.pdf")
+    metadata_kwargs.setdefault("page_number", None)
+    metadata_kwargs.setdefault("chunk_index", 0)
+    return Chunk(content=content, metadata=ChunkMetadata(**metadata_kwargs))
+
+
 def test_warn_strategy_returns_chunks_unchanged():
     driver = MagicMock()
     driver.max_sequence_length.return_value = None
-    chunks = [{"content": "a b c", "metadata": {}}]
+    chunks = [_chunk("a b c")]
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -302,7 +309,7 @@ def test_warn_strategy_warns_via_validate_chunk_size(monkeypatch, settings_overr
     monkeypatch.setattr(chunker_module, "settings", settings_override(CHUNK_SIZE=500))
     driver = MagicMock()
     driver.max_sequence_length.return_value = 128
-    chunks = [{"content": "x", "metadata": {}}]
+    chunks = [_chunk("x")]
 
     with pytest.warns(UserWarning, match="CHUNK_SIZE"):
         result = WarnOverflowStrategy().apply(chunks, driver)
@@ -316,7 +323,7 @@ def test_warn_strategy_warns_via_validate_chunk_size(monkeypatch, settings_overr
 def test_split_strategy_returns_unchanged_when_no_limit():
     driver = MagicMock()
     driver.max_sequence_length.return_value = None
-    chunks = [{"content": "a b c", "metadata": {"chunk_index": 0}}]
+    chunks = [_chunk("a b c")]
 
     assert SplitOverflowStrategy().apply(chunks, driver) is chunks
 
@@ -333,21 +340,15 @@ def test_split_strategy_splits_oversized_chunk_and_reindexes():
     driver.max_sequence_length.return_value = 3
     driver.count_tokens.side_effect = _word_count
     chunks = [
-        {
-            "content": "a b c d e f",
-            "metadata": {"source_file": "doc.pdf", "page_number": 1, "chunk_index": 0},
-        },
-        {
-            "content": "g h",
-            "metadata": {"source_file": "doc.pdf", "page_number": 1, "chunk_index": 1},
-        },
+        _chunk("a b c d e f", page_number=1, chunk_index=0),
+        _chunk("g h", page_number=1, chunk_index=1),
     ]
 
     result = SplitOverflowStrategy().apply(chunks, driver)
 
-    assert [c["content"] for c in result] == ["a b c", "d e f", "g h"]
-    assert [c["metadata"]["chunk_index"] for c in result] == [0, 1, 2]
-    assert all(c["metadata"]["source_file"] == "doc.pdf" for c in result)
+    assert [c.content for c in result] == ["a b c", "d e f", "g h"]
+    assert [c.metadata.chunk_index for c in result] == [0, 1, 2]
+    assert all(c.metadata.source_file == "doc.pdf" for c in result)
 
 
 def test_split_strategy_applies_overlap():
@@ -355,14 +356,14 @@ def test_split_strategy_applies_overlap():
     driver.max_sequence_length.return_value = 10
     driver.count_tokens.side_effect = _word_count
     words = [f"w{i}" for i in range(20)]
-    chunks = [{"content": " ".join(words), "metadata": {"chunk_index": 0}}]
+    chunks = [_chunk(" ".join(words))]
 
     strategy = SplitOverflowStrategy(overlap_ratio=0.2)
     result = strategy.apply(chunks, driver)
 
     assert len(result) >= 2
-    first_words = result[0]["content"].split()
-    second_words = result[1]["content"].split()
+    first_words = result[0].content.split()
+    second_words = result[1].content.split()
     assert first_words[-2:] == second_words[:2]
 
 
@@ -373,7 +374,7 @@ def test_split_strategy_falls_back_to_warn_when_driver_lacks_real_token_counts(
     driver = MagicMock()
     driver.max_sequence_length.return_value = 128
     driver.supports_token_counting.return_value = False
-    chunks = [{"content": "x", "metadata": {"chunk_index": 0}}]
+    chunks = [_chunk("x")]
 
     with pytest.warns(UserWarning) as record:
         result = SplitOverflowStrategy().apply(chunks, driver)
@@ -392,24 +393,15 @@ def test_split_strategy_preserves_header_path_across_all_pieces():
     # Content has header prefixed + body
     body = "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10"
     content = f"{header}\n\n{body}"
-    chunks = [
-        {
-            "content": content,
-            "metadata": {
-                "source_file": "doc.md",
-                "header_path": header,
-                "chunk_index": 0,
-            },
-        }
-    ]
+    chunks = [_chunk(content, source_file="doc.md", header_path=header)]
 
     result = SplitOverflowStrategy(overlap_ratio=0.0).apply(chunks, driver)
     assert len(result) >= 2
     for chunk in result:
-        assert chunk["content"].startswith(f"{header}\n\n")
-        assert chunk["metadata"]["header_path"] == header
+        assert chunk.content.startswith(f"{header}\n\n")
+        assert chunk.metadata.header_path == header
         # Check token budget respected for the whole piece
-        assert driver.count_tokens(chunk["content"]) <= 10
+        assert driver.count_tokens(chunk.content) <= 10
 
 
 def test_split_strategy_uses_settings_overlap_ratio(monkeypatch, settings_override):
@@ -623,10 +615,10 @@ def test_chunk_document_builds_metadata_from_strategy_output(
         full_text, word_page_map, source_file="doc.pdf", driver=MagicMock()
     )
 
-    assert [c["content"] for c in chunks] == ["a b c", "d e f"]
-    assert [c["metadata"]["page_number"] for c in chunks] == [1, 2]
-    assert [c["metadata"]["chunk_index"] for c in chunks] == [0, 1]
-    assert all(c["metadata"]["source_file"] == "doc.pdf" for c in chunks)
+    assert [c.content for c in chunks] == ["a b c", "d e f"]
+    assert [c.metadata.page_number for c in chunks] == [1, 2]
+    assert [c.metadata.chunk_index for c in chunks] == [0, 1]
+    assert all(c.metadata.source_file == "doc.pdf" for c in chunks)
 
 
 def test_chunk_document_page_number_is_majority_vote_across_a_page_boundary(
@@ -649,7 +641,7 @@ def test_chunk_document_page_number_is_majority_vote_across_a_page_boundary(
     )
 
     assert len(chunks) == 1
-    assert chunks[0]["metadata"]["page_number"] == 1
+    assert chunks[0].metadata.page_number == 1
 
 
 def test_chunk_document_uses_langchain_strategy_when_configured(
@@ -671,11 +663,11 @@ def test_chunk_document_uses_langchain_strategy_when_configured(
             driver=_fake_driver(max_seq_length=None, supports_tokens=False),
         )
 
-    assert [c["content"] for c in chunks] == [
+    assert [c.content for c in chunks] == [
         "one two three four five six seven eight nine ten",
         "eleven twelve",
     ]
-    assert [c["metadata"]["page_number"] for c in chunks] == [1, 2]
+    assert [c.metadata.page_number for c in chunks] == [1, 2]
 
 
 def test_enrich_chunk_content():
@@ -718,9 +710,9 @@ def test_chunk_document_with_word_header_map(monkeypatch, settings_override):
 
     assert len(chunks) == 3
     # Chunk 0 has words ['##', 'Overview', 'intro'] -> leaf replaced
-    assert chunks[0]["content"] == "# Main > ## Overview\n\nintro"
-    assert chunks[0]["metadata"]["header_path"] == "# Main > ## Overview"
+    assert chunks[0].content == "# Main > ## Overview\n\nintro"
+    assert chunks[0].metadata.header_path == "# Main > ## Overview"
 
     # Chunk 1 has words ['text', 'more', 'details'] -> header prepended
-    assert chunks[1]["content"] == "# Main > ## Overview\n\ntext more details"
-    assert chunks[1]["metadata"]["header_path"] == "# Main > ## Overview"
+    assert chunks[1].content == "# Main > ## Overview\n\ntext more details"
+    assert chunks[1].metadata.header_path == "# Main > ## Overview"

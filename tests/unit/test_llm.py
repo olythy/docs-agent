@@ -16,18 +16,26 @@ from drivers.llm import (
     _build_prompt,
     get_answer_driver,
 )
+from models import ChunkMetadata, RetrievedChunk
+
+
+def _chunk(
+    content: str, source_file: str | None = None, page_number: int | None = None
+):
+    return RetrievedChunk(
+        id=1,
+        content=content,
+        metadata=ChunkMetadata(
+            source_file=source_file or "", page_number=page_number, chunk_index=0
+        ),
+        score=0.0,
+    )
 
 
 def test_build_prompt_includes_numbered_sources_and_question():
     chunks = [
-        {
-            "content": "first chunk",
-            "metadata": {"source_file": "a.pdf", "page_number": 1},
-        },
-        {
-            "content": "second chunk",
-            "metadata": {"source_file": "b.pdf", "page_number": 2},
-        },
+        _chunk("first chunk", source_file="a.pdf", page_number=1),
+        _chunk("second chunk", source_file="b.pdf", page_number=2),
     ]
     system_prompt, user_message = _build_prompt("What happened?", chunks)
 
@@ -48,7 +56,7 @@ def test_build_prompt_forbids_outside_knowledge_and_requires_partial_answer_hone
 
 
 def test_build_prompt_handles_missing_metadata_gracefully():
-    chunks = [{"content": "x", "metadata": {}}]
+    chunks = [_chunk("x")]
     _, user_message = _build_prompt("q", chunks)
     assert "Source: unknown, page ?" in user_message
 
@@ -76,7 +84,7 @@ def test_answer_calls_chat_completions_with_built_prompt_and_returns_content():
     client = _client_returning("the answer")
     driver = _FakeAnswerDriver(model="some-model", client=client)
 
-    result = driver.answer("What is X?", [{"content": "X is Y", "metadata": {}}])
+    result = driver.answer("What is X?", [_chunk("X is Y")])
 
     assert result == "the answer"
     kwargs = client.chat.completions.create.call_args.kwargs

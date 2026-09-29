@@ -4,12 +4,16 @@ Key exports:
     reciprocal_rank_fusion  -- Merge two ranked chunk lists into one.
 """
 
+from dataclasses import replace
+
+from models import RetrievedChunk
+
 
 def reciprocal_rank_fusion(
-    vector_results: list[dict],
-    fulltext_results: list[dict],
+    vector_results: list[RetrievedChunk],
+    fulltext_results: list[RetrievedChunk],
     k: int = 60,
-) -> list[dict]:
+) -> list[RetrievedChunk]:
     """Fuse two ranked chunk lists into one, via Reciprocal Rank Fusion (RRF).
 
     Combines :meth:`store.VectorStore.search`'s (cosine similarity) and
@@ -37,25 +41,25 @@ def reciprocal_rank_fusion(
         The union of both input lists, deduplicated by ``id`` (two
         different rows could coincidentally have identical text, so
         matching on content would be wrong), sorted by descending fused
-        score. Each dict keeps its ``id``/``content``/``metadata``, with
-        ``score`` replaced by the fused RRF value — the original cosine
-        similarity / ``ts_rank`` numbers aren't meaningful anymore once
-        merged, so keeping the same key name (rather than adding a new
-        ``rrf_score`` key) avoids implying two different "real" scores
-        exist for the same chunk.
+        score. Each :class:`models.RetrievedChunk` keeps its
+        ``id``/``content``/``metadata``, with ``score`` replaced by the
+        fused RRF value — the original cosine similarity / ``ts_rank``
+        numbers aren't meaningful anymore once merged, so keeping the same
+        field name (rather than adding a new ``rrf_score`` field) avoids
+        implying two different "real" scores exist for the same chunk.
     """
-    fused: dict[int, dict] = {}
+    fused_scores: dict[int, float] = {}
+    fused_chunks: dict[int, RetrievedChunk] = {}
     for results in (vector_results, fulltext_results):
         for rank, chunk in enumerate(results, start=1):
-            entry = fused.setdefault(
-                chunk["id"],
-                {
-                    "id": chunk["id"],
-                    "content": chunk["content"],
-                    "metadata": chunk["metadata"],
-                    "score": 0.0,
-                },
-            )
-            entry["score"] += 1 / (rank + k)
+            fused_chunks.setdefault(chunk.id, chunk)
+            fused_scores[chunk.id] = fused_scores.get(chunk.id, 0.0) + 1 / (rank + k)
 
-    return sorted(fused.values(), key=lambda c: c["score"], reverse=True)
+    return sorted(
+        (
+            replace(chunk, score=fused_scores[chunk_id])
+            for chunk_id, chunk in fused_chunks.items()
+        ),
+        key=lambda c: c.score,
+        reverse=True,
+    )

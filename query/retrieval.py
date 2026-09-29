@@ -39,6 +39,7 @@ from drivers.embedding import get_embedding_driver
 from drivers.llm import get_answer_driver
 from drivers.reranker import CrossEncoderRerankerDriver, get_reranker_driver
 from logger import LogAction, get_logger
+from models import RetrievedChunk
 from query.hybrid import reciprocal_rank_fusion
 from store import VectorStore
 
@@ -72,12 +73,12 @@ class RetrievalStrategy(ABC):
     def select_chunks(
         self,
         question: str,
-        vector_results: list[dict],
+        vector_results: list[RetrievedChunk],
         store: VectorStore,
         top_k: int,
         min_score: float,
         metadata_filter: dict | None = None,
-    ) -> list[dict]:
+    ) -> list[RetrievedChunk]:
         """Turn an already-fetched vector candidate pool into final chunks.
 
         Args:
@@ -111,12 +112,12 @@ class VectorRetrievalStrategy(RetrievalStrategy):
     def select_chunks(
         self,
         question: str,
-        vector_results: list[dict],
+        vector_results: list[RetrievedChunk],
         store: VectorStore,
         top_k: int,
         min_score: float,
         metadata_filter: dict | None = None,
-    ) -> list[dict]:
+    ) -> list[RetrievedChunk]:
         """Filter ``vector_results`` by ``min_score`` and truncate to ``top_k``.
 
         ``vector_results`` is the widened candidate pool, fetched with
@@ -125,7 +126,7 @@ class VectorRetrievalStrategy(RetrievalStrategy):
         strategy's output is identical to calling it directly with
         ``top_k``/``min_score``, not just "whatever's in the wide pool".
         """
-        filtered = [c for c in vector_results if c["score"] >= min_score]
+        filtered = [c for c in vector_results if c.score >= min_score]
         return filtered[:top_k]
 
 
@@ -135,12 +136,12 @@ class HybridRetrievalStrategy(RetrievalStrategy):
     def select_chunks(
         self,
         question: str,
-        vector_results: list[dict],
+        vector_results: list[RetrievedChunk],
         store: VectorStore,
         top_k: int,
         min_score: float,
         metadata_filter: dict | None = None,
-    ) -> list[dict]:
+    ) -> list[RetrievedChunk]:
         """Fuse ``vector_results`` with a keyword search, then rerank.
 
         ``min_score`` is intentionally unused here: after RRF fusion (and
@@ -173,7 +174,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
 
         if isinstance(reranker, CrossEncoderRerankerDriver):
             threshold = settings.RERANKER_MIN_SCORE
-            valid_chunks = [c for c in reranked if c["score"] >= threshold]
+            valid_chunks = [c for c in reranked if c.score >= threshold]
             get_logger().log(
                 LogAction.RERANK_APPLIED,
                 {
@@ -182,13 +183,13 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                     "threshold": threshold,
                     "candidates_count": len(reranked),
                     "accepted_count": len(valid_chunks),
-                    "top_score": reranked[0]["score"] if reranked else None,
+                    "top_score": reranked[0].score if reranked else None,
                 },
             )
             if not valid_chunks:
                 logger.info(
                     "[query] Cross-encoder rejected all chunks (top score %.2f < %.2f threshold).",
-                    reranked[0]["score"] if reranked else 0.0,
+                    reranked[0].score if reranked else 0.0,
                     threshold,
                 )
                 return []
@@ -230,7 +231,7 @@ def retrieve_chunks(
     query_vector: list[float] | None = None,
     metadata_filter: dict | None = None,
     store: VectorStore | None = None,
-) -> list[dict]:
+) -> list[RetrievedChunk]:
     """Retrieve the final context chunks for ``question``.
 
     Split out from :func:`query_knowledge_base` so retrieval quality can be
@@ -293,8 +294,10 @@ def retrieve_chunks(
                 query_vector, top_k=candidate_k, min_score=0.0
             )
 
-        gate_passed = _passes_relevance_gate(vector_results, top_k=k, min_score=threshold)
-        top_score = vector_results[0]["score"] if vector_results else None
+        gate_passed = _passes_relevance_gate(
+            vector_results, top_k=k, min_score=threshold
+        )
+        top_score = vector_results[0].score if vector_results else None
         get_logger().log(
             LogAction.RELEVANCE_GATE_CHECKED,
             {
@@ -332,7 +335,7 @@ def retrieve_chunks(
                 min_score=threshold,
             )
 
-        scores_str = ", ".join(f"{c['score']:.4f}" for c in chunks)
+        scores_str = ", ".join(f"{c.score:.4f}" for c in chunks)
         logger.info(
             "[query] Using %d chunk(s) as context. Scores: %s", len(chunks), scores_str
         )
@@ -410,7 +413,7 @@ def query_knowledge_base(
 
 
 def _passes_relevance_gate(
-    vector_results: list[dict], top_k: int, min_score: float
+    vector_results: list[RetrievedChunk], top_k: int, min_score: float
 ) -> bool:
     """Return True if at least one vector result clears ``min_score``.
 
@@ -438,4 +441,4 @@ def _passes_relevance_gate(
         True if any of the top ``top_k`` vector results has ``score >=
         min_score``.
     """
-    return any(c["score"] >= min_score for c in vector_results[:top_k])
+    return any(c.score >= min_score for c in vector_results[:top_k])

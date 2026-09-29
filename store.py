@@ -16,6 +16,7 @@ from typing import ClassVar, Self
 
 from db import get_connection
 from logger import get_logger
+from models import Chunk, ChunkMetadata, RetrievedChunk
 
 #: Technical acronyms and terms of 2-3 characters that should NOT be filtered out.
 PRESERVED_SHORT_TERMS: frozenset[str] = frozenset(
@@ -412,11 +413,11 @@ class VectorStore:
             conn.commit()
             return updated
 
-    def save(self, chunks: list[dict], embeddings: list[list[float]]) -> int:
+    def save(self, chunks: list[Chunk], embeddings: list[list[float]]) -> int:
         """Insert chunk rows into document_chunks.
 
         Args:
-            chunks: Chunk dicts from :func:`ingestion.chunker.chunk_pages`.
+            chunks: One :class:`models.Chunk` per row to insert.
             embeddings: Parallel list of float vectors, one per chunk.
 
         Returns:
@@ -432,8 +433,8 @@ class VectorStore:
                     cur.execute(
                         insert_sql,
                         (
-                            chunk["content"],
-                            json.dumps(chunk["metadata"]),
+                            chunk.content,
+                            json.dumps(chunk.metadata.to_dict()),
                             _to_pgvector_literal(embedding),
                         ),
                     )
@@ -446,7 +447,7 @@ class VectorStore:
         top_k: int,
         min_score: float,
         metadata_filter: dict | None = None,
-    ) -> list[dict]:
+    ) -> list[RetrievedChunk]:
         """Return the most similar chunks to ``query_embedding``, above ``min_score``.
 
         Uses pgvector's ``<=>`` operator, which computes cosine *distance*
@@ -463,12 +464,12 @@ class VectorStore:
                 must contain (uses Postgres JSONB containment ``@>``).
 
         Returns:
-            A list of chunk dicts ordered by descending similarity, each
-            containing ``id`` (the row's primary key — lets callers like
-            :func:`query.hybrid.reciprocal_rank_fusion` identify the *same*
-            chunk across a separate keyword-search result set, since two
-            different rows could coincidentally share identical text),
-            ``content``, ``metadata``, and ``score``.
+            A list of :class:`models.RetrievedChunk` ordered by descending
+            similarity. Each carries ``id`` (the row's primary key — lets
+            callers like :func:`query.hybrid.reciprocal_rank_fusion`
+            identify the *same* chunk across a separate keyword-search
+            result set, since two different rows could coincidentally
+            share identical text).
         """
         vector_literal = _to_pgvector_literal(query_embedding)
         where_clause = ""
@@ -501,12 +502,12 @@ class VectorStore:
             if isinstance(metadata, str):
                 metadata = json.loads(metadata)
             results.append(
-                {
-                    "id": chunk_id,
-                    "content": content,
-                    "metadata": metadata,
-                    "score": score,
-                }
+                RetrievedChunk(
+                    id=chunk_id,
+                    content=content,
+                    metadata=ChunkMetadata.from_dict(metadata),
+                    score=score,
+                )
             )
         return results
 
@@ -515,7 +516,7 @@ class VectorStore:
         query_text: str,
         top_k: int,
         metadata_filter: dict | None = None,
-    ) -> list[dict]:
+    ) -> list[RetrievedChunk]:
         """Return chunks matching any word of ``query_text`` via full-text search.
 
         Uses ``websearch_to_tsquery('simple', ...)`` against the
@@ -548,12 +549,12 @@ class VectorStore:
                 must contain (uses Postgres JSONB containment ``@>``).
 
         Returns:
-            A list of chunk dicts ordered by descending ``ts_rank``, each
-            containing ``id`` (see :meth:`search`'s docstring for why),
-            ``content``, ``metadata``, and ``score``. This score is a
-            ``ts_rank`` value, on a completely different scale than
-            :meth:`search`'s cosine similarity — never compare the two
-            directly, only their *ranks* (which is exactly what RRF does).
+            A list of :class:`models.RetrievedChunk` ordered by descending
+            ``ts_rank`` (see :meth:`search`'s docstring for why ``id``
+            matters). This score is a ``ts_rank`` value, on a completely
+            different scale than :meth:`search`'s cosine similarity — never
+            compare the two directly, only their *ranks* (which is exactly
+            what RRF does).
         """
         or_joined_query, kept_terms, dropped_terms = prepare_fulltext_query(query_text)
         get_logger().log_fts_query_filtered(
@@ -589,12 +590,12 @@ class VectorStore:
             if isinstance(metadata, str):
                 metadata = json.loads(metadata)
             results.append(
-                {
-                    "id": chunk_id,
-                    "content": content,
-                    "metadata": metadata,
-                    "score": score,
-                }
+                RetrievedChunk(
+                    id=chunk_id,
+                    content=content,
+                    metadata=ChunkMetadata.from_dict(metadata),
+                    score=score,
+                )
             )
         return results
 

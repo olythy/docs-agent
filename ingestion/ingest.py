@@ -16,6 +16,8 @@ Usage::
 
 import logging
 from collections.abc import Collection
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 from config import settings
@@ -36,6 +38,74 @@ from store import VectorStore
 # real client's message parsing). logging defaults to stderr, which is safe
 # for every caller (CLI scripts, agent.py, mcp_server.py alike).
 logger = logging.getLogger(__name__)
+
+
+class IngestAction(Enum):
+    """What add_document/add_directory should do next for one candidate file.
+
+    See :func:`_resolve_ingest_action` for how this is decided.
+    """
+
+    SKIP_UNCHANGED = "skip_unchanged"
+    ALIAS_EXISTING_CONTENT = "alias_existing_content"
+    REPLACE_PREVIOUS_VERSION = "replace_previous_version"
+    FORCE_REPLACE_DUPLICATE = "force_replace_duplicate"
+    INSERT_NEW = "insert_new"
+
+
+@dataclass(frozen=True)
+class IngestDecision:
+    """The resolved action, plus which content_hash's chunks (if any) to delete first."""
+
+    action: IngestAction
+    hash_to_delete: str | None = None
+
+
+def _resolve_ingest_action(
+    existing_hash: str | None,
+    hash_already_stored: bool,
+    content_hash: str,
+    force: bool,
+) -> IngestDecision:
+    """Decides what to do with one candidate file, given two already-run lookups.
+
+    Pure decision logic, no I/O of its own — extracted out of add_document/
+    add_directory so the four dedup/versioning branches (skip an unchanged
+    re-ingest, alias identical content under a new path, replace a
+    previous version, or insert fresh) are each independently testable,
+    instead of being interleaved with extraction/chunking/embedding.
+
+    Args:
+        existing_hash: The content_hash currently stored for this file's
+            source path, or None if this source path has no chunks yet
+            (:meth:`store.VectorStore.get_hash_by_source`).
+        hash_already_stored: Whether any chunk anywhere already has this
+            exact content_hash, regardless of source path
+            (:meth:`store.VectorStore.has_content_hash`).
+        content_hash: This file's own SHA-256 content hash.
+        force: Whether the caller passed ``force=True``.
+
+    Returns:
+        An :class:`IngestDecision` telling the caller which of the five
+        :class:`IngestAction` cases applies, and which hash's chunks (if
+        any) must be deleted before inserting the new ones.
+    """
+    if not force:
+        if existing_hash == content_hash:
+            return IngestDecision(IngestAction.SKIP_UNCHANGED)
+        if hash_already_stored and existing_hash is None:
+            return IngestDecision(IngestAction.ALIAS_EXISTING_CONTENT)
+
+    if existing_hash:
+        return IngestDecision(
+            IngestAction.REPLACE_PREVIOUS_VERSION, hash_to_delete=existing_hash
+        )
+    if force and hash_already_stored:
+        return IngestDecision(
+            IngestAction.FORCE_REPLACE_DUPLICATE, hash_to_delete=content_hash
+        )
+
+    return IngestDecision(IngestAction.INSERT_NEW)
 
 
 def add_document(
@@ -103,40 +173,39 @@ def add_document(
 
         existing_hash = store.get_hash_by_source(effective_source_path)
         hash_already_stored = store.has_content_hash(content_hash)
+        decision = _resolve_ingest_action(
+            existing_hash, hash_already_stored, content_hash, force
+        )
 
-        if not force:
-            if existing_hash == content_hash:
-                raise ValueError(
-                    f"'{effective_source_path}' is already in the knowledge base with "
-                    "identical content. Pass force=True to re-index it anyway."
-                )
-            if hash_already_stored and existing_hash is None:
-                # Content already exists under another source path — register alias without re-embedding
-                store.add_source_alias(content_hash, effective_source_path)
-                logger.info(
-                    "[ingest] Content already indexed (hash %s). Added '%s' as alias.",
-                    content_hash[:8],
-                    effective_source_path,
-                )
-                return
+        if decision.action is IngestAction.SKIP_UNCHANGED:
+            raise ValueError(
+                f"'{effective_source_path}' is already in the knowledge base with "
+                "identical content. Pass force=True to re-index it anyway."
+            )
+        if decision.action is IngestAction.ALIAS_EXISTING_CONTENT:
+            # Content already exists under another source path — register alias without re-embedding
+            store.add_source_alias(content_hash, effective_source_path)
+            logger.info(
+                "[ingest] Content already indexed (hash %s). Added '%s' as alias.",
+                content_hash[:8],
+                effective_source_path,
+            )
+            return
 
-        # If re-indexing a modified file or force-replacing, delete previous chunks by hash
-        if existing_hash:
-            deleted = store.delete_chunks_by_hash(existing_hash)
-            if deleted > 0:
+        if decision.hash_to_delete:
+            deleted = store.delete_chunks_by_hash(decision.hash_to_delete)
+            if deleted > 0 and decision.action is IngestAction.REPLACE_PREVIOUS_VERSION:
                 logger.info(
                     "[ingest] Replaced %d existing chunk(s) for previous version of '%s' (hash %s).",
                     deleted,
                     effective_source_path,
-                    existing_hash[:8],
+                    decision.hash_to_delete[:8],
                 )
-        elif force and hash_already_stored:
-            deleted = store.delete_chunks_by_hash(content_hash)
-            if deleted > 0:
+            elif deleted > 0:
                 logger.info(
                     "[ingest] Force-removed %d existing chunk(s) for hash %s.",
                     deleted,
-                    content_hash[:8],
+                    decision.hash_to_delete[:8],
                 )
 
         # Step 3: Concatenate the whole document, then chunk it document-wide
@@ -174,7 +243,7 @@ def add_document(
             )
 
         # Step 4: Embed all chunks in one batched call
-        texts = [c["content"] for c in chunks]
+        texts = [c.content for c in chunks]
         logger.info(
             "[ingest] Embedding with driver='%s' ...", settings.EMBEDDING_DRIVER
         )
@@ -294,21 +363,23 @@ def add_directory(
                 content_hash = compute_file_hash(doc_file)
                 existing_hash = store.get_hash_by_source(rel_path)
                 hash_already_stored = store.has_content_hash(content_hash)
+                decision = _resolve_ingest_action(
+                    existing_hash, hash_already_stored, content_hash, force
+                )
 
-                if not force:
-                    if existing_hash == content_hash:
-                        logger.info("[ingest] Skipping '%s' (unchanged)", rel_path)
-                        summary["skipped"].append(str(doc_file))
-                        continue
-                    if hash_already_stored and existing_hash is None:
-                        store.add_source_alias(content_hash, rel_path)
-                        logger.info(
-                            "[ingest] Aliased '%s' to existing content (hash %s)",
-                            rel_path,
-                            content_hash[:8],
-                        )
-                        summary["aliased"].append(str(doc_file))
-                        continue
+                if decision.action is IngestAction.SKIP_UNCHANGED:
+                    logger.info("[ingest] Skipping '%s' (unchanged)", rel_path)
+                    summary["skipped"].append(str(doc_file))
+                    continue
+                if decision.action is IngestAction.ALIAS_EXISTING_CONTENT:
+                    store.add_source_alias(content_hash, rel_path)
+                    logger.info(
+                        "[ingest] Aliased '%s' to existing content (hash %s)",
+                        rel_path,
+                        content_hash[:8],
+                    )
+                    summary["aliased"].append(str(doc_file))
+                    continue
 
                 add_document(doc_file, force=force, store=store, source_path=rel_path)
                 if existing_hash and existing_hash != content_hash:

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import store
+from models import Chunk, ChunkMetadata
 from store import VectorStore, _to_pgvector_literal
 
 
@@ -31,8 +32,14 @@ def test_save_inserts_one_row_per_chunk(monkeypatch):
     monkeypatch.setattr(store, "get_connection", lambda: conn)
 
     chunks = [
-        {"content": "hello", "metadata": {"page_number": 1}},
-        {"content": "world", "metadata": {"page_number": 2}},
+        Chunk(
+            content="hello",
+            metadata=ChunkMetadata(source_file="doc.pdf", page_number=1, chunk_index=0),
+        ),
+        Chunk(
+            content="world",
+            metadata=ChunkMetadata(source_file="doc.pdf", page_number=2, chunk_index=1),
+        ),
     ]
     embeddings = [[0.1, 0.2], [0.3, 0.4]]
 
@@ -48,7 +55,12 @@ def test_save_raises_on_mismatched_lengths(monkeypatch):
     conn = _fake_conn_with_cursor(MagicMock())
     monkeypatch.setattr(store, "get_connection", lambda: conn)
 
-    chunks = [{"content": "hello", "metadata": {}}]
+    chunks = [
+        Chunk(
+            content="hello",
+            metadata=ChunkMetadata(source_file="doc.pdf", page_number=1, chunk_index=0),
+        )
+    ]
     embeddings = []  # length mismatch vs. chunks
 
     with pytest.raises(ValueError, match="zip"):
@@ -58,8 +70,18 @@ def test_save_raises_on_mismatched_lengths(monkeypatch):
 def test_search_filters_by_min_score_and_parses_json_metadata(monkeypatch):
     cursor = MagicMock()
     cursor.fetchall.return_value = [
-        (1, "above threshold", '{"page_number": 1}', 0.9),
-        (2, "below threshold", '{"page_number": 2}', 0.1),
+        (
+            1,
+            "above threshold",
+            '{"source_file": "doc.pdf", "page_number": 1, "chunk_index": 0}',
+            0.9,
+        ),
+        (
+            2,
+            "below threshold",
+            '{"source_file": "doc.pdf", "page_number": 2, "chunk_index": 1}',
+            0.1,
+        ),
     ]
     conn = _fake_conn_with_cursor(cursor)
     monkeypatch.setattr(store, "get_connection", lambda: conn)
@@ -67,17 +89,24 @@ def test_search_filters_by_min_score_and_parses_json_metadata(monkeypatch):
     results = VectorStore().search([0.1, 0.2], top_k=5, min_score=0.5)
 
     assert len(results) == 1
-    assert results[0]["id"] == 1
-    assert results[0]["content"] == "above threshold"
-    assert results[0]["metadata"] == {"page_number": 1}
-    assert results[0]["score"] == 0.9
+    assert results[0].id == 1
+    assert results[0].content == "above threshold"
+    assert results[0].metadata == ChunkMetadata(
+        source_file="doc.pdf", page_number=1, chunk_index=0
+    )
+    assert results[0].score == 0.9
     conn.close.assert_called_once()
 
 
 def test_search_fulltext_parses_json_metadata(monkeypatch):
     cursor = MagicMock()
     cursor.fetchall.return_value = [
-        (7, "Player Central tennis booking", '{"page_number": 1}', 0.42),
+        (
+            7,
+            "Player Central tennis booking",
+            '{"source_file": "doc.pdf", "page_number": 1, "chunk_index": 0}',
+            0.42,
+        ),
     ]
     conn = _fake_conn_with_cursor(cursor)
     monkeypatch.setattr(store, "get_connection", lambda: conn)
@@ -85,10 +114,12 @@ def test_search_fulltext_parses_json_metadata(monkeypatch):
     results = VectorStore().search_fulltext("tennis booking", top_k=5)
 
     assert len(results) == 1
-    assert results[0]["id"] == 7
-    assert results[0]["content"] == "Player Central tennis booking"
-    assert results[0]["metadata"] == {"page_number": 1}
-    assert results[0]["score"] == 0.42
+    assert results[0].id == 7
+    assert results[0].content == "Player Central tennis booking"
+    assert results[0].metadata == ChunkMetadata(
+        source_file="doc.pdf", page_number=1, chunk_index=0
+    )
+    assert results[0].score == 0.42
     conn.close.assert_called_once()
 
 
@@ -245,7 +276,12 @@ def test_vector_store_reuses_provided_connection():
     conn = _fake_conn_with_cursor(cursor)
     custom_store = VectorStore(conn=conn)
 
-    chunks = [{"content": "hello", "metadata": {"page_number": 1}}]
+    chunks = [
+        Chunk(
+            content="hello",
+            metadata=ChunkMetadata(source_file="doc.pdf", page_number=1, chunk_index=0),
+        )
+    ]
     embeddings = [[0.1, 0.2]]
 
     custom_store.save(chunks, embeddings)

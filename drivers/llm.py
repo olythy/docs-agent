@@ -22,6 +22,7 @@ from abc import ABC, abstractmethod
 from functools import lru_cache
 
 from config import settings
+from models import RetrievedChunk
 
 
 class AnswerDriver(ABC):
@@ -71,7 +72,7 @@ class AnswerDriver(ABC):
     def answer(
         self,
         question: str,
-        context_chunks: list[dict],
+        context_chunks: list[RetrievedChunk],
         max_tokens: int = 1024,
     ) -> str:
         """Generate a grounded answer from retrieved context chunks.
@@ -82,11 +83,7 @@ class AnswerDriver(ABC):
 
         Args:
             question: The user's natural-language question.
-            context_chunks: A list of chunk dicts as returned by the retrieval
-                layer. Each dict contains at minimum:
-                    - ``content`` (str): The raw chunk text.
-                    - ``metadata`` (dict): At least ``source_file`` and
-                      ``page_number`` for source citation.
+            context_chunks: Chunks as returned by the retrieval layer.
             max_tokens: Maximum tokens to generate (default: 1024). Prevents
                 upstream aggregators (e.g. OpenRouter) from pre-authorizing
                 the model's entire theoretical context limit against account credits.
@@ -110,7 +107,9 @@ class AnswerDriver(ABC):
         return response.choices[0].message.content or ""
 
 
-def _build_prompt(question: str, context_chunks: list[dict]) -> tuple[str, str]:
+def _build_prompt(
+    question: str, context_chunks: list[RetrievedChunk]
+) -> tuple[str, str]:
     """Assemble the system prompt and user message for a RAG query.
 
     Keeping prompt construction in one place makes it easy to iterate on
@@ -118,7 +117,7 @@ def _build_prompt(question: str, context_chunks: list[dict]) -> tuple[str, str]:
 
     Args:
         question: The user's question.
-        context_chunks: Retrieved chunks with ``content`` and ``metadata``.
+        context_chunks: Retrieved chunks.
 
     Returns:
         A tuple of ``(system_prompt, user_message)``.
@@ -126,10 +125,13 @@ def _build_prompt(question: str, context_chunks: list[dict]) -> tuple[str, str]:
     # Build a numbered context block so the model can cite sources
     context_parts = []
     for i, chunk in enumerate(context_chunks, start=1):
-        meta = chunk.get("metadata", {})
-        source = meta.get("source_file", "unknown")
-        page = meta.get("page_number", "?")
-        context_parts.append(f"[{i}] Source: {source}, page {page}\n{chunk['content']}")
+        source = chunk.metadata.source_file or "unknown"
+        page = (
+            chunk.metadata.page_number
+            if chunk.metadata.page_number is not None
+            else "?"
+        )
+        context_parts.append(f"[{i}] Source: {source}, page {page}\n{chunk.content}")
     context_text = "\n\n".join(context_parts)
 
     system_prompt = (

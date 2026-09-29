@@ -35,6 +35,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from ingestion.ingest import add_directory as _add_directory
 from ingestion.ingest import add_document as _add_document
+from models import RetrievedChunk
 from query.retrieval import retrieve_chunks
 
 # ingestion.ingest/query.retrieval log their progress via `logging`, which
@@ -62,25 +63,27 @@ _SEARCH_KNOWLEDGE_BASE_DESCRIPTION = (
 )
 
 
-def _to_search_result(chunk: dict) -> dict:
-    """Strip a chunk dict down to what's useful to an MCP host model.
+def _to_search_result(chunk: RetrievedChunk) -> dict:
+    """Strip a chunk down to what's useful to an MCP host model, as a plain dict.
 
     Drops ``id``/``score`` — internal retrieval-plumbing fields (a
     primary key for RRF fusion, a similarity/rank score on a scale the
     host model has no calibration for) that would only add noise here.
+    Returns a plain dict (not a dataclass) since this is the MCP tool's
+    public, JSON-serialized response shape, not an internal chunk.
 
     Args:
-        chunk: A chunk dict as returned by
-            :func:`query.retrieval.retrieve_chunks`.
+        chunk: A chunk as returned by :func:`query.retrieval.retrieve_chunks`.
 
     Returns:
         A dict with ``content``, ``source_file``, ``page_number``.
     """
-    metadata = chunk.get("metadata", {})
     return {
-        "content": chunk["content"],
-        "source_file": metadata.get("source_file", "unknown"),
-        "page_number": metadata.get("page_number", "?"),
+        "content": chunk.content,
+        "source_file": chunk.metadata.source_file or "unknown",
+        "page_number": chunk.metadata.page_number
+        if chunk.metadata.page_number is not None
+        else "?",
     }
 
 

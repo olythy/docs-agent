@@ -28,6 +28,7 @@ Key exports:
     get_chunk_overflow_strategy  -- Factory for the active CHUNK_OVERFLOW_STRATEGY.
 """
 
+import dataclasses
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -35,6 +36,7 @@ from typing import ClassVar
 
 from config import settings
 from drivers.embedding import EmbeddingDriver
+from models import Chunk, ChunkMetadata
 
 
 def _split_words_into_chunks(
@@ -130,12 +132,12 @@ def chunk_pages(
     source_file: str,
     chunk_size: int | None = None,
     chunk_overlap: int | None = None,
-) -> list[dict]:
+) -> list[Chunk]:
     """Split page-level text into overlapping word-based chunks.
 
-    Each chunk dict is ready to be inserted into the ``document_chunks`` table:
-    it carries the raw text content and a ``metadata`` dict that records where
-    in the source document the chunk came from.
+    Each :class:`Chunk` is ready to be inserted into the ``document_chunks``
+    table: it carries the raw text content and a :class:`ChunkMetadata` that
+    records where in the source document the chunk came from.
 
     Args:
         pages: Page dicts as returned by :func:`ingestion.pdf_loader.extract_pages`.
@@ -146,10 +148,8 @@ def chunk_pages(
         chunk_overlap: Override for ``settings.CHUNK_OVERLAP`` (overlap in words).
 
     Returns:
-        A flat list of chunk dicts, each containing:
-            - ``content`` (str): The chunk text, ready for embedding.
-            - ``metadata`` (dict): ``source_file``, ``page_number``,
-              ``chunk_index`` (0-based, global across the whole document).
+        A flat list of :class:`Chunk`, each with ``metadata.chunk_index``
+        0-based and global across the whole document.
 
     Raises:
         ValueError: If the resolved ``chunk_overlap >= chunk_size`` (see
@@ -158,7 +158,7 @@ def chunk_pages(
     size = chunk_size if chunk_size is not None else settings.CHUNK_SIZE
     overlap = chunk_overlap if chunk_overlap is not None else settings.CHUNK_OVERLAP
 
-    chunks: list[dict] = []
+    chunks: list[Chunk] = []
     global_chunk_index = 0
 
     for page in pages:
@@ -173,14 +173,14 @@ def chunk_pages(
         for word_group in word_groups:
             content = " ".join(word_group)
             chunks.append(
-                {
-                    "content": content,
-                    "metadata": {
-                        "source_file": source_file,
-                        "page_number": page["page_number"],
-                        "chunk_index": global_chunk_index,
-                    },
-                }
+                Chunk(
+                    content=content,
+                    metadata=ChunkMetadata(
+                        source_file=source_file,
+                        page_number=page["page_number"],
+                        chunk_index=global_chunk_index,
+                    ),
+                )
             )
             global_chunk_index += 1
 
@@ -309,11 +309,11 @@ class ChunkOverflowStrategy(ABC):
     """
 
     @abstractmethod
-    def apply(self, chunks: list[dict], driver: EmbeddingDriver) -> list[dict]:
+    def apply(self, chunks: list[Chunk], driver: EmbeddingDriver) -> list[Chunk]:
         """Return the (possibly modified) list of chunks to actually store.
 
         Args:
-            chunks: Chunk dicts as produced by :func:`chunk_pages`.
+            chunks: Chunks as produced by :func:`chunk_pages`/:func:`chunk_document`.
             driver: The active embedding driver, queried for its token limit
                 (and, for strategies that need it, real token counts).
         """
@@ -326,7 +326,7 @@ class WarnOverflowStrategy(ChunkOverflowStrategy):
     time — this strategy only makes that risk visible via a log warning.
     """
 
-    def apply(self, chunks: list[dict], driver: EmbeddingDriver) -> list[dict]:
+    def apply(self, chunks: list[Chunk], driver: EmbeddingDriver) -> list[Chunk]:
         validate_chunk_size_against_model(
             settings.CHUNK_SIZE, driver.max_sequence_length()
         )
@@ -355,7 +355,7 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
             else settings.CHUNK_SPLIT_OVERLAP_RATIO
         )
 
-    def apply(self, chunks: list[dict], driver: EmbeddingDriver) -> list[dict]:
+    def apply(self, chunks: list[Chunk], driver: EmbeddingDriver) -> list[Chunk]:
         max_seq_length = driver.max_sequence_length()
         if max_seq_length is None:
             return chunks
@@ -370,12 +370,12 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
             )
             return WarnOverflowStrategy().apply(chunks, driver)
 
-        corrected: list[dict] = []
+        corrected: list[Chunk] = []
         next_index = 0
         for chunk in chunks:
-            raw_content = chunk["content"]
-            metadata = chunk["metadata"]
-            header_path = metadata.get("header_path", "")
+            raw_content = chunk.content
+            metadata = chunk.metadata
+            header_path = metadata.header_path or ""
 
             # If header_path is present, budget tokens for the header prefix and
             # a downstream model prefix ("passage: " ~4 tokens) so the final
@@ -399,10 +399,10 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
             ):
                 enriched_piece = enrich_chunk_content(piece, header_path)
                 corrected.append(
-                    {
-                        "content": enriched_piece,
-                        "metadata": {**metadata, "chunk_index": next_index},
-                    }
+                    Chunk(
+                        content=enriched_piece,
+                        metadata=dataclasses.replace(metadata, chunk_index=next_index),
+                    )
                 )
                 next_index += 1
         return corrected
@@ -605,12 +605,12 @@ def chunk_document(
     word_header_map: list[str] | None = None,
     source_path: str | None = None,
     content_hash: str | None = None,
-) -> list[dict]:
-    """Split a whole document's text into chunk dicts, using the active CHUNKING_STRATEGY.
+) -> list[Chunk]:
+    """Split a whole document's text into Chunks, using the active CHUNKING_STRATEGY.
 
-    The document-level counterpart to :func:`chunk_pages` — same chunk-dict
-    shape (``content``, ``metadata: {source_file, page_number, chunk_index}``),
-    but chunked from :func:`ingestion.pdf_loader.extract_document_text`'s
+    The document-level counterpart to :func:`chunk_pages` — same
+    :class:`Chunk`/:class:`ChunkMetadata` shape, but chunked from
+    :func:`ingestion.pdf_loader.extract_document_text`'s
     output instead of per-page text, which is what avoids splitting a
     paragraph that spans a page break into two truncated chunks.
 
@@ -633,11 +633,11 @@ def chunk_document(
         content_hash: Optional hexadecimal SHA-256 digest of the source document.
 
     Returns:
-        A flat list of chunk dicts, in document order.
+        A flat list of :class:`Chunk`, in document order.
     """
     from collections import Counter
 
-    chunks = []
+    chunks: list[Chunk] = []
     effective_source_path = source_path if source_path is not None else source_file
     for i, (content, start_word) in enumerate(
         get_chunking_strategy().split(full_text, driver)
@@ -658,22 +658,15 @@ def chunk_document(
 
         enriched_content = enrich_chunk_content(content, header_path)
 
-        metadata: dict = {
-            "source_file": source_file,
-            "source_path": effective_source_path,
-            "sources": [effective_source_path],
-            "page_number": page_number,
-            "chunk_index": i,
-        }
-        if content_hash:
-            metadata["content_hash"] = content_hash
-        if header_path:
-            metadata["header_path"] = header_path
-
-        chunks.append(
-            {
-                "content": enriched_content,
-                "metadata": metadata,
-            }
+        metadata = ChunkMetadata(
+            source_file=source_file,
+            source_path=effective_source_path,
+            sources=(effective_source_path,),
+            page_number=page_number,
+            chunk_index=i,
+            content_hash=content_hash or None,
+            header_path=header_path or None,
         )
+
+        chunks.append(Chunk(content=enriched_content, metadata=metadata))
     return chunks
