@@ -20,8 +20,12 @@ Decided 2026-09-17 after explicit discussion — don't reintroduce these without
   - `db.py` — only the Postgres connection factory (`get_connection()`). Nothing else.
   - `store.py` — the `VectorStore` class: owns all `document_chunks` persistence (save/search). Any change to how chunks are stored or queried belongs here, not in `ingest.py`/`retrieval.py`.
   - `migrations/base.py` — the `Migration` ABC stays inside `migrations/`, alongside the migrations that implement it (same one-cohesive-concept reasoning as the Strategy-pattern files above).
+  - Non-I/O *decisions* an orchestrator makes (e.g. `ingest.py`'s dedup/versioning branching) still belong in a pure, separately-testable function in the same file — see `ingestion/ingest.py`'s `_resolve_ingest_action()` — rather than either inlining the branching in the orchestrator or promoting it to a whole new architectural layer (see the re-discussion note below).
 - **`docker/init-test-db.sql` only creates the `docs_agent_test` database — nothing else.** No tables, no `CREATE EXTENSION`. Schema/extension setup stays owned exclusively by `migrations/`, so there's one canonical source of truth for the schema regardless of which database (local Docker or a managed Postgres) it's applied to.
 - **`ingestion/extractors.py`'s `Extractor` is the one deliberate exception to "Strategy is selected from `settings`."** Every other Strategy here (`EmbeddingDriver`, `AnswerDriver`, `ChunkingStrategy`, `ChunkOverflowStrategy`) is chosen from an `.env` preference. `get_extractor(file_path)` instead dispatches on the file's extension — which extractor applies is a fact about the file, not a preference, so there's nothing to configure. Don't try to "fix" this into a `DOCUMENT_EXTRACTOR` setting.
+- **`models.py` holds the core, framework-free data shapes** (`ChunkMetadata`, `Chunk`, `RetrievedChunk`) shared across ingestion and retrieval — typed `dataclass`es, not Pydantic (no Pydantic dependency in this project) and not a full Entity layer. Introduced 2026-09-29 to replace an untyped `{"content": ..., "metadata": {...}}` dict that was becoming risky to extend as chunk metadata grows more complex (header paths, section breadcrumbs for the legal corpus). Postgres JSONB storage is unaffected — `to_dict()`/`from_dict()` are the only serialization boundary.
+
+**Re-discussed 2026-09-29** (Károly proposed a full Clean Architecture migration as the project scales to a 10,000+ document legal corpus): re-affirmed the position above rather than adopting Clean Architecture's layering (Entities/Use Cases/Interface Adapters/Frameworks). The concrete complaint — `add_document()`'s dedup/versioning branching reads like business logic embedded in an orchestrator — was real and got a real fix (`_resolve_ingest_action()`, above), and the "corpus will need richer metadata" concern got a real fix too (`models.py`, above). Both were achievable as small, targeted extractions; neither needed a new architectural layer to justify them. See `docs/decisions.md`'s 2026-09-29 entry for the full reasoning, including why the existing Strategy/Driver pattern already delivers most of Clean Architecture's practical benefit (swappable backends, one clear place to change persistence) without its ceremony.
 
 ## Documentation Standards
 
@@ -50,6 +54,11 @@ Decided 2026-09-17 after explicit discussion — don't reintroduce these without
 ### README.md
 - The **Roadmap** section must be kept in sync with `PLAN.md` after each completed step.
 - The **Architecture** section must reflect the actual directory structure at all times.
+
+### `docs/decisions.md`
+- Add a new, dated entry (newest first) for: a rejected alternative or "why not the obvious fix" decision, a bug found through real-world testing (not just unit tests), or a default/threshold changed based on a measurement — the same kinds of things `README.md`'s "Honesty about what these numbers mean"/caveat sections already model. Name the commit hash(es) the entry came from.
+- Do this **in the same session the decision is made**, not as a later cleanup pass — it's easy to forget once the code change itself feels done. If a session's own summary to the user describes a "why," that's the signal to also add it here before wrapping up.
+- `README.md` stays current-state-only; point to `docs/decisions.md` for the "why" rather than re-explaining it inline (see the existing pointers in "Chunking & Token Limits" and "Retrieval" for the pattern).
 
 ### `.env.example`
 - Every environment variable that exists in `config.py` must appear in `.env.example` with an inline comment explaining its purpose and accepted values.

@@ -2,6 +2,36 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-09-29 — Clean Architecture re-discussion: targeted fixes instead of a layered rewrite (`c91b35c`)
+
+Károly proposed migrating to Clean Architecture (Entities/Use Cases/Interface Adapters/Frameworks, with a strict Dependency Rule) ahead of scaling up to the 10,000+ document legal corpus, explicitly as both a real concern and a hands-on learning goal. `AGENTS.md` already had a dated, considered rejection of DDD/layered ceremony for this project (2026-09-17) — the honest way to answer "should we revisit that" was to actually check the current code against the three concrete complaints (SOLID/SRP, OCP, DIP) rather than debate architecture styles in the abstract.
+
+**What the code review actually found:**
+- **SRP**: `agent.py`, `query/retrieval.py`, and `store.py` were already thin/focused — `store.py` in particular already *is* what the proposal called an "Interface Adapter/Repository," just not filed under that name. The one real hotspot: `ingestion/ingest.py`'s `add_document()` mixed real dedup/versioning business logic (skip-unchanged / alias-duplicate / replace-previous-version / insert-new, ~30 lines of branching) directly into what's supposed to be a thin orchestrator, and `add_directory()` had a near-duplicate of the same branching.
+- **OCP**: already well served — the Strategy/Driver pattern runs across embedding, LLM, reranker, *and* retrieval strategy (4 independent hierarchies), plus the deliberately-different extractor dispatch. Nothing to extend here; the proposal's "can we extend this to extractors/vector-DBs too" question turned out to already be "yes, extractors already do."
+- **DIP**: `ingest.py`/`retrieval.py` depend on a concrete `VectorStore` class, not an ABC. But there is exactly one backend (Postgres+pgvector) and no concrete plan for a second — a `VectorStoreRepository` ABC with one implementation would be the textbook premature abstraction this project's own top-level guidance warns against.
+
+**The agreed compromise** (all three items delivered in commit `c91b35c`):
+1. Extracted the dedup/versioning decision into a pure, unit-tested `_resolve_ingest_action()` (`ingestion/ingest.py`) — fixes the one real SRP hotspot, and as a bonus removes the near-duplicated branching between `add_document`/`add_directory`. See `AGENTS.md`'s "Orchestrator functions must stay thin" bullet.
+2. Introduced typed `dataclass`es (`models.py`: `ChunkMetadata`, `Chunk`, `RetrievedChunk`) in place of the untyped chunk dict, motivated by the corpus's upcoming richer metadata (header paths, section breadcrumbs) making typo'd dict keys a real risk. Not a full Entity layer — no validation logic, no framework independence beyond what a plain dataclass already gives; Postgres JSONB storage unchanged (`to_dict()`/`from_dict()` are the only serialization boundary).
+3. Deliberately did **not** introduce a `VectorStoreRepository` ABC — no second backend to justify it (see DIP finding above).
+
+Explicitly NOT done, and why: no Entities/Use-Case/Interface-Adapter folder restructuring, no dependency-injection framework, no bounded contexts. The project's domain is still a linear pipeline with no complex business invariants to protect — the two real problems named above had small, targeted fixes, and manufacturing a bigger architectural exercise around them would have been solving a problem the codebase didn't actually have.
+
+## 2026-09-29 — Corpus acquisition: reverse-engineered eakta.birosag.hu's search/download endpoints (`b157435`)
+
+Built `corpus/download_court_decisions.py` to collect a large (10,000+ document), realistic real-estate-law corpus for the upcoming large-scale retrieval/answer-accuracy eval (profiled user questions, a golden set — see the RAG-accuracy-at-scale direction). No public API exists for the site's "Bírósági Határozatok Gyűjteménye" (anonymized court decisions), so the actual request shape was reverse-engineered from the page's embedded JavaScript (the "ENCO.Grid" component) and verified against live responses rather than assumed.
+
+**Findings that shaped the script:**
+- The search (`POST /AnonimizaltHatarozat/Search?Area=`) is a plain JSON API — no headless browser or HTML scraping needed, simpler than expected. Getting the request shape right took actual trial and error: the site's own JS builds `KeresoSzavak[]`/`KeresoSzoOperatorok[]` array params, and a wrong operator enum value (guessed as `"AND"`/`"OR"` before finding the real `KeresoSzoOperatorDropdown` options: `Osszes`/`Kifejezes`/`Pontos`) produces a generic, misleading "Hiba történt..." error with no indication of which field is wrong.
+- The `HatarozatFajta` filter (Ítélet/Végzés) accepts exactly one value per search — getting both types requires two separate searches, deduplicated by `(court, case_number)` across all of them.
+- **The "native format" download endpoint doesn't always return RTF** — it returns whichever format the source court originally filed in, RTF *or* DOCX, with the real format only knowable from the response's `Content-Type`/`Content-Disposition` headers, not assumable from the request. The script reads this back per-download rather than hardcoding an extension.
+- Inspecting a real DOCX/RTF pair showed neither uses Word "Heading" styles for section titles (e.g. "ÍTÉLET", "INDOKOLÁS") — the actual convention is a **centered, letter-spaced paragraph** (`w:jc="center"` in DOCX, `\qc` in RTF), confirmed identically in both formats for the same section marker. This is a cheap, reliable, markup-level signal — unlike PDF, which would need coordinate/font-size heuristics for the same job — and is the planned basis for a future header-enrichment pass on this corpus, analogous to the Markdown extractor's `header_path` (see the 2026-09-27 entry above), once ingestion-side RTF/DOCX extractors exist.
+
+**Resume-safety, added after being asked directly "what happens if this gets interrupted":**
+- File writes are atomic (write to a `.part` temp file, then rename) — a crash/power-loss mid-write can never leave a truncated file that a later run would mistake for a complete download.
+- `meta.csv` is append-only and a re-run only treats a `(court, case_number)` as done if its *latest* recorded status is `downloaded`/`already_downloaded` — a row left at `error` (e.g. from a transient network outage) is automatically retried on the next run instead of being skipped forever.
+
 ## 2026-09-27 — Pipeline refinements & idempotency (`73a1e03`)
 
 - Added word overlap in `SplitOverflowStrategy` when dividing oversized chunks, preventing sentence mutilation at boundary lines.

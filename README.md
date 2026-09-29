@@ -28,6 +28,7 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 ├── agent.py                 # Function-calling loop: LLM picks add_document vs add_directory vs query_knowledge_base
 ├── mcp_server.py            # MCP server (stdio): search_knowledge_base + add_document + add_directory
 ├── config.py               # Centralized Settings (env + defaults)
+├── models.py                # Core data shapes: ChunkMetadata, Chunk, RetrievedChunk
 ├── db.py                   # Postgres connection factory — nothing else
 ├── store.py                # VectorStore: all document_chunks persistence (save/search)
 ├── drivers/
@@ -58,6 +59,8 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 │   └── init-test-db.sql      # Creates the "docs_agent_test" database on first startup
 ├── docs/
 │   └── decisions.md          # Engineering decision & bug-log history (the "why" behind this README)
+├── corpus/
+│   └── download_court_decisions.py  # Downloads a real-estate-law eval corpus from eakta.birosag.hu (raw/ + meta.csv are gitignored)
 ├── pyproject.toml           # Project metadata, dependencies, pytest config
 ├── uv.lock                  # Locked, reproducible dependency versions
 ├── .env.example             # Environment variable template
