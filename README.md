@@ -23,6 +23,8 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 
 ## Architecture
 
+For a diagram of how the pipeline actually flows (ingestion, retrieval, which Strategy/Driver is selected by which setting) and a module responsibility map, see `docs/architecture.md`. This section just lists the directory structure.
+
 ```
 .
 ├── agent.py                 # Function-calling loop: LLM picks add_document vs add_directory vs query_knowledge_base
@@ -58,7 +60,8 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 ├── docker/
 │   └── init-test-db.sql      # Creates the "docs_agent_test" database on first startup
 ├── docs/
-│   └── decisions.md          # Engineering decision & bug-log history (the "why" behind this README)
+│   ├── decisions.md          # Engineering decision & bug-log history (the "why" behind this README)
+│   └── architecture.md       # Pipeline diagrams + Strategy/Driver selection table (the "how it flows")
 ├── corpus/
 │   └── download_court_decisions.py  # Downloads a real-estate-law eval corpus from eakta.birosag.hu (raw/ + meta.csv are gitignored)
 ├── pyproject.toml           # Project metadata, dependencies, pytest config
@@ -421,3 +424,5 @@ An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast appro
 ## Further Reading
 
 `docs/decisions.md` has the full engineering-decision and bug-log history behind this README's current-state description — including the structured IR/ML code review that drove the caching, chunking, embedding, reranking, metadata-filtering, and eval-suite work reflected above, and the MCP integration bugs referenced in "MCP Server" above.
+
+`docs/architecture.md` has a diagram view of the same system — the ingestion and retrieval pipelines end to end, and a table of every Strategy/Driver and which `.env` setting selects it — without the prose detail or specific numbers this README carries.
