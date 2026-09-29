@@ -257,6 +257,7 @@ def test_local_driver_non_e5_does_not_add_prefixes(monkeypatch):
 
 def _fake_openrouter_response(vectors: list[list[float]]) -> MagicMock:
     response = MagicMock()
+    response.status_code = 200
     response.json.return_value = {"data": [{"embedding": v} for v in vectors]}
     return response
 
@@ -349,18 +350,72 @@ def test_openrouter_driver_splits_batches_over_250_items(
     assert call_batches[1][0] == "chunk 250"
 
 
-def test_openrouter_driver_embed_batch_raises_on_http_error(
+def _fake_error_response(status_code: int) -> MagicMock:
+    import requests
+
+    response = MagicMock()
+    response.status_code = status_code
+    response.raise_for_status.side_effect = requests.HTTPError(f"HTTP {status_code}")
+    return response
+
+
+def test_openrouter_driver_embed_batch_raises_immediately_on_non_retryable_error(
+    monkeypatch, settings_override
+):
+    """A 4xx other than 429 (e.g. the batch-size-limit 400) is a real
+    request error, not a transient one — no point retrying it."""
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    fake_post = MagicMock(return_value=_fake_error_response(400))
+    monkeypatch.setattr("requests.post", fake_post)
+
+    with pytest.raises(Exception, match="HTTP 400"):
+        OpenRouterEmbeddingDriver().embed_batch(["text"])
+
+    fake_post.assert_called_once()
+
+
+def test_openrouter_driver_embed_batch_retries_on_429_then_raises_when_exhausted(
     monkeypatch, settings_override
 ):
     monkeypatch.setattr(
         embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
     )
-    response = MagicMock()
-    response.raise_for_status.side_effect = RuntimeError("HTTP 429")
-    monkeypatch.setattr("requests.post", MagicMock(return_value=response))
+    fake_post = MagicMock(return_value=_fake_error_response(429))
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
 
-    with pytest.raises(RuntimeError, match="HTTP 429"):
+    with pytest.raises(Exception, match="HTTP 429"):
         OpenRouterEmbeddingDriver().embed_batch(["text"])
+
+    assert fake_post.call_count == OpenRouterEmbeddingDriver._MAX_RETRIES
+
+
+def test_openrouter_driver_embed_batch_recovers_after_transient_failure(
+    monkeypatch, settings_override
+):
+    """A 500 followed by a real network exception followed by success — the
+    driver should retry through both and still return the right result."""
+    import requests
+
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    fake_post = MagicMock(
+        side_effect=[
+            _fake_error_response(500),
+            requests.ConnectionError("network blip"),
+            _fake_openrouter_response([[0.1, 0.2]]),
+        ]
+    )
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    result = OpenRouterEmbeddingDriver().embed_batch(["text"])
+
+    assert result == [[0.1, 0.2]]
+    assert fake_post.call_count == 3
 
 
 def test_get_embedding_driver_returns_openrouter(monkeypatch, settings_override):

@@ -24,6 +24,8 @@ from functools import lru_cache
 
 from config import settings
 
+logger = logging.getLogger(__name__)
+
 _TOKEN_LENGTH_WARNING_SUPPRESSED = False
 
 
@@ -352,6 +354,14 @@ class OpenRouterEmbeddingDriver(EmbeddingDriver):
     #: the supported range is from 1 (inclusive) to 251 (exclusive)").
     _MAX_BATCH_SIZE = 250
 
+    #: Retry budget for a transient failure (network error, 429, 5xx) on a
+    #: single batch — same reasoning and shape as
+    #: corpus/download_court_decisions.py's request_with_retries(): a
+    #: many-hour, many-hundred-call ingestion run will statistically hit an
+    #: occasional blip, and one failed batch shouldn't fail the whole
+    #: document when a short wait and retry would have succeeded.
+    _MAX_RETRIES = 3
+
     def __init__(self, model: str | None = None) -> None:
         """Initialise the driver.
 
@@ -384,24 +394,72 @@ class OpenRouterEmbeddingDriver(EmbeddingDriver):
         return embeddings
 
     def _embed_one_batch(self, texts: list[str]) -> list[list[float]]:
-        """Embed at most ``_MAX_BATCH_SIZE`` strings in a single OpenRouter API call."""
+        """Embed at most ``_MAX_BATCH_SIZE`` strings in one OpenRouter API call.
+
+        Retries on network errors, 429, and 5xx with exponential backoff
+        (up to :attr:`_MAX_RETRIES` attempts) — a 4xx other than 429 (e.g.
+        the batch-size-limit 400 :attr:`_MAX_BATCH_SIZE` exists to avoid)
+        is a real request error, not a transient one, and is raised
+        immediately without retrying.
+
+        Raises:
+            requests.RequestException: If every retry is exhausted, or on
+                any non-retryable HTTP error status.
+        """
+        import time
+
         import requests
 
-        response = requests.post(
-            "https://openrouter.ai/api/v1/embeddings",
-            headers={
-                "Authorization": f"Bearer {settings.EMBEDDING_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self._model,
-                "input": texts,
-                "dimensions": self.dimension,
-            },
-            timeout=90,
-        )
+        backoff_seconds = 2.0
+        last_exception: requests.RequestException | None = None
+
+        for attempt in range(1, self._MAX_RETRIES + 1):
+            try:
+                response = requests.post(
+                    "https://openrouter.ai/api/v1/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {settings.EMBEDDING_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self._model,
+                        "input": texts,
+                        "dimensions": self.dimension,
+                    },
+                    timeout=90,
+                )
+            except requests.RequestException as exc:
+                last_exception = exc
+                logger.warning(
+                    "OpenRouter embeddings request failed (attempt %d/%d): %s",
+                    attempt,
+                    self._MAX_RETRIES,
+                    exc,
+                )
+                time.sleep(backoff_seconds)
+                backoff_seconds *= 2
+                continue
+
+            if response.status_code == 429 or response.status_code >= 500:
+                logger.warning(
+                    "OpenRouter embeddings request got status %d, retrying "
+                    "(attempt %d/%d) after %.1fs ...",
+                    response.status_code,
+                    attempt,
+                    self._MAX_RETRIES,
+                    backoff_seconds,
+                )
+                time.sleep(backoff_seconds)
+                backoff_seconds *= 2
+                continue
+
+            response.raise_for_status()
+            return [item["embedding"] for item in response.json()["data"]]
+
+        if last_exception is not None:
+            raise last_exception
         response.raise_for_status()
-        return [item["embedding"] for item in response.json()["data"]]
+        raise AssertionError("unreachable: raise_for_status() should have raised")
 
 
 @lru_cache(maxsize=1)
