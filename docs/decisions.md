@@ -2,6 +2,14 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-09-29 — `DocxExtractor`: alignment, not heading styles, is the section-title signal (`977bb00`)
+
+Building the ingestion side for the real-estate-law corpus (`corpus/download_court_decisions.py`), starting with `.docx` since 5555/5555 downloaded so far are DOCX, none RTF. The obvious first guess — use Word's "Heading 1"/"Heading 2" paragraph styles, mirroring how `MarkdownExtractor` uses `#`/`##` — turned out to be wrong: inspecting several real corpus documents' raw XML during the earlier corpus-download work already showed no `w:pStyle` references at all in the document body, just a template's unused style *definitions*. Every paragraph is styled "Normal".
+
+What the documents actually use for section titles ("ítélete", "Indokolás", "A Kúria mint felülvizsgálati bíróság") is **centered paragraph alignment** — confirmed empirically across 5 real documents (`python-docx`, checking `paragraph.alignment == WD_ALIGN_PARAGRAPH.CENTER`): centered paragraphs are rare (2-4 out of 100-400 per document) and were a section title in every single occurrence checked, never body text. A second candidate signal — letter-spacing ("Í T É L E T") — was rejected after the same check: some titles are plain, unspaced caps ("INDOKOLÁS", "ÍTÉLETET:"), so it would have missed real titles rather than just risking false positives.
+
+Since these titles are flat (no "H1 > H2" nesting the way Markdown headings can nest), `DocxExtractor` reuses `MarkdownExtractor`'s section-index/header-breadcrumb *output shape* (`ChunkMetadata.header_path`, `page_number`-as-section-index) but with a much simpler builder — just "which centered title came most recently before this word," no header stack to maintain.
+
 ## 2026-09-29 — Chunk packaging: rejected `ProcessedChunk`/`ChunkPacker`, extracted a smaller fix (`64a3c75`)
 
 Károly asked for a `ProcessedChunk` type (distinct from `Chunk`) and a `ChunkPacker`/`ChunkEnricher` component to own header-breadcrumb prefixing *and* token-budget enforcement, motivated by a real observation: `SplitOverflowStrategy.apply()` was reverse-engineering `chunk_document()`'s header-embedding format — stripping `enrich_chunk_content()`'s output back off via a string-prefix check — to re-split an already-packaged chunk without duplicating or double-counting its header. That coupling is real and worth fixing.
