@@ -234,11 +234,20 @@ The project uses the **Strategy / Driver pattern** so the embedding backend is s
 | `EMBEDDING_DRIVER` | Model | Cost | Language support |
 |---|---|---|---|
 | `local` (default) | `intfloat/multilingual-e5-small` | Free, offline | 100+ languages incl. Hungarian |
-| `openai` | `text-embedding-3-small` | Paid API | Primarily English |
+| `openai` | `text-embedding-3-small` | Paid API, direct | Primarily English |
+| `openrouter` | e.g. `google/gemini-embedding-001` | Paid API, via OpenRouter | Multilingual |
 
 The `local` driver uses **asymmetric embedding**: document chunks are embedded with a `"passage: "` prefix (`embed_documents()`), while query strings use a `"query: "` prefix (`embed_query()`). This matches the retrieval-optimised training of the `e5` model family and measurably improves ranking compared to symmetric embedding (same prefix for both), particularly for cross-lingual queries.
 
 Set `EMBEDDING_DRIVER=openai` in `.env` to switch — no code changes needed.
+
+**`openrouter`** routes to any OpenRouter-hosted embedding model — e.g. Google's `google/gemini-embedding-001` (native 3072d, and confirmed empirically that OpenRouter's `dimensions` request parameter truncates it to whatever `EMBEDDING_DIMENSION` is configured, so no `document_chunks` schema migration is needed at this project's default of 384) — using the same OpenRouter account/key shape as `LLM_DRIVER=openrouter` (`EMBEDDING_API_KEY` set to the same key as `LLM_API_KEY`, configured independently since the two are separate concerns). Requests are automatically split into sub-batches of at most 250 texts, Google's own hard limit per request (confirmed empirically: HTTP 400 above that).
+
+Real, measured cost for this project's real-estate-law corpus: ~$0.15/1M tokens, roughly **$5 for the full ~10,000-document corpus** — and, on a real Intel Mac with no GPU, embedding via this driver measured **~3.2× faster** than `local` (network-bound API calls vs. CPU-bound local inference).
+
+This driver has no real tokenizer (`count_tokens()`/`max_sequence_length()` stay `None`, same as `openai`) — set `CHUNKING_STRATEGY=word`, not `langchain`, when using it. Confirmed empirically why this matters: `langchain` falls back to measuring `CHUNK_SIZE` in raw *characters* without a real tokenizer, which silently produced 407 chunks from one real document that should have had ~15.
+
+**A related, more consequential finding**: switching to this driver changes the raw vector-similarity *scale* enough that the existing `RETRIEVAL_MIN_SCORE=0.25` threshold (tuned for the `local` e5 model) no longer reliably separates relevant from irrelevant queries — measured a clearly irrelevant query (in Hungarian, about frying chicken) scoring **0.54–0.55** raw cosine similarity, well above the 0.25 threshold, versus **0.73–0.76** for a genuinely relevant one. The gap is real but narrow, and the vector-only relevance gate alone can no longer be trusted to reject an off-topic query. See "Reranking" below for why this made `RERANKER_DRIVER=cross_encoder` the new default rather than something to fix by raising `RETRIEVAL_MIN_SCORE` — and `docs/decisions.md` for the full finding.
 
 ## Chunking & Token Limits
 
@@ -297,13 +306,15 @@ The two ranked lists are combined with **Reciprocal Rank Fusion** (`query/hybrid
 
 Which retrieval path runs is itself a Strategy (`query/retrieval.py`'s `RetrievalStrategy` ABC, same shape as every other driver/strategy in this project), controlled by `RETRIEVAL_STRATEGY` (`.env`, default `hybrid`): `hybrid` (`HybridRetrievalStrategy`) is everything described above; `vector` (`VectorRetrievalStrategy`) skips keyword search and fusion entirely, reproducing the pre-hybrid-search behavior exactly (same `min_score` filtering, same ordering). Kept as a real, selectable strategy rather than a one-off comparison hack specifically so `scripts/eval_cli.py eval` (`make eval`) measures the actual production code path, not a hand-rolled stand-in that could quietly drift out of sync with it. In practice there's little reason to prefer `vector` day-to-day — hybrid search only ever adds recall on top of it, at negligible extra cost (one more indexed Postgres query and a pure fusion function, no model involved) — its main use is exactly that eval/debug comparison.
 
-### Reranking (optional, off by default)
+### Reranking (on by default)
 
-Hybrid search produces a wide, cheap candidate pool (`RETRIEVAL_CANDIDATE_POOL_SIZE`, default 20). `drivers/reranker.py` adds an optional second stage: a **cross-encoder** scores each `(question, chunk)` pair *jointly* (not independently, like an embedding) — more accurate, but too expensive to run over a whole corpus, so it only ever reranks that already-small candidate pool. This is the standard "retrieve-then-rerank" architecture.
+Hybrid search produces a wide, cheap candidate pool (`RETRIEVAL_CANDIDATE_POOL_SIZE`, default 20). `drivers/reranker.py` adds a second stage: a **cross-encoder** scores each `(question, chunk)` pair *jointly* (not independently, like an embedding) — more accurate, but too expensive to run over a whole corpus, so it only ever reranks that already-small candidate pool. This is the standard "retrieve-then-rerank" architecture.
 
 Model choice: **`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`**, a multilingual cross-encoder (MS MARCO machine-translated into 14 languages), instead of the far more common English-only `cross-encoder/ms-marco-MiniLM-L-6-v2` — this project's content and embedding model are both multilingual (Hungarian + English), and an English-only reranker would be a regression on Hungarian content specifically. Verified empirically, not just by model-card description: given the Hungarian sentence *"Magyarországon a személyi jövedelemadó (SZJA) mértéke egységesen 15 százalék"* against the question *"Mennyi az SZJA kulcsa Magyarországon?"*, it scored **+6.39** — clearly separated from an unrelated Hungarian sentence (**-6.13**) and an unrelated English one (**-9.24**).
 
-Controlled by `RERANKER_DRIVER` (`.env`, default `none`) — a Strategy pattern like every other driver in this project. `none` (`NoopRerankerDriver`) passes the RRF-fused order through unchanged; `cross_encoder` (`CrossEncoderRerankerDriver`) reorders by the model's score. Defaulting to `none` was a deliberate choice, not a placeholder: the cross-encoder model must be downloaded and loaded (real latency, real memory) on every process that queries the knowledge base, and hybrid search's own fusion is already a reasonable ranking on its own — reranking is an *optional* quality lever, not a required part of the pipeline.
+Controlled by `RERANKER_DRIVER` (`.env`, default `cross_encoder`) — a Strategy pattern like every other driver in this project. `cross_encoder` (`CrossEncoderRerankerDriver`) reorders the RRF-fused candidates by the model's score; `none` (`NoopRerankerDriver`) passes that order through unchanged, kept only for comparison/eval (`make eval` vs. `make eval-rerank`), not recommended for real use.
+
+**This was a deliberate reversal of an earlier decision** — `none` used to be the default, reasoned as "the cross-encoder model must be downloaded and loaded on every process, and hybrid search's own fusion is already a reasonable ranking on its own." That held for the original local embedding model, but broke down empirically after switching `EMBEDDING_DRIVER` (see "Embedding Drivers" above): a raw vector-similarity threshold tuned for one embedding model's scale isn't guaranteed to transfer to another's, and the reranker's per-pair scoring isn't tied to any embedding model's scale at all, making it the more robust default. See `docs/decisions.md` for the full empirical finding that prompted this.
 
 ### How quality is measured
 
@@ -319,13 +330,20 @@ Each question carries a `expected_text_contains` gold label (a specific phrase e
 Run it with:
 
 ```bash
-# Default (RERANKER_DRIVER=none — RRF fusion only, no cross-encoder):
+# Default (RERANKER_DRIVER=cross_encoder — hybrid+rerank, same as production):
 make eval
 # or: uv run python scripts/eval_cli.py eval
 
-# With cross-encoder reranker:
+# make eval-rerank forces cross_encoder explicitly (--with-rerank) -- now
+# equivalent to plain `make eval` at the current default, but still useful
+# to be explicit, or to force reranking on even if RERANKER_DRIVER=none is
+# set locally for a comparison run.
 make eval-rerank
 # or: RERANKER_DRIVER=cross_encoder uv run python scripts/eval_cli.py eval
+
+# The old bare-RRF-fusion, no-reranker comparison baseline now needs an
+# explicit override, since it's no longer the default:
+RERANKER_DRIVER=none uv run python scripts/eval_cli.py eval
 
 # Controlled corpus (only the 3 committed fixtures, no other documents):
 AGENT_ENV=test RERANKER_DRIVER=cross_encoder uv run python scripts/eval_cli.py eval
@@ -353,7 +371,7 @@ Language breakdown for `hybrid+rerank (cross_encoder)`:
 Two independent layers, not one:
 
 1. **Retrieval-layer gate** (`query/retrieval.py`'s `_passes_relevance_gate`): if *nothing* in the vector-search candidate pool clears `RETRIEVAL_MIN_SCORE`, `query_knowledge_base()` returns `NO_RESULTS_MESSAGE` immediately — no LLM call at all. This deliberately checks pure vector cosine similarity only, never the fused RRF/reranker score: cosine similarity lives on a calibrated [0, 1] scale with a meaningful "too-low-to-be-relevant" interpretation (the original motivation for `RETRIEVAL_MIN_SCORE=0.25`). This catches questions genuinely unrelated to anything in the knowledge base.
-2. **Cross-encoder reranking gate** (`RERANKER_DRIVER=cross_encoder`, optional): when enabled, `CrossEncoderRerankerDriver` scores each `(question, chunk)` pair jointly and discards any chunk scoring below `RERANKER_MIN_SCORE=-2.0` on the logit scale. This is a *second* gate that fires *after* the cosine gate — it operates on the already-filtered candidate pool, not the raw corpus. Its logit scale (unbounded, centered around 0) has a natural "irrelevant" region confirmed empirically: relevant chunks score +2 to +6, clearly irrelevant ones score -3.5 to -9. With `cross_encoder` enabled, the measured `Fallback = 1.00` (6/6 unanswerable queries correctly rejected at the retrieval layer, zero reaching the LLM), vs. `Fallback = 0.00` without it — a 6-chunk saving per irrelevant query with no LLM call at all.
+2. **Cross-encoder reranking gate** (`RERANKER_DRIVER=cross_encoder`, the default): when enabled, `CrossEncoderRerankerDriver` scores each `(question, chunk)` pair jointly and discards any chunk scoring below `RERANKER_MIN_SCORE=-2.0` on the logit scale. This is a *second* gate that fires *after* the cosine gate — it operates on the already-filtered candidate pool, not the raw corpus. Its logit scale (unbounded, centered around 0) has a natural "irrelevant" region confirmed empirically: relevant chunks score +2 to +6, clearly irrelevant ones score -3.5 to -9. With `cross_encoder` enabled, the measured `Fallback = 1.00` (6/6 unanswerable queries correctly rejected at the retrieval layer, zero reaching the LLM), vs. `Fallback = 0.00` without it — a 6-chunk saving per irrelevant query with no LLM call at all.
 
   **Caveat:** `-2.0` was calibrated on the same 6 unanswerable questions that the `Fallback = 1.00` number above is then measured against — that's training-set accuracy, not a demonstrated generalization to unseen questions. Validating it properly needs a larger, independent eval set that wasn't used for tuning.
 3. **Prompt-level grounding instruction** (`drivers/llm.py`'s `_build_prompt`): the system prompt explicitly instructs the model to answer strictly from the provided excerpts and respond with an exact "I could not find this information in the provided documents" if the excerpts don't answer the question. This catches the case the eval script's fallback-rate finding demonstrated above — a topically-relevant chunk that still doesn't contain the specific fact asked for — which a similarity threshold structurally cannot distinguish from a genuine answer.

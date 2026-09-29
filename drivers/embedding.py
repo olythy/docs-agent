@@ -4,8 +4,12 @@ Defines the common interface (``EmbeddingDriver``) that all embedding backends
 must implement, following the Strategy / Driver pattern described in AGENTS.md.
 
 The active driver is selected at runtime via ``settings.EMBEDDING_DRIVER``:
-    - ``"local"``  → :class:`LocalSentenceTransformerDriver` (free, offline)
-    - ``"openai"`` → :class:`OpenAIEmbeddingDriver` (paid API)
+    - ``"local"``      → :class:`LocalSentenceTransformerDriver` (free, offline)
+    - ``"openai"``     → :class:`OpenAIEmbeddingDriver` (paid API, direct OpenAI)
+    - ``"openrouter"`` → :class:`OpenRouterEmbeddingDriver` (paid API, routed
+                         through OpenRouter — e.g. Google's
+                         ``google/gemini-embedding-001``, same account/key
+                         shape as ``LLM_DRIVER=openrouter``)
 
 Usage::
 
@@ -317,6 +321,89 @@ class OpenAIEmbeddingDriver(EmbeddingDriver):
         return [item.embedding for item in response.data]
 
 
+class OpenRouterEmbeddingDriver(EmbeddingDriver):
+    """Embedding driver using OpenRouter's ``/api/v1/embeddings`` endpoint.
+
+    Routes to any embedding model OpenRouter offers — e.g. Google's
+    ``google/gemini-embedding-001`` — through the same OpenRouter account
+    ``LLM_DRIVER=openrouter`` already uses for answer generation, so no
+    separate provider account/API key is needed (just set
+    ``EMBEDDING_API_KEY`` to the same OpenRouter key as ``LLM_API_KEY``).
+
+    Confirmed empirically against the real endpoint: passing OpenRouter's
+    ``dimensions`` request parameter truncates a model's native output
+    (3072 for ``gemini-embedding-001``) down to whatever
+    ``EMBEDDING_DIMENSION`` is configured — so switching to this driver at
+    the project's default (384) needs no ``document_chunks`` schema
+    migration, unlike a driver whose native dimension doesn't match.
+
+    No token counting is exposed (:meth:`count_tokens`/:meth:`max_sequence_length`
+    stay the ABC's ``None`` defaults, same as :class:`OpenAIEmbeddingDriver`)
+    — set ``CHUNKING_STRATEGY=word`` rather than ``langchain`` when using
+    this driver, confirmed empirically: without a real tokenizer,
+    ``langchain`` silently measures ``CHUNK_SIZE`` in raw *characters*
+    instead of words, producing far smaller/more numerous chunks than
+    intended (one real document went from the expected ~15 chunks to 407).
+    """
+
+    #: Google's embedding API (reached via OpenRouter, backed by Vertex AI)
+    #: hard-rejects a batch outside 1-250 items — confirmed empirically
+    #: against the real endpoint (HTTP 400, "batchSize value of 300 but
+    #: the supported range is from 1 (inclusive) to 251 (exclusive)").
+    _MAX_BATCH_SIZE = 250
+
+    def __init__(self, model: str | None = None) -> None:
+        """Initialise the driver.
+
+        Args:
+            model: OpenRouter embedding model id. Defaults to
+                ``settings.EMBEDDING_MODEL``.
+        """
+        self._model = model or settings.EMBEDDING_MODEL
+
+    @property
+    def dimension(self) -> int:
+        """Return the embedding dimension from settings."""
+        return settings.EMBEDDING_DIMENSION
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Embed a list of strings, splitting into sub-batches of at most 250.
+
+        Args:
+            texts: A list of input strings.
+
+        Returns:
+            A list of float vectors, one per input string (same order),
+            each truncated to :attr:`dimension`.
+        """
+        embeddings: list[list[float]] = []
+        for start in range(0, len(texts), self._MAX_BATCH_SIZE):
+            embeddings.extend(
+                self._embed_one_batch(texts[start : start + self._MAX_BATCH_SIZE])
+            )
+        return embeddings
+
+    def _embed_one_batch(self, texts: list[str]) -> list[list[float]]:
+        """Embed at most ``_MAX_BATCH_SIZE`` strings in a single OpenRouter API call."""
+        import requests
+
+        response = requests.post(
+            "https://openrouter.ai/api/v1/embeddings",
+            headers={
+                "Authorization": f"Bearer {settings.EMBEDDING_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self._model,
+                "input": texts,
+                "dimensions": self.dimension,
+            },
+            timeout=90,
+        )
+        response.raise_for_status()
+        return [item["embedding"] for item in response.json()["data"]]
+
+
 @lru_cache(maxsize=1)
 def get_embedding_driver() -> EmbeddingDriver:
     """Factory function: return the active embedding driver from settings.
@@ -337,8 +424,10 @@ def get_embedding_driver() -> EmbeddingDriver:
         return LocalSentenceTransformerDriver()
     if driver_name == "openai":
         return OpenAIEmbeddingDriver()
+    if driver_name == "openrouter":
+        return OpenRouterEmbeddingDriver()
 
     raise ValueError(
         f"Unknown EMBEDDING_DRIVER: '{driver_name}'. "
-        "Valid options are: 'local', 'openai'."
+        "Valid options are: 'local', 'openai', 'openrouter'."
     )

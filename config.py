@@ -52,12 +52,24 @@ class Settings:
     Environment variables (all optional unless marked REQUIRED):
 
     Embedding:
-        EMBEDDING_DRIVER      Driver to use: ``local`` (default) or ``openai``.
+        EMBEDDING_DRIVER      Driver to use: ``local`` (default), ``openai``, or
+                              ``openrouter`` (routes to any OpenRouter-hosted
+                              embedding model, e.g. ``google/gemini-embedding-001``,
+                              using the same account/key shape as
+                              ``LLM_DRIVER=openrouter``).
         EMBEDDING_MODEL       Model name/id for the active driver (default:
                               ``intfloat/multilingual-e5-small`` for local).
-        EMBEDDING_DIMENSION   Output vector dimension (must match the model; 384 for e5-small).
+                              Set to an OpenRouter embedding model id when
+                              ``EMBEDDING_DRIVER=openrouter``.
+        EMBEDDING_DIMENSION   Output vector dimension (must match the model; 384 for
+                              e5-small; OpenRouter's ``dimensions`` request parameter
+                              truncates a larger native model output to this value,
+                              e.g. gemini-embedding-001's native 3072 -> 384).
         EMBEDDING_API_KEY     API key for the embedding driver (only when
-                              ``EMBEDDING_DRIVER=openai``).
+                              ``EMBEDDING_DRIVER=openai`` or ``openrouter`` — for
+                              ``openrouter``, the same OpenRouter key as
+                              ``LLM_API_KEY``, configured independently since
+                              embedding and answer generation are separate concerns).
 
     Chunking:
         CHUNK_SIZE            Target word count per chunk (default: 250).
@@ -134,11 +146,22 @@ class Settings:
                               since hybrid search only adds recall over
                               vector-only at negligible extra cost. See
                               ``query/retrieval.py``.
-        RERANKER_DRIVER       ``none`` (default, backward compatible) skips
-                              reranking entirely. ``cross_encoder`` reorders
-                              the hybrid-search candidate list with a local
-                              cross-encoder model before truncating to
-                              RETRIEVAL_TOP_K. Only applies when
+        RERANKER_DRIVER       ``cross_encoder`` (default) reorders the hybrid-search
+                              candidate list with a local cross-encoder model
+                              before truncating to RETRIEVAL_TOP_K, and is the
+                              second, embedding-model-independent relevance
+                              gate (see RERANKER_MIN_SCORE) -- necessary in
+                              practice, not just a quality lever: confirmed
+                              empirically that switching EMBEDDING_DRIVER can
+                              shift the raw vector-similarity scale enough
+                              that RETRIEVAL_MIN_SCORE alone no longer
+                              separates relevant from irrelevant queries,
+                              while the reranker (scoring question+chunk
+                              jointly, not via embedding distance) still did.
+                              ``none`` skips reranking entirely -- kept for
+                              comparison/eval only (see ``make eval`` vs.
+                              ``make eval-rerank``), not recommended for
+                              production. Only applies when
                               RETRIEVAL_STRATEGY=hybrid. See
                               ``drivers/reranker.py``.
         RERANKER_MODEL        Model name/id for the cross_encoder reranker.
@@ -213,7 +236,9 @@ class Settings:
     CHUNKING_STRATEGY: str = os.getenv("CHUNKING_STRATEGY", "word")
 
     # --- Ingestion ---
-    INGEST_EXTENSIONS: str = os.getenv("INGEST_EXTENSIONS", ".pdf,.md,.markdown,.docx,.rtf")
+    INGEST_EXTENSIONS: str = os.getenv(
+        "INGEST_EXTENSIONS", ".pdf,.md,.markdown,.docx,.rtf"
+    )
 
     @property
     def parsed_ingest_extensions(self) -> frozenset[str]:
@@ -235,7 +260,7 @@ class Settings:
     RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "4"))
     RETRIEVAL_MIN_SCORE: float = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.25"))
     RETRIEVAL_STRATEGY: str = os.getenv("RETRIEVAL_STRATEGY", "hybrid")
-    RERANKER_DRIVER: str = os.getenv("RERANKER_DRIVER", "none")
+    RERANKER_DRIVER: str = os.getenv("RERANKER_DRIVER", "cross_encoder")
     RERANKER_MODEL: str = os.getenv(
         "RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     )

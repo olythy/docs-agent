@@ -14,6 +14,7 @@ from drivers.embedding import (
     EmbeddingDriver,
     LocalSentenceTransformerDriver,
     OpenAIEmbeddingDriver,
+    OpenRouterEmbeddingDriver,
     get_embedding_driver,
 )
 
@@ -249,3 +250,121 @@ def test_local_driver_non_e5_does_not_add_prefixes(monkeypatch):
 
     driver.embed_documents(["doc chunk 1"])
     fake_model.encode.assert_called_with(["doc chunk 1"], convert_to_numpy=True)
+
+
+# --- OpenRouterEmbeddingDriver ---
+
+
+def _fake_openrouter_response(vectors: list[list[float]]) -> MagicMock:
+    response = MagicMock()
+    response.json.return_value = {"data": [{"embedding": v} for v in vectors]}
+    return response
+
+
+def test_openrouter_driver_dimension_reads_from_settings(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    assert OpenRouterEmbeddingDriver().dimension == 384
+
+
+def test_openrouter_driver_uses_given_model_over_settings_default():
+    driver = OpenRouterEmbeddingDriver(model="google/gemini-embedding-001")
+    assert driver._model == "google/gemini-embedding-001"
+
+
+def test_openrouter_driver_defaults_to_settings_embedding_model(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(EMBEDDING_MODEL="google/gemini-embedding-001"),
+    )
+    assert OpenRouterEmbeddingDriver()._model == "google/gemini-embedding-001"
+
+
+def test_openrouter_driver_embed_batch_sends_correct_request(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(
+            EMBEDDING_DIMENSION=384,
+            EMBEDDING_API_KEY="sk-or-v1-test",
+        ),
+    )
+    fake_post = MagicMock(
+        return_value=_fake_openrouter_response([[0.1, 0.2], [0.3, 0.4]])
+    )
+    monkeypatch.setattr("requests.post", fake_post)
+
+    driver = OpenRouterEmbeddingDriver(model="google/gemini-embedding-001")
+    result = driver.embed_batch(["first chunk", "second chunk"])
+
+    assert result == [[0.1, 0.2], [0.3, 0.4]]
+    fake_post.assert_called_once_with(
+        "https://openrouter.ai/api/v1/embeddings",
+        headers={
+            "Authorization": "Bearer sk-or-v1-test",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "google/gemini-embedding-001",
+            "input": ["first chunk", "second chunk"],
+            "dimensions": 384,
+        },
+        timeout=90,
+    )
+
+
+def test_openrouter_driver_splits_batches_over_250_items(
+    monkeypatch, settings_override
+):
+    """Regression test for a real, empirically-confirmed limit: Google's
+    embedding API (via OpenRouter) rejects a batch of >250 items with an
+    HTTP 400 ("supported range is from 1 (inclusive) to 251 (exclusive)").
+    """
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    call_batches: list[list[str]] = []
+
+    def fake_post(url, headers, json, timeout):
+        call_batches.append(json["input"])
+        return _fake_openrouter_response([[0.0] * 384 for _ in json["input"]])
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    texts = [f"chunk {i}" for i in range(300)]
+    result = OpenRouterEmbeddingDriver().embed_batch(texts)
+
+    assert len(result) == 300
+    assert [len(batch) for batch in call_batches] == [250, 50]
+    # Order is preserved across the split.
+    assert call_batches[0][0] == "chunk 0"
+    assert call_batches[1][0] == "chunk 250"
+
+
+def test_openrouter_driver_embed_batch_raises_on_http_error(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    response = MagicMock()
+    response.raise_for_status.side_effect = RuntimeError("HTTP 429")
+    monkeypatch.setattr("requests.post", MagicMock(return_value=response))
+
+    with pytest.raises(RuntimeError, match="HTTP 429"):
+        OpenRouterEmbeddingDriver().embed_batch(["text"])
+
+
+def test_get_embedding_driver_returns_openrouter(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DRIVER="openrouter")
+    )
+    assert isinstance(get_embedding_driver(), OpenRouterEmbeddingDriver)

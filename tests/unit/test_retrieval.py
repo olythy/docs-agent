@@ -249,7 +249,14 @@ def test_retrieve_chunks_forwards_metadata_filter(monkeypatch):
     fake_driver.embed_query.return_value = [0.1, 0.2]
 
     filter_dict = {"source_file": "notes.md"}
-    results = retrieve_chunks("question", metadata_filter=filter_dict)
+    # Explicit VectorRetrievalStrategy: this test is only about
+    # metadata_filter plumbing, so it shouldn't depend on whatever
+    # RETRIEVAL_STRATEGY/RERANKER_DRIVER real settings happen to be
+    # configured (e.g. a real CrossEncoderRerankerDriver would load an
+    # actual model and score this fake chunk unpredictably).
+    results = retrieve_chunks(
+        "question", metadata_filter=filter_dict, strategy=VectorRetrievalStrategy()
+    )
 
     assert len(results) == 1
     assert fake_store.search.call_args.kwargs.get("metadata_filter") == filter_dict
