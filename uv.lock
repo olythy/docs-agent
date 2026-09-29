@@ -276,6 +276,7 @@ dependencies = [
     { name = "pdfplumber" },
     { name = "psycopg2-binary" },
     { name = "python-dotenv" },
+    { name = "requests" },
     { name = "sentence-transformers" },
 ]
 
@@ -294,6 +295,7 @@ requires-dist = [
     { name = "pdfplumber", specifier = ">=0.11.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "requests", specifier = ">=2.34.2" },
     { name = "sentence-transformers", specifier = ">=3.0.0,<3.4.0" },
 ]
 

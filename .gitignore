@@ -8,3 +8,5 @@ __pycache__/
 .DS_Store
 *.jsonl
 logs/
+corpus/raw/
+corpus/meta.csv
