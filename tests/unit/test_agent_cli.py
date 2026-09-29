@@ -7,6 +7,7 @@ import pytest
 
 from scripts.agent_cli import (
     cmd_ingest,
+    install_skills,
     patch_args,
     resolve_input_paths,
 )
@@ -72,6 +73,84 @@ def test_patch_args_uses_given_server_name():
     patch_args(config, project_root=Path("/x"), server_name="other-name")
 
     assert config["mcpServers"]["other-name"]["args"][:2] == ["run", "--project"]
+
+
+# --- Skill Installation Tests ---
+
+
+def test_install_skills_creates_symlink_on_fresh_install(tmp_path):
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "some-skill").mkdir()
+    claude_dir = tmp_path / ".claude"
+
+    code = install_skills(skills_dir, claude_dir)
+
+    link = claude_dir / "skills"
+    assert code == 0
+    assert link.is_symlink()
+    assert link.resolve() == skills_dir.resolve()
+    # The linked-to content is genuinely reachable through the link.
+    assert (link / "some-skill").is_dir()
+
+
+def test_install_skills_creates_claude_dir_if_missing(tmp_path):
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    claude_dir = tmp_path / "nested" / ".claude"  # parent doesn't exist yet
+
+    code = install_skills(skills_dir, claude_dir)
+
+    assert code == 0
+    assert (claude_dir / "skills").is_symlink()
+
+
+def test_install_skills_is_idempotent_when_already_correctly_linked(tmp_path):
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    claude_dir = tmp_path / ".claude"
+
+    first = install_skills(skills_dir, claude_dir)
+    second = install_skills(skills_dir, claude_dir)
+
+    assert first == 0
+    assert second == 0
+    assert (claude_dir / "skills").resolve() == skills_dir.resolve()
+
+
+def test_install_skills_refuses_to_replace_a_real_directory(tmp_path):
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    claude_dir = tmp_path / ".claude"
+    existing = claude_dir / "skills"
+    existing.mkdir(parents=True)
+    (existing / "existing.txt").write_text("do not clobber me")
+
+    code = install_skills(skills_dir, claude_dir)
+
+    assert code == 1
+    assert not existing.is_symlink()
+    assert (existing / "existing.txt").read_text() == "do not clobber me"
+
+
+def test_install_skills_refuses_to_replace_a_symlink_pointing_elsewhere(tmp_path):
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "skills").symlink_to(other_dir, target_is_directory=True)
+
+    code = install_skills(skills_dir, claude_dir)
+
+    assert code == 1
+    assert (claude_dir / "skills").resolve() == other_dir.resolve()
+
+
+def test_install_skills_errors_when_source_missing(tmp_path):
+    code = install_skills(tmp_path / "nonexistent-skills", tmp_path / ".claude")
+    assert code == 1
 
 
 # --- Document Ingestion & Deletion Tests ---

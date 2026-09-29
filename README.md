@@ -52,7 +52,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 ├── scripts/
 │   ├── dev_cli.py            # Development & infrastructure CLI: docker, setup, doctor, lint (uv run python scripts/dev_cli.py)
 │   ├── db_cli.py             # Database CLI: migrations, flush, make-migration (uv run python scripts/db_cli.py)
-│   ├── agent_cli.py          # Agent & runtime CLI: query, chat, ingest, mcp-dev, mcp-install (uv run python scripts/agent_cli.py)
+│   ├── agent_cli.py          # Agent & runtime CLI: query, chat, ingest, mcp-dev, mcp-install, skills-install (uv run python scripts/agent_cli.py)
 │   ├── eval_cli.py           # Evaluation & diagnostics CLI: eval, inspect, extract (uv run python scripts/eval_cli.py)
 │   ├── log_cli.py            # Telemetry & logging CLI: watch/tail, stats, clear (uv run python scripts/log_cli.py)
 │   └── utils.py              # Shared CLI utilities (subprocess runner, paths, terminal formatting)
@@ -64,6 +64,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   └── architecture.md       # Pipeline diagrams + Strategy/Driver selection table (the "how it flows")
 ├── corpus/
 │   └── download_court_decisions.py  # Downloads a real-estate-law eval corpus from eakta.birosag.hu (raw/ + meta.csv are gitignored)
+├── skills/                  # Claude Code skills (canonical source — `make skills-install` symlinks into .claude/skills/)
 ├── pyproject.toml           # Project metadata, dependencies, pytest config
 ├── uv.lock                  # Locked, reproducible dependency versions
 ├── .env.example             # Environment variable template
@@ -193,6 +194,7 @@ Run `make` or `make help` any time for this same list straight from the terminal
 | `make chat` | `uv run python scripts/agent_cli.py chat` — interactive conversational terminal REPL |
 | `make mcp-dev` | `uv run python scripts/agent_cli.py mcp-dev` — run under MCP Inspector |
 | `make mcp-install` | `uv run python scripts/agent_cli.py mcp-install` — register with Claude Desktop and auto-patch launch config |
+| `make skills-install` | `uv run python scripts/agent_cli.py skills-install` — symlink `skills/` into `.claude/skills/` so Claude Code discovers this project's skills |
 
 ### Evaluation & Diagnostics (`scripts/eval_cli.py`)
 

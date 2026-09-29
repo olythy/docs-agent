@@ -21,11 +21,13 @@ Commands:
                              --delete, -d        Delete chunks matching given path(s) or hashes.
     mcp-dev                Launch mcp_server.py under the MCP Inspector for local testing.
     mcp-install            Register mcp_server.py with Claude Desktop and auto-patch launch config.
+    skills-install         Symlink skills/ into .claude/skills/ so Claude Code discovers this project's skills.
 """
 
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -118,6 +120,62 @@ def cmd_mcp_install() -> int:
 
     print("Patching configuration to resolve project dependencies...")
     return patch_claude_desktop_config()
+
+
+# --- Skill Installation ---
+
+
+def install_skills(skills_dir: Path, claude_dir: Path) -> int:
+    """Symlink ``skills_dir`` into ``claude_dir / "skills"`` for Claude Code to discover.
+
+    A single symlink for the whole tree (not one per skill) — adding a new
+    skill under ``skills_dir`` later needs no reinstall, since the link
+    always resolves to the current contents. Refuses to touch anything
+    that isn't either missing or already the correct link, rather than
+    silently overwriting a real directory or an unrelated symlink.
+
+    Args:
+        skills_dir: This project's own skill sources (e.g. ``PROJECT_ROOT / "skills"``).
+        claude_dir: The ``.claude`` directory to link into (e.g. ``PROJECT_ROOT / ".claude"``).
+
+    Returns:
+        0 on success (including "already correctly linked"), 1 on any
+        refusal or error, printing why in each case.
+    """
+    if not skills_dir.exists():
+        print(f"ERROR: {skills_dir} does not exist.")
+        return 1
+
+    target_link = claude_dir / "skills"
+    target_link.parent.mkdir(parents=True, exist_ok=True)
+
+    if target_link.is_symlink():
+        if target_link.resolve() == skills_dir.resolve():
+            print(f"{target_link} already links to {skills_dir}. Nothing to do.")
+            return 0
+        print(
+            f"ERROR: {target_link} is a symlink pointing elsewhere "
+            f"({target_link.resolve()}). Remove it by hand if replacing it "
+            "is intentional, then re-run."
+        )
+        return 1
+
+    if target_link.exists():
+        print(
+            f"ERROR: {target_link} already exists as a real directory. "
+            "Move or remove it by hand — refusing to overwrite existing content — then re-run."
+        )
+        return 1
+
+    relative_target = os.path.relpath(skills_dir, start=target_link.parent)
+    target_link.symlink_to(relative_target, target_is_directory=True)
+    print(f"Linked {target_link} -> {relative_target}")
+    return 0
+
+
+def cmd_skills_install() -> int:
+    """Symlink this project's skills/ into .claude/skills/."""
+    return install_skills(PROJECT_ROOT / "skills", PROJECT_ROOT / ".claude")
 
 
 # --- Document Ingestion & Deletion ---
@@ -337,8 +395,13 @@ def main(argv: list[str] | None = None) -> int:
     if command == "mcp-install":
         return cmd_mcp_install()
 
+    if command == "skills-install":
+        return cmd_skills_install()
+
     print(f"Unknown command: '{command}'")
-    print("Available commands: query, chat, ingest, mcp-dev, mcp-install")
+    print(
+        "Available commands: query, chat, ingest, mcp-dev, mcp-install, skills-install"
+    )
     return 1
 
 

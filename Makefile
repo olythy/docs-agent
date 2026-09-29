@@ -6,7 +6,7 @@
         make-migration add-document add-directory delete-document query chat \
         inspect-chunks extract-text eval eval-rerank eval-llm eval-all \
         log log-tail log-stats log-clear \
-        mcp-dev mcp-install test lint lint-fix format
+        mcp-dev mcp-install skills-install test lint lint-fix format
 
 # Support direct positional arguments without path="...":
 # e.g. `make add-document file1.pdf file2.md` or `make query "What is X?"`
@@ -103,6 +103,9 @@ mcp-dev: ## Run mcp_server.py under the MCP Inspector, for local testing
 
 mcp-install: ## Register mcp_server.py with Claude Desktop and patch config
 	uv run python scripts/agent_cli.py mcp-install
+
+skills-install: ## Symlink skills/ into .claude/skills/ so Claude Code discovers this project's skills
+	uv run python scripts/agent_cli.py skills-install
 
 # --- Evaluation & Diagnostics (scripts/eval_cli.py) ---
 

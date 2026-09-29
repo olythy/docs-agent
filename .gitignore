@@ -10,3 +10,4 @@ __pycache__/
 logs/
 corpus/raw/
 corpus/meta.csv
+.claude/skills
