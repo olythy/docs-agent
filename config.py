@@ -52,24 +52,42 @@ class Settings:
     Environment variables (all optional unless marked REQUIRED):
 
     Embedding:
-        EMBEDDING_DRIVER      Driver to use: ``local`` (default), ``openai``, or
+        EMBEDDING_DRIVER      Driver to use: ``local`` (default), ``openai``,
                               ``openrouter`` (routes to any OpenRouter-hosted
                               embedding model, e.g. ``google/gemini-embedding-001``,
                               using the same account/key shape as
-                              ``LLM_DRIVER=openrouter``).
+                              ``LLM_DRIVER=openrouter``), or ``gemini`` (Google's
+                              native AI Studio API directly, not via OpenRouter --
+                              for a free-tier API key with its own rate limit,
+                              see EMBEDDING_REQUEST_DELAY_SECONDS below).
         EMBEDDING_MODEL       Model name/id for the active driver (default:
                               ``intfloat/multilingual-e5-small`` for local).
                               Set to an OpenRouter embedding model id when
-                              ``EMBEDDING_DRIVER=openrouter``.
+                              ``EMBEDDING_DRIVER=openrouter``, or a Gemini model
+                              id (e.g. ``gemini-embedding-001``) when
+                              ``EMBEDDING_DRIVER=gemini``.
         EMBEDDING_DIMENSION   Output vector dimension (must match the model; 384 for
-                              e5-small; OpenRouter's ``dimensions`` request parameter
-                              truncates a larger native model output to this value,
-                              e.g. gemini-embedding-001's native 3072 -> 384).
+                              e5-small; both OpenRouter's ``dimensions`` request
+                              parameter and the native Gemini API's
+                              ``output_dimensionality`` config truncate a larger
+                              native model output to this value, e.g.
+                              gemini-embedding-001's native 3072 -> 384).
         EMBEDDING_API_KEY     API key for the embedding driver (only when
-                              ``EMBEDDING_DRIVER=openai`` or ``openrouter`` — for
-                              ``openrouter``, the same OpenRouter key as
-                              ``LLM_API_KEY``, configured independently since
+                              ``EMBEDDING_DRIVER`` is ``openai``, ``openrouter``, or
+                              ``gemini`` — for ``openrouter``, the same OpenRouter
+                              key as ``LLM_API_KEY``; for ``gemini``, a native
+                              Google AI Studio key (aistudio.google.com/apikey),
+                              a different kind of key than the OpenRouter one.
+                              Configured independently of LLM_API_KEY since
                               embedding and answer generation are separate concerns).
+        EMBEDDING_REQUEST_DELAY_SECONDS
+                              Seconds to sleep before each embedding request
+                              (default: 0.0, i.e. no throttling). Only meaningful
+                              for ``EMBEDDING_DRIVER=gemini`` on a free-tier API
+                              key, which has its own requests-per-minute limit --
+                              check the actual current limit on your own AI
+                              Studio quota page rather than assuming a number
+                              here, since free-tier limits change over time.
 
     Chunking:
         CHUNK_SIZE            Target word count per chunk (default: 250).
@@ -223,6 +241,9 @@ class Settings:
     )
     EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION", "384"))
     EMBEDDING_API_KEY: str = os.getenv("EMBEDDING_API_KEY", "")
+    EMBEDDING_REQUEST_DELAY_SECONDS: float = float(
+        os.getenv("EMBEDDING_REQUEST_DELAY_SECONDS", "0.0")
+    )
 
     # --- Chunking ---
     CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "250"))

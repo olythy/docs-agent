@@ -10,6 +10,10 @@ The active driver is selected at runtime via ``settings.EMBEDDING_DRIVER``:
                          through OpenRouter — e.g. Google's
                          ``google/gemini-embedding-001``, same account/key
                          shape as ``LLM_DRIVER=openrouter``)
+    - ``"gemini"``     → :class:`GeminiEmbeddingDriver` (Google's native AI
+                         Studio API directly, not via OpenRouter — free-tier
+                         friendly, rate-limited via
+                         ``EMBEDDING_REQUEST_DELAY_SECONDS``)
 
 Usage::
 
@@ -23,6 +27,7 @@ from abc import ABC, abstractmethod
 from functools import lru_cache
 
 from config import settings
+from retry import TransientAPIError, retry_on_transient_error
 
 logger = logging.getLogger(__name__)
 
@@ -354,14 +359,6 @@ class OpenRouterEmbeddingDriver(EmbeddingDriver):
     #: the supported range is from 1 (inclusive) to 251 (exclusive)").
     _MAX_BATCH_SIZE = 250
 
-    #: Retry budget for a transient failure (network error, 429, 5xx) on a
-    #: single batch — same reasoning and shape as
-    #: corpus/download_court_decisions.py's request_with_retries(): a
-    #: many-hour, many-hundred-call ingestion run will statistically hit an
-    #: occasional blip, and one failed batch shouldn't fail the whole
-    #: document when a short wait and retry would have succeeded.
-    _MAX_RETRIES = 3
-
     def __init__(self, model: str | None = None) -> None:
         """Initialise the driver.
 
@@ -393,73 +390,154 @@ class OpenRouterEmbeddingDriver(EmbeddingDriver):
             )
         return embeddings
 
+    @retry_on_transient_error(max_attempts=3)
     def _embed_one_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed at most ``_MAX_BATCH_SIZE`` strings in one OpenRouter API call.
 
-        Retries on network errors, 429, and 5xx with exponential backoff
-        (up to :attr:`_MAX_RETRIES` attempts) — a 4xx other than 429 (e.g.
-        the batch-size-limit 400 :attr:`_MAX_BATCH_SIZE` exists to avoid)
-        is a real request error, not a transient one, and is raised
-        immediately without retrying.
+        Decorated with :func:`retry.retry_on_transient_error`: a network
+        error, 429, or 5xx raises :class:`retry.TransientAPIError`, which
+        triggers a retry with exponential backoff (up to 3 attempts) — a
+        4xx other than 429 (e.g. the batch-size-limit 400
+        :attr:`_MAX_BATCH_SIZE` exists to avoid) is a real request error,
+        not a transient one, and propagates immediately without retrying.
 
         Raises:
-            requests.RequestException: If every retry is exhausted, or on
-                any non-retryable HTTP error status.
+            TransientAPIError: If every retry is exhausted.
+            requests.HTTPError: On a non-retryable HTTP error status.
+        """
+        import requests
+
+        try:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/embeddings",
+                headers={
+                    "Authorization": f"Bearer {settings.EMBEDDING_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self._model,
+                    "input": texts,
+                    "dimensions": self.dimension,
+                },
+                timeout=90,
+            )
+        except requests.RequestException as exc:
+            raise TransientAPIError(str(exc)) from exc
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise TransientAPIError(
+                f"OpenRouter embeddings request status {response.status_code}"
+            )
+
+        response.raise_for_status()
+        return [item["embedding"] for item in response.json()["data"]]
+
+
+class GeminiEmbeddingDriver(EmbeddingDriver):
+    """Embedding driver using Google's native Gemini API (AI Studio) directly, not via OpenRouter.
+
+    For a free-tier AI Studio API key, which carries its own
+    requests-per-minute limit distinct from any paid quota. Throttled via
+    a real sleep (``EMBEDDING_REQUEST_DELAY_SECONDS``) before each
+    request, since the actual current free-tier limit is account/tier-
+    specific and changes over time — check your own AI Studio quota page
+    rather than trusting a number hardcoded here.
+
+    Same 250-item batch limit as :class:`OpenRouterEmbeddingDriver`
+    (the same underlying Google backend serves both paths) and the same
+    ``EMBEDDING_DIMENSION`` truncation behavior, via this API's own
+    ``output_dimensionality`` config instead of OpenRouter's ``dimensions``
+    request parameter.
+    """
+
+    _MAX_BATCH_SIZE = 250
+
+    def __init__(self, model: str | None = None) -> None:
+        """Initialise the driver without creating the client yet.
+
+        Args:
+            model: Gemini embedding model id. Defaults to
+                ``settings.EMBEDDING_MODEL``.
+        """
+        self._model = model or settings.EMBEDDING_MODEL
+        self._client = None  # Created lazily on first embed call
+
+    def _get_client(self):
+        """Create and cache the ``google-genai`` client.
+
+        Returns:
+            The ``genai.Client`` instance.
+        """
+        if self._client is None:
+            from google import genai
+
+            self._client = genai.Client(api_key=settings.EMBEDDING_API_KEY)
+        return self._client
+
+    @property
+    def dimension(self) -> int:
+        """Return the embedding dimension from settings."""
+        return settings.EMBEDDING_DIMENSION
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Embed a list of strings, splitting into sub-batches of at most 250.
+
+        Args:
+            texts: A list of input strings.
+
+        Returns:
+            A list of float vectors, one per input string (same order),
+            each truncated to :attr:`dimension`.
+        """
+        embeddings: list[list[float]] = []
+        for start in range(0, len(texts), self._MAX_BATCH_SIZE):
+            embeddings.extend(
+                self._embed_one_batch(texts[start : start + self._MAX_BATCH_SIZE])
+            )
+        return embeddings
+
+    @retry_on_transient_error(max_attempts=3)
+    def _embed_one_batch(self, texts: list[str]) -> list[list[float]]:
+        """Embed at most ``_MAX_BATCH_SIZE`` strings in one Gemini API call.
+
+        Sleeps ``EMBEDDING_REQUEST_DELAY_SECONDS`` before every attempt
+        (including retries, since the whole function re-runs from the top
+        on each retry) to respect a free-tier rate limit. Decorated with
+        :func:`retry.retry_on_transient_error`: a 429 (rate-limited) or 5xx
+        response raises :class:`retry.TransientAPIError`, triggering a
+        retry with exponential backoff (up to 3 attempts), same policy as
+        :meth:`OpenRouterEmbeddingDriver._embed_one_batch`; any other error
+        propagates immediately.
+
+        Raises:
+            TransientAPIError: If every retry is exhausted.
+            Exception: Whatever the ``google-genai`` client raises, for a
+                non-retryable error.
         """
         import time
 
-        import requests
+        from google.genai import types
+        from google.genai.errors import APIError
 
-        backoff_seconds = 2.0
-        last_exception: requests.RequestException | None = None
+        if settings.EMBEDDING_REQUEST_DELAY_SECONDS > 0:
+            time.sleep(settings.EMBEDDING_REQUEST_DELAY_SECONDS)
 
-        for attempt in range(1, self._MAX_RETRIES + 1):
-            try:
-                response = requests.post(
-                    "https://openrouter.ai/api/v1/embeddings",
-                    headers={
-                        "Authorization": f"Bearer {settings.EMBEDDING_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self._model,
-                        "input": texts,
-                        "dimensions": self.dimension,
-                    },
-                    timeout=90,
-                )
-            except requests.RequestException as exc:
-                last_exception = exc
-                logger.warning(
-                    "OpenRouter embeddings request failed (attempt %d/%d): %s",
-                    attempt,
-                    self._MAX_RETRIES,
-                    exc,
-                )
-                time.sleep(backoff_seconds)
-                backoff_seconds *= 2
-                continue
+        client = self._get_client()
+        try:
+            response = client.models.embed_content(
+                model=self._model,
+                contents=texts,
+                config=types.EmbedContentConfig(output_dimensionality=self.dimension),
+            )
+        except APIError as exc:
+            status = getattr(exc, "code", None)
+            if status == 429 or (status is not None and status >= 500):
+                raise TransientAPIError(
+                    f"Gemini embeddings request status {status}"
+                ) from exc
+            raise
 
-            if response.status_code == 429 or response.status_code >= 500:
-                logger.warning(
-                    "OpenRouter embeddings request got status %d, retrying "
-                    "(attempt %d/%d) after %.1fs ...",
-                    response.status_code,
-                    attempt,
-                    self._MAX_RETRIES,
-                    backoff_seconds,
-                )
-                time.sleep(backoff_seconds)
-                backoff_seconds *= 2
-                continue
-
-            response.raise_for_status()
-            return [item["embedding"] for item in response.json()["data"]]
-
-        if last_exception is not None:
-            raise last_exception
-        response.raise_for_status()
-        raise AssertionError("unreachable: raise_for_status() should have raised")
+        return [item.values for item in response.embeddings]
 
 
 @lru_cache(maxsize=1)
@@ -484,8 +562,10 @@ def get_embedding_driver() -> EmbeddingDriver:
         return OpenAIEmbeddingDriver()
     if driver_name == "openrouter":
         return OpenRouterEmbeddingDriver()
+    if driver_name == "gemini":
+        return GeminiEmbeddingDriver()
 
     raise ValueError(
         f"Unknown EMBEDDING_DRIVER: '{driver_name}'. "
-        "Valid options are: 'local', 'openai', 'openrouter'."
+        "Valid options are: 'local', 'openai', 'openrouter', 'gemini'."
     )

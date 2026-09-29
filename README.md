@@ -33,6 +33,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 ├── models.py                # Core data shapes: ChunkMetadata, Chunk, RetrievedChunk
 ├── db.py                   # Postgres connection factory — nothing else
 ├── store.py                # VectorStore: all document_chunks persistence (save/search)
+├── retry.py                 # Shared retry-with-backoff decorator (TransientAPIError, retry_on_transient_error)
 ├── drivers/
 │   ├── embedding.py         # EmbeddingDriver strategy: local (sentence-transformers) vs openai
 │   ├── llm.py                # AnswerDriver strategy: openrouter vs openai
@@ -236,6 +237,7 @@ The project uses the **Strategy / Driver pattern** so the embedding backend is s
 | `local` (default) | `intfloat/multilingual-e5-small` | Free, offline | 100+ languages incl. Hungarian |
 | `openai` | `text-embedding-3-small` | Paid API, direct | Primarily English |
 | `openrouter` | e.g. `google/gemini-embedding-001` | Paid API, via OpenRouter | Multilingual |
+| `gemini` | `gemini-embedding-001` | Google AI Studio, free tier (rate-limited) | Multilingual |
 
 The `local` driver uses **asymmetric embedding**: document chunks are embedded with a `"passage: "` prefix (`embed_documents()`), while query strings use a `"query: "` prefix (`embed_query()`). This matches the retrieval-optimised training of the `e5` model family and measurably improves ranking compared to symmetric embedding (same prefix for both), particularly for cross-lingual queries.
 
@@ -248,6 +250,8 @@ Real, measured cost for this project's real-estate-law corpus: ~$0.15/1M tokens,
 This driver has no real tokenizer (`count_tokens()`/`max_sequence_length()` stay `None`, same as `openai`) — set `CHUNKING_STRATEGY=word`, not `langchain`, when using it. Confirmed empirically why this matters: `langchain` falls back to measuring `CHUNK_SIZE` in raw *characters* without a real tokenizer, which silently produced 407 chunks from one real document that should have had ~15.
 
 **A related, more consequential finding**: switching to this driver changes the raw vector-similarity *scale* enough that the existing `RETRIEVAL_MIN_SCORE=0.25` threshold (tuned for the `local` e5 model) no longer reliably separates relevant from irrelevant queries — measured a clearly irrelevant query (in Hungarian, about frying chicken) scoring **0.54–0.55** raw cosine similarity, well above the 0.25 threshold, versus **0.73–0.76** for a genuinely relevant one. The gap is real but narrow, and the vector-only relevance gate alone can no longer be trusted to reject an off-topic query. See "Reranking" below for why this made `RERANKER_DRIVER=cross_encoder` the new default rather than something to fix by raising `RETRIEVAL_MIN_SCORE` — and `docs/decisions.md` for the full finding.
+
+**`gemini`** calls Google's native AI Studio embeddings API directly (`google-genai` SDK), instead of routing through OpenRouter — same model (`gemini-embedding-001`), same 384d truncation mechanism (`output_dimensionality`, the native-API equivalent of OpenRouter's `dimensions` param), same 250-item batch limit, same lack of a real tokenizer (`CHUNKING_STRATEGY=word` applies here too). Adopted after the project's OpenRouter account ran out of credit (a real, live `402 Payment Required`) — `EMBEDDING_API_KEY` for this driver is a *different kind* of key: a native Google AI Studio key, not an OpenRouter key. Because a free-tier AI Studio key enforces its own requests-per-minute limit — one that's account-specific and changes over time, not something to hardcode — this driver sleeps `EMBEDDING_REQUEST_DELAY_SECONDS` (default `0.0`, i.e. no throttling) before every request; set it to whatever your own AI Studio quota page allows. Both drivers (and the corpus downloader below) share the same retry-with-backoff policy on transient failures (429/5xx, up to 3 attempts, exponential backoff) via `retry.py`'s `retry_on_transient_error()` decorator — confirmed empirically that a 402 is correctly treated as non-retryable rather than wasting retry attempts on it.
 
 ## Chunking & Token Limits
 

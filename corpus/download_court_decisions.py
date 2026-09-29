@@ -42,12 +42,22 @@ import csv
 import logging
 import random
 import re
+import sys
 import time
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
 import requests
+
+# Ensure project root is on sys.path so `import retry` resolves when this
+# script is run directly (`uv run python corpus/download_court_decisions.py`),
+# not just when imported as a package.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from retry import TransientAPIError, retry_on_transient_error
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +167,11 @@ def request_with_retries(
 ) -> requests.Response | None:
     """Issues an HTTP request, retrying with backoff on network errors, 429, or 5xx.
 
+    Uses :func:`retry.retry_on_transient_error` for the retry/backoff
+    mechanics (shared with the embedding drivers in
+    ``drivers/embedding.py``), applied inline since ``config.max_retries``
+    is only known at call time, not decoration time.
+
     Args:
         method: HTTP method ("GET" or "POST").
         url: Full request URL.
@@ -165,50 +180,24 @@ def request_with_retries(
     Returns:
         The successful Response, or None if every retry was exhausted.
     """
-    backoff_seconds = 2.0
-    for attempt in range(1, config.max_retries + 1):
+
+    @retry_on_transient_error(max_attempts=config.max_retries)
+    def _do_request() -> requests.Response:
         try:
             response = session.request(method, url, timeout=60, **kwargs)
         except requests.RequestException as exc:
-            logger.warning(
-                "Request error (attempt %d/%d) for %s: %s",
-                attempt,
-                config.max_retries,
-                url,
-                exc,
-            )
-            time.sleep(backoff_seconds)
-            backoff_seconds *= 2
-            continue
+            raise TransientAPIError(str(exc)) from exc
 
-        if response.status_code == 429:
-            logger.warning(
-                "Rate limited (429) on %s, waiting %.1fs before retry %d/%d",
-                url,
-                backoff_seconds,
-                attempt,
-                config.max_retries,
-            )
-            time.sleep(backoff_seconds)
-            backoff_seconds *= 2
-            continue
-
-        if response.status_code >= 500:
-            logger.warning(
-                "Server error %d on %s (attempt %d/%d)",
-                response.status_code,
-                url,
-                attempt,
-                config.max_retries,
-            )
-            time.sleep(backoff_seconds)
-            backoff_seconds *= 2
-            continue
+        if response.status_code == 429 or response.status_code >= 500:
+            raise TransientAPIError(f"{url} returned status {response.status_code}")
 
         return response
 
-    logger.error("Giving up on %s after %d attempts", url, config.max_retries)
-    return None
+    try:
+        return _do_request()
+    except TransientAPIError:
+        logger.error("Giving up on %s after %d attempts", url, config.max_retries)
+        return None
 
 
 def search_page(

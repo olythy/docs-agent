@@ -12,11 +12,13 @@ import pytest
 import drivers.embedding as embedding_module
 from drivers.embedding import (
     EmbeddingDriver,
+    GeminiEmbeddingDriver,
     LocalSentenceTransformerDriver,
     OpenAIEmbeddingDriver,
     OpenRouterEmbeddingDriver,
     get_embedding_driver,
 )
+from retry import TransientAPIError
 
 
 class _FakeDriver(EmbeddingDriver):
@@ -386,10 +388,10 @@ def test_openrouter_driver_embed_batch_retries_on_429_then_raises_when_exhausted
     monkeypatch.setattr("requests.post", fake_post)
     monkeypatch.setattr("time.sleep", MagicMock())
 
-    with pytest.raises(Exception, match="HTTP 429"):
+    with pytest.raises(TransientAPIError, match="status 429"):
         OpenRouterEmbeddingDriver().embed_batch(["text"])
 
-    assert fake_post.call_count == OpenRouterEmbeddingDriver._MAX_RETRIES
+    assert fake_post.call_count == 3
 
 
 def test_openrouter_driver_embed_batch_recovers_after_transient_failure(
@@ -423,3 +425,194 @@ def test_get_embedding_driver_returns_openrouter(monkeypatch, settings_override)
         embedding_module, "settings", settings_override(EMBEDDING_DRIVER="openrouter")
     )
     assert isinstance(get_embedding_driver(), OpenRouterEmbeddingDriver)
+
+
+# --- GeminiEmbeddingDriver ---
+
+
+def _fake_gemini_client(vectors: list[list[float]]) -> MagicMock:
+    embedding_items = [MagicMock(values=v) for v in vectors]
+    response = MagicMock(embeddings=embedding_items)
+    client = MagicMock()
+    client.models.embed_content.return_value = response
+    return client
+
+
+def test_gemini_driver_dimension_reads_from_settings(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    assert GeminiEmbeddingDriver().dimension == 384
+
+
+def test_gemini_driver_uses_given_model_over_settings_default():
+    driver = GeminiEmbeddingDriver(model="gemini-embedding-001")
+    assert driver._model == "gemini-embedding-001"
+
+
+def test_gemini_driver_defaults_to_settings_embedding_model(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(EMBEDDING_MODEL="gemini-embedding-001"),
+    )
+    assert GeminiEmbeddingDriver()._model == "gemini-embedding-001"
+
+
+def test_gemini_driver_embed_batch_sends_correct_request(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(
+            EMBEDDING_DIMENSION=384,
+            EMBEDDING_API_KEY="fake-key",
+            EMBEDDING_REQUEST_DELAY_SECONDS=0.0,
+        ),
+    )
+    fake_client = _fake_gemini_client([[0.1, 0.2], [0.3, 0.4]])
+    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+
+    driver = GeminiEmbeddingDriver(model="gemini-embedding-001")
+    result = driver.embed_batch(["first chunk", "second chunk"])
+
+    assert result == [[0.1, 0.2], [0.3, 0.4]]
+    call = fake_client.models.embed_content.call_args
+    assert call.kwargs["model"] == "gemini-embedding-001"
+    assert call.kwargs["contents"] == ["first chunk", "second chunk"]
+    assert call.kwargs["config"].output_dimensionality == 384
+
+
+def test_gemini_driver_sleeps_before_each_request(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(EMBEDDING_DIMENSION=384, EMBEDDING_REQUEST_DELAY_SECONDS=5.0),
+    )
+    fake_client = _fake_gemini_client([[0.1] * 384])
+    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    fake_sleep = MagicMock()
+    monkeypatch.setattr("time.sleep", fake_sleep)
+
+    GeminiEmbeddingDriver().embed_batch(["text"])
+
+    fake_sleep.assert_called_once_with(5.0)
+
+
+def test_gemini_driver_does_not_sleep_when_delay_is_zero(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(EMBEDDING_DIMENSION=384, EMBEDDING_REQUEST_DELAY_SECONDS=0.0),
+    )
+    fake_client = _fake_gemini_client([[0.1] * 384])
+    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    fake_sleep = MagicMock()
+    monkeypatch.setattr("time.sleep", fake_sleep)
+
+    GeminiEmbeddingDriver().embed_batch(["text"])
+
+    fake_sleep.assert_not_called()
+
+
+def test_gemini_driver_splits_batches_over_250_items(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(EMBEDDING_DIMENSION=384, EMBEDDING_REQUEST_DELAY_SECONDS=0.0),
+    )
+    call_batches: list[list[str]] = []
+
+    def fake_embed_content(model, contents, config):
+        call_batches.append(contents)
+        return MagicMock(embeddings=[MagicMock(values=[0.0] * 384) for _ in contents])
+
+    fake_client = MagicMock()
+    fake_client.models.embed_content.side_effect = fake_embed_content
+    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+
+    texts = [f"chunk {i}" for i in range(300)]
+    result = GeminiEmbeddingDriver().embed_batch(texts)
+
+    assert len(result) == 300
+    assert [len(batch) for batch in call_batches] == [250, 50]
+
+
+def test_gemini_driver_retries_on_429_then_succeeds(monkeypatch, settings_override):
+    from google.genai.errors import APIError
+
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(EMBEDDING_DIMENSION=384, EMBEDDING_REQUEST_DELAY_SECONDS=0.0),
+    )
+    fake_response = MagicMock(embeddings=[MagicMock(values=[0.1, 0.2])])
+    fake_client = MagicMock()
+    fake_client.models.embed_content.side_effect = [
+        APIError(code=429, response_json={"error": {"message": "rate limited"}}),
+        fake_response,
+    ]
+    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    result = GeminiEmbeddingDriver().embed_batch(["text"])
+
+    assert result == [[0.1, 0.2]]
+    assert fake_client.models.embed_content.call_count == 2
+
+
+def test_gemini_driver_raises_immediately_on_non_retryable_error(
+    monkeypatch, settings_override
+):
+    from google.genai.errors import APIError
+
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(EMBEDDING_DIMENSION=384, EMBEDDING_REQUEST_DELAY_SECONDS=0.0),
+    )
+    fake_client = MagicMock()
+    fake_client.models.embed_content.side_effect = APIError(
+        code=400, response_json={"error": {"message": "bad request"}}
+    )
+    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+
+    with pytest.raises(APIError):
+        GeminiEmbeddingDriver().embed_batch(["text"])
+
+    fake_client.models.embed_content.assert_called_once()
+
+
+def test_gemini_driver_raises_after_exhausting_retries_on_persistent_429(
+    monkeypatch, settings_override
+):
+    from google.genai.errors import APIError
+
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(EMBEDDING_DIMENSION=384, EMBEDDING_REQUEST_DELAY_SECONDS=0.0),
+    )
+    fake_client = MagicMock()
+    fake_client.models.embed_content.side_effect = APIError(
+        code=429, response_json={"error": {"message": "rate limited"}}
+    )
+    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    with pytest.raises(TransientAPIError, match="status 429"):
+        GeminiEmbeddingDriver().embed_batch(["text"])
+
+    assert fake_client.models.embed_content.call_count == 3
+
+
+def test_get_embedding_driver_returns_gemini(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DRIVER="gemini")
+    )
+    assert isinstance(get_embedding_driver(), GeminiEmbeddingDriver)
