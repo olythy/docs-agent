@@ -83,54 +83,6 @@
     "notes": "Ez egy szándékos csapda-kérdés egy nem létező ügyszámra hivatkozva, amelynek célja annak tesztelése, hogy a modell elutasítja-e a válaszadást ahelyett, hogy megpróbálná kitalálni az adatokat."
   },
   {
-    "id": "q0006",
-    "persona_id": "precedent_seeker",
-    "question": "Milyen ügyekben alkalmazták a bíróságok a kisajátítási eljárás szabályait, illetve a közös költség megfizetésére vonatkozó kötelezést?",
-    "expected_answer": "A Budapest Környéki Törvényszék a K.701013.2024.3. számú, kisajátítási ügyben hozott ítéletében az alperes határozatát megsemmisítette és új eljárásra kötelezte a kisajátításról szóló 2007. évi CXXIII. törvény (Kstv.) előírásai alapján, miután a bíróság korábbi ítéletével a szakértő kompetenciájának hiánya miatt már megsemmisítette a korábbi határozatot. A Budai Központi Kerületi Bíróság a 9.P.23.014/2023/9. számú ügyben pedig közös költség megfizetésére kötelezte az alperest.",
-    "citations": [
-      {
-        "court": "Budapest Kornyeki Torvenyszek",
-        "case_number": "K.701013.2024.3",
-        "source_file": "Budapest_Kornyeki_Torvenyszek__K_701013_2024_3.docx"
-      },
-      {
-        "court": "Budai Kozponti Keruleti Birosag",
-        "case_number": "P.23014.2023.9",
-        "source_file": "Budai_Kozponti_Keruleti_Birosag__P_23014_2023_9.docx"
-      }
-    ],
-    "difficulty": "medium",
-    "is_answerable": true,
-    "reviewed": true,
-    "verification_status": "verified",
-    "verification_notes": "A csatolt dokumentumok tartalma pontosan alátámasztja a várt válaszban szereplő állításokat: a Budapest Környéki Törvényszék K.701013.2024.3. számú kisajátítási ügyben hozott ítéletében megsemmisítette az alperes határozatát és új eljárásra kötelezte a Kstv. alapján (miután a bíróság korábbi ítéletével a szakértő kompetenciájának hiánya miatt már hatályon kívül helyezte a határozatot), a Budai Központi Kerületi Bíróság 9.P.23.014/2023/9. számú ítéletében pedig közös költség megfizetésére kötelezte az alperest.",
-    "notes": "A kérdés két különböző, a korpuszban szereplő bírósági határozatot köt össze a Precedens-kereső persona stílusának megfelelően."
-  },
-  {
-    "id": "q0007",
-    "persona_id": "synthesizer",
-    "question": "Hogyan alakult a Budapest Környéki Törvényszék ítélkezési gyakorlata a felperesi keresetek elutasítása tekintetében a 2020-as G.40110.2020.29. számú és a 2022-es K.700650.2022.13. számú ügyekben?",
-    "expected_answer": "A megvizsgált időszakban a Budapest Környéki Törvényszék ítélkezési gyakorlata egységesnek mutatkozik abban a tekintetben, hogy a bíróság mindkét ügyben elutasította a felperesek kereseti kérelmét. A 2020-ban hozott (G.40110.2020.29. sz.) szerződés érvénytelenségének megállapítása iránti perben, valamint a 2022-ben elbírált (K.700650.2022.13. sz.) korlátozási kártalanítási ügyben is a felperesek keresetének elutasításáról döntött a bíróság, és mindkét esetben perköltség megfizetésére kötelezte a felperest.",
-    "citations": [
-      {
-        "court": "Budapest Kornyeki Torvenyszek",
-        "case_number": "G.40110.2020.29",
-        "source_file": "Budapest_Kornyeki_Torvenyszek__G_40110_2020_29.docx"
-      },
-      {
-        "court": "Budapest Kornyeki Torvenyszek",
-        "case_number": "K.700650.2022.13",
-        "source_file": "Budapest_Kornyeki_Torvenyszek__K_700650_2022_13.docx"
-      }
-    ],
-    "difficulty": "medium",
-    "is_answerable": true,
-    "reviewed": true,
-    "verification_status": "verified",
-    "verification_notes": "A bíróságok mindkét megjelölt ügyben (2020-as G.40110.2020.29. és 2022-es K.700650.2022.13.) elutasították a felperesek keresetét, és mindkét esetben perköltség megfizetésére kötelezték őket.",
-    "notes": "A kérdés a két különböző évben (2020 és 2022) kelt, a Budapest Környéki Törvényszék által hozott ítéletek kimenetelének szintézisére épül a megadott dokumentumok alapján."
-  },
-  {
     "id": "q0008",
     "persona_id": "practical_procedural",
     "question": "Milyen bizonyítékot vagy perköltséget ítélt meg a bíróság a Budapest Környéki Törvényszék P.20103.2022.19 számú kártérítési ügyében?",
@@ -191,5 +143,53 @@
     "verification_status": "verified",
     "verification_notes": "A csatolt dokumentumok tartalma pontosan alátámasztja az elvárt válaszban szereplő mindkét ítélet kimenetelét: a P.20.487/2020/221. számú ügyben a bíróság megszüntette a közös tulajdont a felperes javára, míg a G.40.154/2024/4. számú ügyben elutasította a felperes keresetét és perköltség megfizetésére kötelezte.",
     "notes": "A kérdés a két különböző évben (2020 és 2024) kelt, a Budapest Környéki Törvényszék által hozott ítélet tényállását és kimenetelét köti össze időrendi szintézisben."
+  },
+  {
+    "id": "q0011",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben hozott ítéletet a Debreceni Törvényszék és a Budapest Környéki Törvényszék kisajátítási, illetve útügyi közlekedési hatósági ügyben?",
+    "expected_answer": "A Debreceni Törvényszék a 12.K.703.284/2020/21. számú ügyben kisajátítási ügyben hozott közigazgatási határozat felülvizsgálata iránt járt el, és az alperes határozatait részben megváltoztatta. A Budapest Környéki Törvényszék pedig a 104.K.700.621/2023/17. számú ügyben útügyi közlekedési hatósági ügyben hozott közigazgatási cselekmény megtámadása iránti perben a felperes keresetét elutasította.",
+    "citations": [
+      {
+        "court": "Debreceni Torvenyszek",
+        "case_number": "12.K.703.284/2020/21",
+        "source_file": "Debreceni_Torvenyszek__K_703284_2020_21.docx"
+      },
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "104.K.700.621/2023/17",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_700621_2023_17.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited case numbers appear verbatim in their respective source files, and the content fully supports the summary provided in the expected answer regarding the types of administrative cases and the decisions made by the Debrecen and Budapest Environs Tribunals.",
+    "notes": "A kérdés két különböző bíróság (Debreceni Törvényszék és Budapest Környéki Törvényszék) közigazgatási ügyeit kapcsolja össze a korpuszban szereplő valós adatok és pontos esetszámok alapján."
+  },
+  {
+    "id": "q0012",
+    "persona_id": "synthesizer",
+    "question": "Hogyan alakult a kisajátítási ügyben hozott végzés megtámadása (24.K.700.904/2022/6.) és a mezőgazdasági termékértékesítési szerződésből eredő követelés (4.G.20.155/2022/68.) kapcsán a bíróságok által megállapított perköltség vagy pénzbeli marasztalás?",
+    "expected_answer": "A Budapest Környéki Törvényszék a 24.K.700.904/2022/6. számú ügyben az alperest 6.000 Ft (hatezer forint) perköltség megfizetésére kötelezte, míg az eljárási illeték az állam terhén maradt. Az Egri Törvényszék a 4.G.20.155/2022/68. számú ügyben (mezőgazdasági termékértékesítési szerződésből eredő követelés iránti perben) kötelezte az alperest, hogy 15 napon belül fizessen meg a felperesnek 442.511 eurót és 11 eurócentet, valamint annak 2021. március 1. napjától járó kamatait.",
+    "citations": [
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "24.K.700.904/2022/6",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_700904_2022_6.docx"
+      },
+      {
+        "court": "Egri Torvenyszek",
+        "case_number": "4.G.20.155/2022/68",
+        "source_file": "Egri_Torvenyszek__G_20155_2022_68.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited case numbers appear verbatim in their respective source files, and the content fully supports the expected answer regarding the court rulings on litigation costs and monetary claims.",
+    "notes": "A kérdés két különböző bíróság (Budapest Környéki Törvényszék és Egri Törvényszék) határozatának pénzügyi rendelkezéseit (perköltség, illetve követelés és kamatai) köti össze a rendelkezésre álló dokumentumok alapján."
   }
 ]
