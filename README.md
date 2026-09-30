@@ -64,8 +64,12 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── decisions.md          # Engineering decision & bug-log history (the "why" behind this README)
 │   └── architecture.md       # Pipeline diagrams + Strategy/Driver selection table (the "how it flows")
 ├── corpus/
-│   └── download_court_decisions.py  # Downloads a real-estate-law eval corpus from eakta.birosag.hu (raw/ + meta.csv are gitignored)
+│   ├── download_court_decisions.py  # Downloads a real-estate-law eval corpus from eakta.birosag.hu (raw/ + meta.csv are gitignored)
+│   └── golden_set/
+│       ├── personas.json    # 5 user-profile definitions driving golden-question style
+│       └── questions.json   # Golden-set questions (question/answer/citation/verification_status)
 ├── skills/                  # Claude Code skills (canonical source — `make skills-install` symlinks into .claude/skills/)
+│   └── generate-golden-questions/  # Drafts + two-tier-verifies corpus/golden_set/questions.json entries
 ├── pyproject.toml           # Project metadata, dependencies, pytest config
 ├── uv.lock                  # Locked, reproducible dependency versions
 ├── .env.example             # Environment variable template

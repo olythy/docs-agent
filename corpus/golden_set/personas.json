@@ -1,0 +1,47 @@
+[
+  {
+    "id": "fact_finder",
+    "name": "Egyszerű tényfeltáró",
+    "description": "Egy konkrét dokumentumból egy konkrét, jól körülhatárolt tényt keres ki (pl. az ítélet indoka, a kimondott jogkövetkezmény, egy dátum vagy összeg).",
+    "question_style": "Egy adott ügyre (ügyszám és/vagy bíróság) hivatkozó, egyértelmű, egy dokumentumon belül megválaszolható kérdés.",
+    "document_scope": "single",
+    "requires_regional_diversity": false,
+    "citation_expectation": "Pontosan egy forrásdokumentum (bíróság + ügyszám) és az azt alátámasztó szövegrészlet."
+  },
+  {
+    "id": "precedent_seeker",
+    "name": "Precedens-kereső",
+    "description": "Olyan ügyeket keres, amelyekben a bíróság egy adott jogi elvet vagy jogértelmezést mondott ki, és ezekre hivatkozva tesz fel kérdést.",
+    "question_style": "\"Milyen ügyekben mondta ki a bíróság, hogy X elv érvényes Y esetben?\" -- a jelenlegi korpuszban ténylegesen meglévő ügyekre szűkítve, nem országos gyakorlatra hivatkozva.",
+    "document_scope": "multi",
+    "requires_regional_diversity": false,
+    "citation_expectation": "Egy vagy több, ténylegesen a korpuszban szereplő ügy, jogi elv szerint összekötve -- nem regionális, hanem tartalmi/jogi mintázat alapján."
+  },
+  {
+    "id": "synthesizer",
+    "name": "Több dokumentumot összekötő / következtető",
+    "description": "Időbeli vagy tematikus szintézist kér a meglévő ügyeken belül (pl. hogyan változott egy jogi álláspont egy adott időszakban).",
+    "question_style": "\"Hogyan változott X jogi álláspont [időszak] alatt?\" -- a rendelkezésre álló ügyek időrendjére/tartalmára épül, nem régiók összevetésére.",
+    "document_scope": "multi",
+    "requires_regional_diversity": false,
+    "citation_expectation": "Több forrásdokumentum, időrendi vagy tematikus összefüggésben."
+  },
+  {
+    "id": "practical_procedural",
+    "name": "Gyakorlati / eljárási",
+    "description": "Eljárási vagy gyakorlati részletekre kérdez rá (pl. milyen bizonyítékot fogadott el a bíróság, milyen eljárási szabályt alkalmazott).",
+    "question_style": "\"Milyen bizonyítékot fogadott el a bíróság [ügytípus] ügyben?\" -- dokumentum-függő, gyakorlati fókuszú kérdés.",
+    "document_scope": "single",
+    "requires_regional_diversity": false,
+    "citation_expectation": "Egy forrásdokumentum, az eljárási/gyakorlati részletet tartalmazó szövegrésszel."
+  },
+  {
+    "id": "adversarial",
+    "name": "Adverzariális / csapda-kérdező",
+    "description": "Szándékosan megválaszolhatatlan, félrevezető, vagy a korpuszban nem szereplő tényre hivatkozó kérdést tesz fel -- a hallucináció-elutasítás és a \"nem tudom\" válasz tesztelésére.",
+    "question_style": "Nem létező ügyszámra, bíróságra, vagy a korpuszból hiányzó tényre hivatkozó kérdés, illetve olyan kérdés, aminek a válasza nincs benne az ingestelt dokumentumokban.",
+    "document_scope": "none",
+    "requires_regional_diversity": false,
+    "citation_expectation": "Nincs helyes citáció -- az elvárt válasz explicit elutasítás/bizonytalanság jelzése, nem egy kitalált forrás."
+  }
+]

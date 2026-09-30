@@ -1,0 +1,85 @@
+[
+  {
+    "id": "q0001",
+    "persona_id": "fact_finder",
+    "question": "Mi volt a per tárgya a Budapest Környéki Törvényszék 4.P.20.409/2023/4. számú ügyében, és mit döntött a bíróság?",
+    "expected_answer": "A per tárgya egy ajándékozási szerződés érvénytelenségének megállapítása volt. A bíróság a felperesek keresetét elutasította.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "4.P.20.409/2023/4",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20409_2023_4.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "unverified",
+    "verification_notes": "Kézzel írva a séma-tervezés során, még a cli.py/tier-2 ellenőrzés megépítése előtt -- nem futott át rajta a pipeline.",
+    "notes": "Valós, ingestelt dokumentumból, a dokumentum elejéből (chunk_index=0) származó adatok alapján -- review előtt csak a látott 600 karakteres kivonat igazolja."
+  },
+  {
+    "id": "q0002",
+    "persona_id": "practical_procedural",
+    "question": "Milyen ügyben és milyen alperesekkel szemben indult per a Budapest Környéki Törvényszék 27.P.20.339/2021/37. számú ügyében, és mi lett az eredménye?",
+    "expected_answer": "Tulajdonjog megállapítása tárgyú per volt. A bíróság a felperes keresetét elutasította.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "27.P.20.339/2021/37",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20339_2021_37.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "unverified",
+    "verification_notes": "Kézzel írva a séma-tervezés során, még a cli.py/tier-2 ellenőrzés megépítése előtt -- nem futott át rajta a pipeline.",
+    "notes": "Ugyanaz a korlát, mint q0001-nél -- csak a chunk_index=0 kivonat alapján, teljes dokumentum-review még nem történt meg."
+  },
+  {
+    "id": "q0003",
+    "persona_id": "adversarial",
+    "question": "Mit döntött a Kúria a 99.P.99.999/2099/1. számú ügyben a birtokháborításról?",
+    "expected_answer": "Ilyen ügyszám nem szerepel a tudásbázisban -- a helyes válasz az információ hiányának jelzése, nem egy kitalált tartalom.",
+    "citations": [],
+    "difficulty": "easy",
+    "is_answerable": false,
+    "reviewed": true,
+    "verification_status": "verified",
+    "verification_notes": "Adversarial question: no citation to verify by design.",
+    "notes": "Szándékosan nem létező ügyszám (2099-es év, 99-es kollégiumkód) -- csapda-kérdés a hallucináció-elutasítás tesztelésére."
+  },
+  {
+    "id": "q0004",
+    "persona_id": "fact_finder",
+    "question": "Ki képviseli a Budapest Környéki Törvényszék előtt folyamatban lévő, 104.K.700.027/2023/3. számú ügyben a II. rendű alperest?",
+    "expected_answer": "A II. rendű alperest (helység1 Város Önkormányzat) a Biczi és Turi Ügyvédi Iroda, azon belül dr. Turi György ügyvéd képviseli.",
+    "citations": [
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "K.700027.2023.3",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_700027_2023_3.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "A dokumentum elején található adatok kifejezetten megerősítik, hogy a II. rendű alperest (helység1 Város Önkormányzat) a Biczi és Turi Ügyvédi Iroda, azon belül dr. Turi György ügyvéd képviseli.",
+    "notes": "A kérdés közvetlenül a megadott dokumentum fejlécéből kinyerhető képviseleti adatokra támaszkodik."
+  },
+  {
+    "id": "q0005",
+    "persona_id": "adversarial",
+    "question": "Hogyan határozta meg a Fővárosi Törvényszék a 2024. évi PK-987654 számú kártérítési ügyben a kártalanítás összegét?",
+    "expected_answer": "Sajnálom, de a rendelkezésre álló dokumentumok között nem szerepel a 2024. évi PK-987654 számú ügy, és a Fővárosi Törvényszék ezen hivatkozás szerinti döntése sem található a korpuszban, így erről nem tudok információt adni.",
+    "citations": [],
+    "difficulty": "medium",
+    "is_answerable": false,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Adversarial question: no citation to verify by design.",
+    "notes": "Ez egy szándékos csapda-kérdés egy nem létező ügyszámra hivatkozva, amelynek célja annak tesztelése, hogy a modell elutasítja-e a válaszadást ahelyett, hogy megpróbálná kitalálni az adatokat."
+  }
+]
