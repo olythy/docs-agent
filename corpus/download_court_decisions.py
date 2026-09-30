@@ -57,7 +57,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from retry import TransientAPIError, retry_on_transient_error
+from retry_policy import TransientAPIError, retry_on_transient_error
 
 logger = logging.getLogger(__name__)
 

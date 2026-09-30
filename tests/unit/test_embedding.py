@@ -18,7 +18,7 @@ from drivers.embedding import (
     OpenRouterEmbeddingDriver,
     get_embedding_driver,
 )
-from retry import TransientAPIError
+from retry_policy import TransientAPIError
 
 
 class _FakeDriver(EmbeddingDriver):

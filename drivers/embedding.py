@@ -27,7 +27,7 @@ from abc import ABC, abstractmethod
 from functools import lru_cache
 
 from config import settings
-from retry import TransientAPIError, retry_on_transient_error
+from retry_policy import TransientAPIError, retry_on_transient_error
 
 logger = logging.getLogger(__name__)
 

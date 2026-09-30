@@ -1,10 +1,10 @@
-"""Tests for retry.py: the shared retry-with-backoff decorator."""
+"""Tests for retry_policy.py: the shared retry-with-backoff decorator."""
 
 from unittest.mock import MagicMock
 
 import pytest
 
-from retry import TransientAPIError, retry_on_transient_error
+from retry_policy import TransientAPIError, retry_on_transient_error
 
 
 def test_transient_api_error_is_an_os_error():
