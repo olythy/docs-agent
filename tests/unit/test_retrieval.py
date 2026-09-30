@@ -143,6 +143,49 @@ def test_hybrid_strategy_rescues_identifier_match_missed_by_vector_and_fulltext(
     )
 
 
+def test_hybrid_strategy_guarantees_identifier_match_survives_top_k_truncation(
+    monkeypatch,
+):
+    """Regression test for a real, live miss: an identifier match can be
+    correctly merged into the candidate pool and still pass RERANKER_MIN_SCORE,
+    yet still get cut by top_k if several other chunks score higher on
+    generic semantic relevance (see docs/decisions.md -- the reranker has
+    no notion that an identifier match is definitionally correct)."""
+    vector_results = [_chunk(i, score=0.9) for i in range(1, 5)]
+    fake_store = MagicMock()
+    fake_store.search_fulltext.return_value = []
+    fake_store.search_by_identifier.return_value = [_chunk(99, score=1.0)]
+
+    class _LowScoringIdentifierReranker:
+        """Scores the identifier match lowest of all -- it would be cut by
+        a plain top_k truncation despite being merged into the pool."""
+
+        def rerank(self, question, chunks):
+            return sorted(
+                (replace(c, score=0.1 if c.id == 99 else 1.0) for c in chunks),
+                key=lambda c: c.score,
+                reverse=True,
+            )
+
+    monkeypatch.setattr(
+        retrieval_module,
+        "get_reranker_driver",
+        lambda *a, **k: _LowScoringIdentifierReranker(),
+    )
+
+    strategy = HybridRetrievalStrategy()
+    result = strategy.select_chunks(
+        "Mi történt a 4.P.20.409/2023/4. ügyben?",
+        vector_results,
+        fake_store,
+        top_k=4,
+        min_score=0.25,
+    )
+
+    assert 99 in [c.id for c in result]
+    assert len(result) == 4
+
+
 def test_hybrid_strategy_skips_identifier_search_when_question_has_no_identifiers(
     monkeypatch,
 ):

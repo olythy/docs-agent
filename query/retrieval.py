@@ -130,6 +130,35 @@ class VectorRetrievalStrategy(RetrievalStrategy):
         return filtered[:top_k]
 
 
+def _apply_top_k_with_guarantees(
+    chunks: list[RetrievedChunk], guaranteed_ids: set[int], top_k: int
+) -> list[RetrievedChunk]:
+    """Truncate ``chunks`` to ``top_k``, but never drop a guaranteed chunk.
+
+    Confirmed live (see docs/decisions.md) that an exact identifier match
+    (a case number, ...) surviving the ``RERANKER_MIN_SCORE`` filter still
+    isn't enough on its own -- the cross-encoder's relevance *ranking*
+    routinely puts it below ``top_k`` other chunks that merely *read* as
+    generically on-topic, since the reranker has no notion of "this chunk
+    is definitionally correct because its identifier matches." Being in
+    the candidate pool only helps if it also survives this final cut.
+
+    Args:
+        chunks: Already reranked and score-filtered, in descending score order.
+        guaranteed_ids: ``RetrievedChunk.id`` values that must be kept
+            regardless of rank (e.g. from :meth:`store.VectorStore.search_by_identifier`).
+        top_k: Maximum number of chunks to return.
+
+    Returns:
+        Every guaranteed chunk present in ``chunks``, plus the highest-
+        scoring remaining chunks up to ``top_k`` total (more than ``top_k``
+        only if there are more guaranteed chunks than ``top_k`` itself).
+    """
+    guaranteed = [c for c in chunks if c.id in guaranteed_ids]
+    rest = [c for c in chunks if c.id not in guaranteed_ids]
+    return guaranteed + rest[: max(0, top_k - len(guaranteed))]
+
+
 class HybridRetrievalStrategy(RetrievalStrategy):
     """Vector + keyword search, fused with RRF, then optionally reranked."""
 
@@ -185,11 +214,13 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         # the golden-set eval (see docs/decisions.md). Merged in directly,
         # not RRF-blended: an exact identifier match is a strong enough
         # signal on its own not to need score-averaging with cosine/ts_rank.
+        identifier_chunk_ids: set[int] = set()
         identifier_tokens = extract_identifier_tokens(question)
         if identifier_tokens:
             identifier_results = store.search_by_identifier(
                 identifier_tokens, top_k=candidate_k
             )
+            identifier_chunk_ids = {c.id for c in identifier_results}
             fused_ids = {c.id for c in fused}
             new_matches = [c for c in identifier_results if c.id not in fused_ids]
             if new_matches:
@@ -224,9 +255,11 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                     threshold,
                 )
                 return []
-            return valid_chunks[:top_k]
+            return _apply_top_k_with_guarantees(
+                valid_chunks, identifier_chunk_ids, top_k
+            )
 
-        return reranked[:top_k]
+        return _apply_top_k_with_guarantees(reranked, identifier_chunk_ids, top_k)
 
 
 def get_retrieval_strategy() -> RetrievalStrategy:

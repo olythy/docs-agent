@@ -163,7 +163,7 @@
     ],
     "difficulty": "medium",
     "is_answerable": true,
-    "reviewed": false,
+    "reviewed": true,
     "verification_status": "verified",
     "verification_notes": "Both cited case numbers appear verbatim in their respective source files, and the content fully supports the summary provided in the expected answer regarding the types of administrative cases and the decisions made by the Debrecen and Budapest Environs Tribunals.",
     "notes": "A kérdés két különböző bíróság (Debreceni Törvényszék és Budapest Környéki Törvényszék) közigazgatási ügyeit kapcsolja össze a korpuszban szereplő valós adatok és pontos esetszámok alapján."
@@ -187,7 +187,7 @@
     ],
     "difficulty": "medium",
     "is_answerable": true,
-    "reviewed": false,
+    "reviewed": true,
     "verification_status": "verified",
     "verification_notes": "Both cited case numbers appear verbatim in their respective source files, and the content fully supports the expected answer regarding the court rulings on litigation costs and monetary claims.",
     "notes": "A kérdés két különböző bíróság (Budapest Környéki Törvényszék és Egri Törvényszék) határozatának pénzügyi rendelkezéseit (perköltség, illetve követelés és kamatai) köti össze a rendelkezésre álló dokumentumok alapján."
