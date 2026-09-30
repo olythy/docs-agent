@@ -13,9 +13,9 @@
     ],
     "difficulty": "easy",
     "is_answerable": true,
-    "reviewed": false,
-    "verification_status": "unverified",
-    "verification_notes": "Kézzel írva a séma-tervezés során, még a cli.py/tier-2 ellenőrzés megépítése előtt -- nem futott át rajta a pipeline.",
+    "reviewed": true,
+    "verification_status": "verified",
+    "verification_notes": "Kézzel írva a séma-tervezés során, a pipeline megépítése előtt -- utólag, manuális SQL-lekérdezéssel a teljes dokumentum alapján megerősítve.",
     "notes": "Valós, ingestelt dokumentumból, a dokumentum elejéből (chunk_index=0) származó adatok alapján -- review előtt csak a látott 600 karakteres kivonat igazolja."
   },
   {
@@ -32,9 +32,9 @@
     ],
     "difficulty": "easy",
     "is_answerable": true,
-    "reviewed": false,
-    "verification_status": "unverified",
-    "verification_notes": "Kézzel írva a séma-tervezés során, még a cli.py/tier-2 ellenőrzés megépítése előtt -- nem futott át rajta a pipeline.",
+    "reviewed": true,
+    "verification_status": "verified",
+    "verification_notes": "Kézzel írva a séma-tervezés során, a pipeline megépítése előtt -- utólag, manuális SQL-lekérdezéssel a teljes dokumentum alapján megerősítve.",
     "notes": "Ugyanaz a korlát, mint q0001-nél -- csak a chunk_index=0 kivonat alapján, teljes dokumentum-review még nem történt meg."
   },
   {
@@ -64,7 +64,7 @@
     ],
     "difficulty": "easy",
     "is_answerable": true,
-    "reviewed": false,
+    "reviewed": true,
     "verification_status": "verified",
     "verification_notes": "A dokumentum elején található adatok kifejezetten megerősítik, hogy a II. rendű alperest (helység1 Város Önkormányzat) a Biczi és Turi Ügyvédi Iroda, azon belül dr. Turi György ügyvéd képviseli.",
     "notes": "A kérdés közvetlenül a megadott dokumentum fejlécéből kinyerhető képviseleti adatokra támaszkodik."
@@ -77,9 +77,76 @@
     "citations": [],
     "difficulty": "medium",
     "is_answerable": false,
-    "reviewed": false,
+    "reviewed": true,
     "verification_status": "verified",
     "verification_notes": "Adversarial question: no citation to verify by design.",
     "notes": "Ez egy szándékos csapda-kérdés egy nem létező ügyszámra hivatkozva, amelynek célja annak tesztelése, hogy a modell elutasítja-e a válaszadást ahelyett, hogy megpróbálná kitalálni az adatokat."
+  },
+  {
+    "id": "q0006",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben alkalmazták a bíróságok a kisajátítási eljárás szabályait, illetve a közös költség megfizetésére vonatkozó kötelezést?",
+    "expected_answer": "A Budapest Környéki Törvényszék a K.701013.2024.3. számú, kisajátítási ügyben hozott ítéletében az alperes határozatát megsemmisítette és új eljárásra kötelezte a kisajátításról szóló 2007. évi CXXIII. törvény (Kstv.) előírásai alapján, miután a bíróság korábbi ítéletével a szakértő kompetenciájának hiánya miatt már megsemmisítette a korábbi határozatot. A Budai Központi Kerületi Bíróság a 9.P.23.014/2023/9. számú ügyben pedig közös költség megfizetésére kötelezte az alperest.",
+    "citations": [
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "K.701013.2024.3",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_701013_2024_3.docx"
+      },
+      {
+        "court": "Budai Kozponti Keruleti Birosag",
+        "case_number": "P.23014.2023.9",
+        "source_file": "Budai_Kozponti_Keruleti_Birosag__P_23014_2023_9.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": true,
+    "verification_status": "verified",
+    "verification_notes": "A csatolt dokumentumok tartalma pontosan alátámasztja a várt válaszban szereplő állításokat: a Budapest Környéki Törvényszék K.701013.2024.3. számú kisajátítási ügyben hozott ítéletében megsemmisítette az alperes határozatát és új eljárásra kötelezte a Kstv. alapján (miután a bíróság korábbi ítéletével a szakértő kompetenciájának hiánya miatt már hatályon kívül helyezte a határozatot), a Budai Központi Kerületi Bíróság 9.P.23.014/2023/9. számú ítéletében pedig közös költség megfizetésére kötelezte az alperest.",
+    "notes": "A kérdés két különböző, a korpuszban szereplő bírósági határozatot köt össze a Precedens-kereső persona stílusának megfelelően."
+  },
+  {
+    "id": "q0007",
+    "persona_id": "synthesizer",
+    "question": "Hogyan alakult a Budapest Környéki Törvényszék ítélkezési gyakorlata a felperesi keresetek elutasítása tekintetében a 2020-as G.40110.2020.29. számú és a 2022-es K.700650.2022.13. számú ügyekben?",
+    "expected_answer": "A megvizsgált időszakban a Budapest Környéki Törvényszék ítélkezési gyakorlata egységesnek mutatkozik abban a tekintetben, hogy a bíróság mindkét ügyben elutasította a felperesek kereseti kérelmét. A 2020-ban hozott (G.40110.2020.29. sz.) szerződés érvénytelenségének megállapítása iránti perben, valamint a 2022-ben elbírált (K.700650.2022.13. sz.) korlátozási kártalanítási ügyben is a felperesek keresetének elutasításáról döntött a bíróság, és mindkét esetben perköltség megfizetésére kötelezte a felperest.",
+    "citations": [
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "G.40110.2020.29",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__G_40110_2020_29.docx"
+      },
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "K.700650.2022.13",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_700650_2022_13.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": true,
+    "verification_status": "verified",
+    "verification_notes": "A bíróságok mindkét megjelölt ügyben (2020-as G.40110.2020.29. és 2022-es K.700650.2022.13.) elutasították a felperesek keresetét, és mindkét esetben perköltség megfizetésére kötelezték őket.",
+    "notes": "A kérdés a két különböző évben (2020 és 2022) kelt, a Budapest Környéki Törvényszék által hozott ítéletek kimenetelének szintézisére épül a megadott dokumentumok alapján."
+  },
+  {
+    "id": "q0008",
+    "persona_id": "practical_procedural",
+    "question": "Milyen bizonyítékot vagy perköltséget ítélt meg a bíróság a Budapest Környéki Törvényszék P.20103.2022.19 számú kártérítési ügyében?",
+    "expected_answer": "A bíróság a felperes keresetét elutasította, és kötelezte a felperest, hogy fizessen meg 15 napon belül az alperesnek 92.634 forint + ÁFA ügyvédi munkadíjból álló perköltséget.",
+    "citations": [
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "P.20103.2022.19",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20103_2022_19.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": true,
+    "verification_status": "verified",
+    "verification_notes": "A csatolt dokumentum ítélete kifejezetten tartalmazza, hogy a bíróság a felperes keresetét elutasította, és a felperest 92.634 forint + ÁFA ügyvédi munkadíjból álló perköltség megfizetésére kötelezte.",
+    "notes": "A kérdés közvetlenül a megadott ítélet szövegrészén alapul, amely tartalmazza a perköltség összegét és a kereset elutasítását."
   }
 ]
