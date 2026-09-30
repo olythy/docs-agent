@@ -718,7 +718,9 @@ def cmd_eval(argv: list[str]) -> int:
     )
 
     resolved_reranker_name = reranker_driver_name or settings.RERANKER_DRIVER
-    print(f"\n[eval] Running hybrid+rerank (RERANKER_DRIVER={resolved_reranker_name}) ...")
+    print(
+        f"\n[eval] Running hybrid+rerank (RERANKER_DRIVER={resolved_reranker_name}) ..."
+    )
     hybrid_results = evaluate(
         f"hybrid+rerank ({resolved_reranker_name})",
         lambda q: retrieve_chunks(
