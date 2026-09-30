@@ -254,6 +254,25 @@ This driver has no real tokenizer (`count_tokens()`/`max_sequence_length()` stay
 
 **`gemini`** calls Google's native AI Studio embeddings API directly (`google-genai` SDK), instead of routing through OpenRouter — same model (`gemini-embedding-001`), same 384d truncation mechanism (`output_dimensionality`, the native-API equivalent of OpenRouter's `dimensions` param), same 250-item batch limit, same lack of a real tokenizer (`CHUNKING_STRATEGY=word` applies here too). Adopted after the project's OpenRouter account ran out of credit (a real, live `402 Payment Required`) — `EMBEDDING_API_KEY` for this driver is a *different kind* of key: a native Google AI Studio key, not an OpenRouter key. Because a free-tier AI Studio key enforces its own requests-per-minute limit — one that's account-specific and changes over time, not something to hardcode — this driver sleeps `EMBEDDING_REQUEST_DELAY_SECONDS` (default `0.0`, i.e. no throttling) before every request; set it to whatever your own AI Studio quota page allows. Both drivers (and the corpus downloader below) share the same retry-with-backoff policy on transient failures (429/5xx, up to 3 attempts, exponential backoff) via `retry_policy.py`'s `retry_on_transient_error()` decorator — confirmed empirically that a 402 is correctly treated as non-retryable rather than wasting retry attempts on it.
 
+## LLM Drivers
+
+The same Strategy / Driver pattern, for answer generation (`drivers/llm.py`), selected via `LLM_DRIVER`:
+
+| `LLM_DRIVER` | Model | Cost |
+|---|---|---|
+| `openrouter` (default) | e.g. `google/gemini-3.1-flash-lite` | Free models available |
+| `openai` | OpenAI Chat Completions | Paid subscription |
+| `gemini` | e.g. `gemini-3.5-flash-lite` | Google AI Studio, free tier (rate-limited) |
+
+`openrouter`/`openai` share a concrete OpenAI-SDK-specific base class (`_OpenAICompatibleAnswerDriver`) — both are genuinely OpenAI-compatible endpoints. `gemini` talks to a structurally different SDK (`google-genai`, not OpenAI-compatible) and implements the driver contract independently, translating this project's own OpenAI-shaped `messages`/`tools` dicts to and from Gemini's `Content`/`Part`/`Tool` shapes internally — `agent.py` and `query/retrieval.py` never see a provider SDK's types directly, only this project's own `AgentTurnResult`/`ToolCallRequest`.
+
+Adopted `gemini` after the OpenRouter account ran out of credit (the same real `402 Payment Required` that drove the embedding driver switch above). Two things only surfaced by testing against the real API, not from the SDK's own documented examples:
+
+- **A function response's `Content.role` must be `"user"`, not `"tool"`.** The `google-genai` SDK's own docs example builds it with `role="tool"` — the live API rejects that outright (`"Role 'tool' is not supported... valid role: SYSTEM, ... USER, ASSISTANT, ... MODEL, USER"`).
+- **Newer "thinking" models require a function call's `thought_signature` to be preserved** when that call is echoed back into the next turn's history, or the request is rejected (`"Function call is missing a thought_signature ... required for tools to work correctly"`). Since this has no OpenAI equivalent, `ToolCallRequest` carries it in an opaque `provider_data` field that `agent.py` copies through unchanged without needing to understand it — only `GeminiAnswerDriver` reads or writes it.
+
+**Free-tier daily quotas vary a lot per model, confirmed empirically**: `gemini-3.8-flash` (a newer/preview model) was capped at just 20 `generate_content` requests/day on a fresh API key, while `gemini-3.5-flash-lite` had a much higher quota on the same key. Check [ai.google.dev/gemini-api/docs/models](https://ai.google.dev/gemini-api/docs/models) for current model ids and quotas rather than assuming a number — same reasoning as `LLM_REQUEST_DELAY_SECONDS`/`EMBEDDING_REQUEST_DELAY_SECONDS`. `.env.example` intentionally keeps `LLM_DRIVER=openrouter` as the shown default (gemini is documented as an option there, not the example value) — see `docs/decisions.md` for why.
+
 ## Chunking & Token Limits
 
 Embedding models don't read arbitrarily long text — each one has a maximum input length in *tokens* (not words), and text beyond that limit is **silently truncated** during embedding, not rejected. The truncated tail becomes invisible to retrieval, which can badly hurt answer quality without ever raising an error. The default local model (`intfloat/multilingual-e5-small`) has a **512-token** sequence limit.

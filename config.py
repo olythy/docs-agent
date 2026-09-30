@@ -140,11 +140,32 @@ class Settings:
                               via ``allowed_extensions`` argument.
 
     LLM (answer generation):
-        LLM_DRIVER            Driver to use: ``openrouter`` (default) or ``openai``.
+        LLM_DRIVER            Driver to use: ``openrouter`` (default), ``openai``,
+                              or ``gemini`` (Google's native AI Studio API
+                              directly, not via OpenRouter -- for a free-tier
+                              API key with its own rate limit, see
+                              LLM_REQUEST_DELAY_SECONDS below).
         LLM_API_KEY           REQUIRED for answer generation. API key for the
-                              active LLM driver.
+                              active LLM driver -- for ``gemini``, a native
+                              Google AI Studio key (aistudio.google.com/apikey),
+                              a different kind of key than the OpenRouter one
+                              (configured independently of EMBEDDING_API_KEY
+                              since answer generation and embedding are
+                              separate concerns, even when both happen to use
+                              the same Gemini account).
         LLM_MODEL             Model identifier. Defaults to
                               ``google/gemini-3.1-flash-lite`` on OpenRouter.
+                              Set to a native Gemini model id (e.g.
+                              ``gemini-2.5-flash``) when ``LLM_DRIVER=gemini``.
+        LLM_REQUEST_DELAY_SECONDS
+                              Seconds to sleep before each chat-completion
+                              request (default: 0.0, i.e. no throttling). Only
+                              meaningful for ``LLM_DRIVER=gemini`` on a
+                              free-tier API key, which has its own
+                              requests-per-minute limit -- check the actual
+                              current limit on your own AI Studio quota page
+                              rather than assuming a number here, since
+                              free-tier limits change over time.
 
     Retrieval:
         RETRIEVAL_TOP_K       Number of chunks to retrieve per query (default: 4).
@@ -276,6 +297,9 @@ class Settings:
     LLM_DRIVER: str = os.getenv("LLM_DRIVER", "openrouter")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
     LLM_MODEL: str = os.getenv("LLM_MODEL", "google/gemini-3.1-flash-lite")
+    LLM_REQUEST_DELAY_SECONDS: float = float(
+        os.getenv("LLM_REQUEST_DELAY_SECONDS", "0.0")
+    )
 
     # --- Retrieval ---
     RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "4"))

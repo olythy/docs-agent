@@ -40,7 +40,7 @@ Or interactively:
 import json
 import logging
 
-from drivers.llm import get_answer_driver
+from drivers.llm import ToolCallRequest, get_answer_driver
 from ingestion.ingest import add_directory, add_document
 from query.retrieval import query_knowledge_base
 
@@ -137,6 +137,30 @@ _SYSTEM_PROMPT = (
 )
 
 
+def _tool_call_to_dict(tool_call: ToolCallRequest) -> dict:
+    """Convert a driver's ToolCallRequest into an OpenAI-shaped tool-call dict.
+
+    Only includes ``provider_data`` when a driver actually set it (e.g.
+    GeminiAnswerDriver's thought_signature) — OpenAI/OpenRouter never set
+    it, so their payload stays exactly as before rather than gaining an
+    extra key their real API might reject.
+
+    Args:
+        tool_call: The tool call to convert.
+
+    Returns:
+        A dict matching OpenAI's ``tool_calls[]`` entry shape.
+    """
+    entry = {
+        "id": tool_call.id,
+        "type": "function",
+        "function": {"name": tool_call.name, "arguments": tool_call.arguments},
+    }
+    if tool_call.provider_data is not None:
+        entry["provider_data"] = tool_call.provider_data
+    return entry
+
+
 def _call_tool(name: str, arguments: dict) -> str:
     """Execute one tool call for real and return a string result for the model.
 
@@ -205,15 +229,7 @@ def run_agent(user_message: str) -> str:
             "role": "assistant",
             "content": turn.content,
             "tool_calls": [
-                {
-                    "id": tool_call.id,
-                    "type": "function",
-                    "function": {
-                        "name": tool_call.name,
-                        "arguments": tool_call.arguments,
-                    },
-                }
-                for tool_call in turn.tool_calls
+                _tool_call_to_dict(tool_call) for tool_call in turn.tool_calls
             ],
         }
     )

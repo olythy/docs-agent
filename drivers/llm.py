@@ -6,10 +6,19 @@ following the same Strategy / Driver pattern as ``drivers/embedding.py``.
 The active driver is selected via ``settings.LLM_DRIVER``:
     - ``"openrouter"`` → :class:`OpenRouterAnswerDriver` (default; supports free models)
     - ``"openai"``     → :class:`OpenAIAnswerDriver` (requires paid subscription)
+    - ``"gemini"``     → :class:`GeminiAnswerDriver` (Google's native AI Studio
+                         API directly, not via OpenRouter — free-tier friendly,
+                         rate-limited via ``LLM_REQUEST_DELAY_SECONDS``)
 
-Both drivers use the ``openai`` Python SDK under the hood — OpenRouter exposes an
-OpenAI-compatible API, so the only meaningful difference is the ``base_url`` and
-a required ``HTTP-Referer`` header that OpenRouter uses for rate-limiting.
+``OpenAIAnswerDriver``/``OpenRouterAnswerDriver`` share an OpenAI-SDK-specific
+base class (``_OpenAICompatibleAnswerDriver``) — OpenRouter exposes an
+OpenAI-compatible API, so the only meaningful difference between them is the
+``base_url`` and a required ``HTTP-Referer`` header OpenRouter uses for
+rate-limiting. ``GeminiAnswerDriver`` talks to a structurally different SDK
+(``google-genai``, not OpenAI-compatible) and implements the ``AnswerDriver``
+contract independently, translating this project's own OpenAI-shaped
+``messages``/``tools`` dicts to and from Gemini's ``Content``/``Part``/``Tool``
+shapes internally.
 
 Usage::
 
@@ -18,6 +27,7 @@ Usage::
     answer = driver.answer(question="Mi az SZJA tartozásom?", context_chunks=[...])
 """
 
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -25,11 +35,13 @@ from typing import TYPE_CHECKING, cast
 
 from config import settings
 from models import RetrievedChunk
+from retry_policy import TransientAPIError, retry_on_transient_error
 
 if TYPE_CHECKING:
     # Only for type annotations — the real import is deferred to inside each
-    # driver's _get_client() to avoid the openai SDK's import cost when this
+    # driver's _get_client() to avoid each SDK's import cost when this
     # module is merely imported, not actually used.
+    from google import genai
     from openai import OpenAI
     from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
@@ -48,11 +60,21 @@ class ToolCallRequest:
         id: The tool call's id, to echo back in the follow-up ``role: "tool"`` message.
         name: The requested tool's name (a key in the ``tools=[...]`` schema).
         arguments: The model's arguments, as a raw (not yet JSON-decoded) string.
+        provider_data: Opaque, driver-specific data a caller must echo back
+            unchanged on the follow-up turn (e.g. ``agent.py`` copies it into
+            the assistant message's tool-call entry) without needing to
+            understand its contents. Used by :class:`GeminiAnswerDriver` to
+            carry a function call's ``thought_signature`` — confirmed live
+            that Gemini's newer models reject a reconstructed function-call
+            turn missing it ("Function call is missing a thought_signature
+            ... required for tools to work correctly"). ``None`` for every
+            other driver.
     """
 
     id: str
     name: str
     arguments: str
+    provider_data: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -72,11 +94,82 @@ class AgentTurnResult:
 class AnswerDriver(ABC):
     """Abstract base class for all LLM answer-generation backends.
 
-    Both concrete drivers use the ``openai`` Python SDK (OpenRouter exposes
-    an OpenAI-compatible API), so the only real difference between them is
-    how the client is constructed — this base class owns everything else
-    as a template method: build the prompt, get the client, call the chat
-    completion, return the text. Subclasses only implement
+    Two methods define the contract every driver must implement:
+    :meth:`answer` (RAG-specific: fixed system prompt, no tools) and
+    :meth:`run_tool_calling_turn` (``agent.py``'s function-calling loop:
+    caller-supplied ``messages`` history and ``tools=[...]`` schemas).
+    Both take/return this project's own plain-dict/:class:`AgentTurnResult`
+    shapes — never a provider SDK's types — so ``agent.py`` and
+    ``query/retrieval.py`` stay provider-agnostic.
+
+    ``OpenAIAnswerDriver``/``OpenRouterAnswerDriver`` share a concrete
+    OpenAI-SDK-specific implementation via ``_OpenAICompatibleAnswerDriver``
+    (both really are OpenAI-compatible endpoints, so sharing a template
+    method there is legitimate, not premature abstraction). ``GeminiAnswerDriver``
+    talks to a structurally different SDK and implements both methods directly
+    — trying to force it through the same OpenAI-shaped template method would
+    misrepresent it as OpenAI-compatible, which it isn't.
+    """
+
+    def __init__(self, model: str) -> None:
+        """Store the model identifier.
+
+        Args:
+            model: The chat-completion model identifier to use.
+        """
+        self._model = model
+
+    @property
+    def model(self) -> str:
+        """The chat-completion model identifier this driver is configured for."""
+        return self._model
+
+    @abstractmethod
+    def run_tool_calling_turn(
+        self, messages: list[dict], tools: list[dict] | None = None
+    ) -> AgentTurnResult:
+        """Send one chat-completion request, optionally offering tool schemas.
+
+        Args:
+            messages: Chat history so far, OpenAI ``role``/``content`` dict shape.
+            tools: OpenAI-style ``tools=[...]`` function schemas, or
+                ``None``/empty to omit tool-calling entirely for this call.
+
+        Returns:
+            An :class:`AgentTurnResult` with the reply and/or requested tool calls.
+        """
+
+    @abstractmethod
+    def answer(
+        self,
+        question: str,
+        context_chunks: list[RetrievedChunk],
+        max_tokens: int = 1024,
+    ) -> str:
+        """Generate a grounded answer from retrieved context chunks.
+
+        Instructs the model to base its answer only on the provided
+        context, and to state clearly when the answer cannot be found —
+        never fabricate information.
+
+        Args:
+            question: The user's natural-language question.
+            context_chunks: Chunks as returned by the retrieval layer.
+            max_tokens: Maximum tokens to generate (default: 1024).
+
+        Returns:
+            A string containing the answer, ideally citing the source document
+            and page number for each piece of information used.
+        """
+
+
+class _OpenAICompatibleAnswerDriver(AnswerDriver):
+    """Shared template-method implementation for OpenAI-compatible backends.
+
+    Both concrete drivers below (:class:`OpenAIAnswerDriver`,
+    :class:`OpenRouterAnswerDriver`) use the ``openai`` Python SDK — OpenRouter
+    exposes an OpenAI-compatible API — so the only real difference between
+    them is how the client is constructed. Subclasses only implement
     :meth:`_get_client`.
     """
 
@@ -86,30 +179,19 @@ class AnswerDriver(ABC):
         Args:
             model: The chat-completion model identifier to use.
         """
-        self._model = model
+        super().__init__(model)
         self._client: OpenAI | None = None  # Lazy init — avoids import cost
 
     @abstractmethod
     def _get_client(self) -> "OpenAI":
         """Lazily create and cache the provider-specific OpenAI-compatible client."""
 
-    @property
-    def model(self) -> str:
-        """The chat-completion model identifier this driver is configured for."""
-        return self._model
-
     def run_tool_calling_turn(
         self, messages: list[dict], tools: list[dict] | None = None
     ) -> AgentTurnResult:
         """Send one chat-completion request, optionally offering tool schemas.
 
-        ``answer()`` (RAG-specific: fixed system prompt, no tools) is the
-        only thing most callers need — but ``agent.py``'s function-calling
-        loop needs to pass its own growing ``messages`` history and
-        ``tools=[...]`` schemas, and read back tool-call requests, which
-        ``answer()``'s fixed shape doesn't expose.
-
-        This method (not a raw client getter) is the boundary instead: the
+        This method (not a raw client getter) is the type boundary: the
         OpenAI SDK's exact typed ``ChatCompletionMessageParam``/
         ``ChatCompletionToolParam`` shapes are only enforced *here*, via
         the ``cast`` calls below — callers work with plain dicts and this
@@ -117,14 +199,6 @@ class AnswerDriver(ABC):
         never the SDK's types directly. The ``cast`` is a deliberate,
         narrow assertion (this driver is responsible for building
         correctly-shaped dicts), not a blanket type-check suppression.
-
-        Args:
-            messages: Chat history so far, OpenAI ``role``/``content`` dict shape.
-            tools: OpenAI-style ``tools=[...]`` function schemas, or
-                ``None``/empty to omit tool-calling entirely for this call.
-
-        Returns:
-            An :class:`AgentTurnResult` with the reply and/or requested tool calls.
         """
         client = self._get_client()
         create_kwargs: dict = {
@@ -163,10 +237,6 @@ class AnswerDriver(ABC):
     ) -> str:
         """Generate a grounded answer from retrieved context chunks.
 
-        Instructs the model to base its answer only on the provided
-        context, and to state clearly when the answer cannot be found —
-        never fabricate information.
-
         Args:
             question: The user's natural-language question.
             context_chunks: Chunks as returned by the retrieval layer.
@@ -175,8 +245,7 @@ class AnswerDriver(ABC):
                 the model's entire theoretical context limit against account credits.
 
         Returns:
-            A string containing the answer, ideally citing the source document
-            and page number for each piece of information used.
+            A string containing the answer.
         """
         system_prompt, user_message = _build_prompt(question, context_chunks)
         client = self._get_client()
@@ -240,7 +309,7 @@ def _build_prompt(
     return system_prompt, user_message
 
 
-class OpenAIAnswerDriver(AnswerDriver):
+class OpenAIAnswerDriver(_OpenAICompatibleAnswerDriver):
     """Answer driver using the OpenAI Chat Completions API directly.
 
     Requires a paid OpenAI subscription and ``LLM_API_KEY`` in settings.
@@ -267,7 +336,7 @@ class OpenAIAnswerDriver(AnswerDriver):
         return self._client
 
 
-class OpenRouterAnswerDriver(AnswerDriver):
+class OpenRouterAnswerDriver(_OpenAICompatibleAnswerDriver):
     """Answer driver using the OpenRouter API (OpenAI-compatible).
 
     OpenRouter aggregates many LLM providers and exposes them through an
@@ -314,6 +383,281 @@ class OpenRouterAnswerDriver(AnswerDriver):
         return self._client
 
 
+def _messages_to_gemini_contents(messages: list[dict]):
+    """Translate this project's OpenAI-shaped ``messages`` into Gemini's own shape.
+
+    Gemini has no ``"system"`` message role (``system_instruction`` is a
+    separate ``GenerateContentConfig`` field, not part of ``contents``), and
+    uses ``"model"`` rather than ``"assistant"`` for the model's own turns.
+    Two things confirmed only by hitting the real API, not from the SDK's
+    own docs (which show a different, no-longer-accepted shape):
+
+    - A function response's ``Content.role`` must be ``"user"``, not
+      ``"tool"`` — the live API rejects ``"tool"`` outright ("Role 'tool'
+      is not supported... valid role: SYSTEM, ... USER, ASSISTANT, ...
+      MODEL, USER").
+    - Newer ("thinking") models reject a reconstructed function-call Part
+      that's missing the ``thought_signature`` the model originally
+      attached to it ("Function call is missing a thought_signature ...
+      required for tools to work correctly") — so ``ToolCallRequest.id``
+      is Gemini's own real per-call id (confirmed live it exists, e.g.
+      ``"call_461665"``, contrary to the SDK docs' single-call examples
+      never showing one), and ``provider_data["thought_signature"]``
+      (set by :meth:`GeminiAnswerDriver.run_tool_calling_turn`) must be
+      re-attached to the function-call Part when rebuilding this turn's
+      history for the next request.
+
+    A tool-role message only carries ``tool_call_id`` (OpenAI's shape has
+    no field for the function name there) — the id-to-name mapping built
+    while walking the assistant message that made the call is needed to
+    give the function-response Part its required ``name``.
+
+    Args:
+        messages: OpenAI-shaped chat history (this project's own dict convention).
+
+    Returns:
+        A ``(system_instruction, contents)`` tuple — ``system_instruction``
+        is ``None`` if no ``"system"`` message was present.
+    """
+    from google.genai import types
+
+    system_instruction = None
+    contents = []
+    call_id_to_name: dict[str, str] = {}
+    for message in messages:
+        role = message["role"]
+        if role == "system":
+            system_instruction = message["content"]
+        elif role == "user":
+            contents.append(
+                types.Content(
+                    role="user", parts=[types.Part.from_text(text=message["content"])]
+                )
+            )
+        elif role == "assistant":
+            parts = []
+            if message.get("content"):
+                parts.append(types.Part.from_text(text=message["content"]))
+            for tool_call in message.get("tool_calls", []):
+                call_id = tool_call["id"]
+                name = tool_call["function"]["name"]
+                call_id_to_name[call_id] = name
+                part = types.Part.from_function_call(
+                    name=name, args=json.loads(tool_call["function"]["arguments"])
+                )
+                assert part.function_call is not None  # from_function_call() sets it
+                part.function_call.id = call_id
+                provider_data = tool_call.get("provider_data") or {}
+                if "thought_signature" in provider_data:
+                    part.thought_signature = provider_data["thought_signature"]
+                parts.append(part)
+            contents.append(types.Content(role="model", parts=parts))
+        elif role == "tool":
+            call_id = message["tool_call_id"]
+            response_part = types.Part.from_function_response(
+                name=call_id_to_name[call_id],
+                response={"result": message["content"]},
+            )
+            assert (
+                response_part.function_response is not None
+            )  # from_function_response() sets it
+            response_part.function_response.id = call_id
+            # role="user", not "tool": see this function's docstring.
+            contents.append(types.Content(role="user", parts=[response_part]))
+        else:
+            raise ValueError(f"Unknown message role for Gemini translation: {role!r}")
+    return system_instruction, contents
+
+
+def _tools_to_gemini(tools: list[dict]):
+    """Translate this project's OpenAI-style ``tools=[...]`` schemas into Gemini's shape.
+
+    Both shapes describe function parameters as plain JSON Schema, so
+    ``parameters`` maps directly onto Gemini's ``parameters_json_schema`` —
+    no schema translation needed, just a different wrapper structure.
+
+    Args:
+        tools: OpenAI-style ``tools=[...]`` function schemas.
+
+    Returns:
+        A single-element list of ``types.Tool``, Gemini's expected shape.
+    """
+    from google.genai import types
+
+    function_declarations = [
+        types.FunctionDeclaration(
+            name=tool["function"]["name"],
+            description=tool["function"].get("description"),
+            parameters_json_schema=tool["function"].get("parameters"),
+        )
+        for tool in tools
+    ]
+    return [types.Tool(function_declarations=function_declarations)]
+
+
+class GeminiAnswerDriver(AnswerDriver):
+    """Answer driver using Google's native Gemini API (AI Studio) directly, not via OpenRouter.
+
+    Talks to a structurally different SDK than the OpenAI-compatible drivers
+    above (``google-genai``, not ``openai``) — implements :meth:`answer` and
+    :meth:`run_tool_calling_turn` directly rather than sharing
+    ``_OpenAICompatibleAnswerDriver``'s template methods, translating this
+    project's own OpenAI-shaped ``messages``/``tools`` dicts to and from
+    Gemini's ``Content``/``Part``/``Tool`` shapes via
+    :func:`_messages_to_gemini_contents`/:func:`_tools_to_gemini`.
+
+    For a free-tier AI Studio API key, which carries its own
+    requests-per-minute limit distinct from any paid quota — throttled via
+    a real sleep (``LLM_REQUEST_DELAY_SECONDS``) before each request, same
+    pattern as :class:`drivers.embedding.GeminiEmbeddingDriver`.
+    """
+
+    def __init__(self, model: str | None = None) -> None:
+        """Initialise the driver without creating the client yet.
+
+        Args:
+            model: Gemini chat model id. Defaults to ``settings.LLM_MODEL``.
+        """
+        super().__init__(model or settings.LLM_MODEL)
+        self._client: genai.Client | None = None  # Lazy init — avoids import cost
+
+    def _get_client(self) -> "genai.Client":
+        """Lazily create and cache the ``google-genai`` client.
+
+        Returns:
+            The ``genai.Client`` instance.
+        """
+        if self._client is None:
+            from google import genai
+
+            self._client = genai.Client(api_key=settings.LLM_API_KEY)
+        return self._client
+
+    @retry_on_transient_error(max_attempts=3)
+    def _generate(self, contents, tools=None, system_instruction=None, **config_kwargs):
+        """Call ``generate_content``, rate-limited and retried like the embedding driver.
+
+        Sleeps ``LLM_REQUEST_DELAY_SECONDS`` before every attempt (including
+        retries, since the whole function re-runs from the top on each
+        retry). Raises :class:`retry_policy.TransientAPIError` on a 429/5xx
+        response to trigger a retry with exponential backoff (up to 3
+        attempts, via :func:`retry_policy.retry_on_transient_error`); any
+        other error propagates immediately.
+
+        Raises:
+            TransientAPIError: If every retry is exhausted.
+            Exception: Whatever the ``google-genai`` client raises, for a
+                non-retryable error.
+        """
+        import time
+
+        from google.genai import types
+        from google.genai.errors import APIError
+
+        if settings.LLM_REQUEST_DELAY_SECONDS > 0:
+            time.sleep(settings.LLM_REQUEST_DELAY_SECONDS)
+
+        client = self._get_client()
+        if tools:
+            config_kwargs["tools"] = tools
+        if system_instruction is not None:
+            config_kwargs["system_instruction"] = system_instruction
+
+        try:
+            return client.models.generate_content(
+                model=self._model,
+                contents=contents,
+                config=types.GenerateContentConfig(**config_kwargs),
+            )
+        except APIError as exc:
+            status = getattr(exc, "code", None)
+            if status == 429 or (status is not None and status >= 500):
+                raise TransientAPIError(
+                    f"Gemini generate_content status {status}"
+                ) from exc
+            raise
+
+    def run_tool_calling_turn(
+        self, messages: list[dict], tools: list[dict] | None = None
+    ) -> AgentTurnResult:
+        """Send one ``generate_content`` request, optionally offering tool schemas.
+
+        See :func:`_messages_to_gemini_contents` for the message translation.
+        Reads function calls from ``response.candidates[0].content.parts``
+        rather than the SDK's ``response.function_calls`` convenience
+        property, because the latter only exposes ``FunctionCall``
+        (name/args/id) and drops each Part's ``thought_signature`` —
+        confirmed live that a newer ("thinking") model needs that
+        signature preserved on the next turn's reconstructed function-call
+        Part, or it rejects the request outright.
+        """
+        system_instruction, contents = _messages_to_gemini_contents(messages)
+        gemini_tools = _tools_to_gemini(tools) if tools else None
+
+        response = self._generate(
+            contents, tools=gemini_tools, system_instruction=system_instruction
+        )
+
+        tool_calls = []
+        candidates = response.candidates or []
+        parts = (
+            candidates[0].content.parts if candidates and candidates[0].content else []
+        )
+        for part in parts or []:
+            function_call = part.function_call
+            if function_call is None:
+                continue
+            assert function_call.id is not None, "a function call always has an id"
+            assert function_call.name is not None, (
+                "a function call from the model always has a name"
+            )
+            provider_data = (
+                {"thought_signature": part.thought_signature}
+                if part.thought_signature
+                else None
+            )
+            tool_calls.append(
+                ToolCallRequest(
+                    id=function_call.id,
+                    name=function_call.name,
+                    arguments=json.dumps(function_call.args or {}),
+                    provider_data=provider_data,
+                )
+            )
+        content = None if tool_calls else (response.text or "")
+        return AgentTurnResult(content=content, tool_calls=tool_calls)
+
+    def answer(
+        self,
+        question: str,
+        context_chunks: list[RetrievedChunk],
+        max_tokens: int = 1024,
+    ) -> str:
+        """Generate a grounded answer from retrieved context chunks.
+
+        Args:
+            question: The user's natural-language question.
+            context_chunks: Chunks as returned by the retrieval layer.
+            max_tokens: Maximum tokens to generate (default: 1024).
+
+        Returns:
+            A string containing the answer.
+        """
+        from google.genai import types
+
+        system_prompt, user_message = _build_prompt(question, context_chunks)
+        contents = [
+            types.Content(role="user", parts=[types.Part.from_text(text=user_message)])
+        ]
+        response = self._generate(
+            contents,
+            system_instruction=system_prompt,
+            max_output_tokens=max_tokens,
+            temperature=0.2,
+        )
+        return response.text or ""
+
+
 @lru_cache(maxsize=1)
 def get_answer_driver() -> AnswerDriver:
     """Factory function: return the active LLM driver from settings.
@@ -334,8 +678,10 @@ def get_answer_driver() -> AnswerDriver:
         return OpenRouterAnswerDriver()
     if driver_name == "openai":
         return OpenAIAnswerDriver()
+    if driver_name == "gemini":
+        return GeminiAnswerDriver()
 
     raise ValueError(
         f"Unknown LLM_DRIVER: '{driver_name}'. "
-        "Valid options are: 'openrouter', 'openai'."
+        "Valid options are: 'openrouter', 'openai', 'gemini'."
     )
