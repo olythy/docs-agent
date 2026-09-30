@@ -2,7 +2,13 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
-## 2026-09-30 — Identifier matches also need to survive `top_k` truncation, not just the candidate pool (pending commit)
+## 2026-09-30 — Deferred: bake each document's identifier into every chunk's header, not just chunk 0
+
+While discussing the identifier-rescue fixes above, a real gap surfaced that today's fixes don't address: a document's case number typically only appears once, near the top (`chunk_index=0`) — `search_by_identifier()` can only find *that* chunk via an exact match, not a different chunk deeper in the same document that might hold the actually-relevant content (e.g. the court's reasoning, several chunks in). Today's `retrieval_hit_rate` metric checks at the *document* level (`source_file` presence), so this gap could be silently masked there even after the identifier-rescue fixes.
+
+The fix would mirror the header-enrichment mechanism `ingestion/chunker.py` already uses for Markdown/DOCX section breadcrumbs (`header_path`): extract each document's identifier once during ingestion and prepend it to every one of that document's chunks, not just the first, so an identifier-based query-time lookup can find whichever chunk actually has the relevant content, not just the header chunk.
+
+**Deliberately not built now**: unlike today's other fixes (all query-time, applied against the already-ingested corpus), this needs an *ingestion*-time change — every already-ingested document (1000+ and growing, still mid-ingestion as of this session) would need to be re-chunked and re-embedded to pick up the new header. Worth doing, but as a deliberate, separate decision once the current ingestion run finishes, not a mid-flight interruption of it.
 
 Immediate follow-up to the identifier-rescue fix below, found by re-running the golden-set eval after marking `q0011`/`q0012` reviewed: `q0002` (`practical_procedural`) still scored a retrieval MISS despite citing a case number that `extract_identifier_tokens()`/`search_by_identifier()` correctly found. Investigated live by reproducing `select_chunks()`'s exact pipeline step by step: the rescued chunk *was* in the candidate pool, *did* pass the cross-encoder's `RERANKER_MIN_SCORE` threshold (score 3.63 vs. the -2.0 floor) — but ranked **14th** overall, well past `top_k`'s default cutoff, because 13 other chunks read as more generically on-topic to the cross-encoder (which has no notion that a chunk is definitionally correct because its identifier matches).
 
