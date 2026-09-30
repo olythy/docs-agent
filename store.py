@@ -225,6 +225,94 @@ def prepare_fulltext_query(query_text: str) -> tuple[str, list[str], list[str]]:
     return " or ".join(kept), kept, dropped
 
 
+def extract_identifier_tokens(query_text: str) -> list[str]:
+    """Pull out code-like identifier tokens from a question (case numbers,
+    invoice numbers, contract references, ...) that full-text search
+    reliably loses track of.
+
+    Confirmed empirically (see docs/decisions.md): ``prepare_fulltext_query()``
+    OR-joins every kept word, and Postgres's ``ts_rank`` scores by
+    frequency/coverage across the whole query -- a rare, exact identifier
+    like a case number gets drowned out by common legal boilerplate words
+    ("bíróság", "per tárgya") that also match, just far more often, across
+    many unrelated documents. This function's job is only to *recognize*
+    which tokens look like identifiers, document-type-agnostic (a court
+    case number, an invoice number like "HU001", a contract reference —
+    none of these should need their own hardcoded pattern); what the
+    caller does with them (a direct, unranked text match --
+    :meth:`VectorStore.search_by_identifier`) is what actually rescues them
+    from the ranking problem.
+
+    A token counts as identifier-like if it is not a plain word and not a
+    short plain number:
+        - contains a mix of letters and digits (e.g. "HU001"), or
+        - contains a separator (``.``/``/``/``-``), even with only digits
+          (e.g. "4.P.20.409/2023/4"), or
+        - is purely digits but 5+ long (long enough to not just be a
+          4-digit year).
+
+    One explicit exclusion, confirmed live to matter (see docs/decisions.md):
+    a bare number with a short Hungarian grammatical suffix attached via a
+    hyphen (e.g. "2020-as" = "of 2020", "2023-ban" = "in 2023") matches the
+    "digits + separator" rule above by accident, and being an extremely
+    common way to mention a year in Hungarian, floods
+    :meth:`VectorStore.search_by_identifier`'s result limit with irrelevant
+    matches before the real, rare identifier tokens in the same question
+    get a chance to appear. Excluded via a dedicated check rather than
+    trying to special-case it in the main rule above, since it's a
+    different kind of exception (a false positive to filter back out, not
+    another way to recognize a true identifier).
+
+    Args:
+        query_text: The raw user question.
+
+    Returns:
+        The distinct identifier-like tokens found, in order of appearance.
+    """
+    tokens: list[str] = []
+    seen: set[str] = set()
+
+    for raw_word in query_text.split():
+        token = raw_word.strip(".,!?:;\"'()[]{}")
+        if not token:
+            continue
+
+        if _is_inflected_number(token):
+            continue
+
+        has_digit = any(c.isdigit() for c in token)
+        has_letter = any(c.isalpha() for c in token)
+        has_separator = any(c in "./-" for c in token)
+
+        is_identifier = has_digit and (
+            has_letter or has_separator or (token.isdigit() and len(token) >= 5)
+        )
+
+        if is_identifier and token not in seen:
+            tokens.append(token)
+            seen.add(token)
+
+    return tokens
+
+
+def _is_inflected_number(token: str) -> bool:
+    """True for a bare number with a short Hungarian suffix, e.g. "2020-as".
+
+    Digits, then a hyphen, then a short (1-3 letter) all-lowercase suffix
+    and nothing else -- deliberately narrow, matching only this specific
+    false-positive shape (see :func:`extract_identifier_tokens`'s
+    docstring), not attempting general Hungarian morphology.
+    """
+    digits, sep, suffix = token.partition("-")
+    return (
+        bool(sep)
+        and digits.isdigit()
+        and 1 <= len(suffix) <= 3
+        and suffix.isalpha()
+        and suffix.islower()
+    )
+
+
 def _to_pgvector_literal(embedding: list[float]) -> str:
     """Format a float vector as a pgvector literal, e.g. ``'[0.1,0.2,...]'``."""
     return "[" + ",".join(str(v) for v in embedding) + "]"
@@ -595,6 +683,60 @@ class VectorStore:
                     content=content,
                     metadata=ChunkMetadata.from_dict(metadata),
                     score=score,
+                )
+            )
+        return results
+
+    def search_by_identifier(
+        self, tokens: list[str], top_k: int
+    ) -> list[RetrievedChunk]:
+        """Return chunks whose content directly contains any of ``tokens``.
+
+        A direct ``ILIKE`` substring match, deliberately *not* ranked by
+        ``ts_rank`` like :meth:`search_fulltext` — see
+        :func:`extract_identifier_tokens`'s docstring for why an exact
+        identifier match (a case number, invoice number, ...) needs to
+        bypass frequency-based ranking entirely rather than compete with
+        common words for score.
+
+        Args:
+            tokens: Identifier-like tokens from :func:`extract_identifier_tokens`.
+            top_k: Maximum number of results.
+
+        Returns:
+            Matching chunks, each with a placeholder ``score`` (1.0) — the
+            caller (:class:`query.retrieval.HybridRetrievalStrategy`)
+            doesn't rank these against the vector/full-text results, it
+            merges them in directly, and the reranker re-scores everything
+            downstream anyway.
+        """
+        if not tokens:
+            return []
+
+        conditions = " OR ".join(["content ILIKE %s"] * len(tokens))
+        params: list = [f"%{token}%" for token in tokens]
+        params.append(top_k)
+
+        sql = f"""
+            SELECT id, content, metadata
+            FROM document_chunks
+            WHERE {conditions}
+            LIMIT %s;
+        """
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall()
+
+        results = []
+        for chunk_id, content, metadata in rows:
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+            results.append(
+                RetrievedChunk(
+                    id=chunk_id,
+                    content=content,
+                    metadata=ChunkMetadata.from_dict(metadata),
+                    score=1.0,
                 )
             )
         return results

@@ -41,7 +41,7 @@ from drivers.reranker import CrossEncoderRerankerDriver, get_reranker_driver
 from logger import LogAction, get_logger
 from models import RetrievedChunk
 from query.hybrid import reciprocal_rank_fusion
-from store import VectorStore
+from store import VectorStore, extract_identifier_tokens
 
 # Progress logging, not print(): retrieve_chunks() is called from
 # mcp_server.py over an MCP stdio transport, where stray stdout writes can
@@ -178,6 +178,27 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             len(fulltext_results),
             len(fused),
         )
+
+        # Rescue exact identifiers (case numbers, invoice numbers, ...) that
+        # ts_rank's frequency-based scoring loses to common words matching
+        # far more often across unrelated documents -- confirmed live via
+        # the golden-set eval (see docs/decisions.md). Merged in directly,
+        # not RRF-blended: an exact identifier match is a strong enough
+        # signal on its own not to need score-averaging with cosine/ts_rank.
+        identifier_tokens = extract_identifier_tokens(question)
+        if identifier_tokens:
+            identifier_results = store.search_by_identifier(
+                identifier_tokens, top_k=candidate_k
+            )
+            fused_ids = {c.id for c in fused}
+            new_matches = [c for c in identifier_results if c.id not in fused_ids]
+            if new_matches:
+                logger.info(
+                    "[query] Identifier tokens %s rescued %d additional candidate(s).",
+                    identifier_tokens,
+                    len(new_matches),
+                )
+            fused = new_matches + fused
 
         reranker = get_reranker_driver(self._reranker_driver_name)
         reranked = reranker.rerank(question, fused)

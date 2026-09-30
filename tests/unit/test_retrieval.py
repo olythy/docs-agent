@@ -112,6 +112,53 @@ def test_hybrid_strategy_fuses_vector_and_fulltext_results(monkeypatch):
     fake_store.search_fulltext.assert_called_once_with("q", top_k=1)
 
 
+def test_hybrid_strategy_rescues_identifier_match_missed_by_vector_and_fulltext(
+    monkeypatch,
+):
+    """Regression test for a real, live miss: a case number present in the
+    question can lose to common words in ts_rank's fusion scoring, and
+    never appear in either vector_results or search_fulltext()'s output at
+    all (see docs/decisions.md) -- search_by_identifier() must still surface
+    it, merged in ahead of the RRF-fused list."""
+    vector_results = [_chunk(1, score=0.9)]
+    fake_store = MagicMock()
+    fake_store.search_fulltext.return_value = []
+    fake_store.search_by_identifier.return_value = [_chunk(99, score=1.0)]
+    monkeypatch.setattr(
+        retrieval_module, "get_reranker_driver", lambda *a, **k: _NoopFakeReranker()
+    )
+
+    strategy = HybridRetrievalStrategy()
+    result = strategy.select_chunks(
+        "Mi történt a 4.P.20.409/2023/4. ügyben?",
+        vector_results,
+        fake_store,
+        top_k=5,
+        min_score=0.25,
+    )
+
+    assert [c.id for c in result] == [99, 1]
+    fake_store.search_by_identifier.assert_called_once_with(
+        ["4.P.20.409/2023/4"], top_k=1
+    )
+
+
+def test_hybrid_strategy_skips_identifier_search_when_question_has_no_identifiers(
+    monkeypatch,
+):
+    vector_results = [_chunk(1, score=0.9)]
+    fake_store = MagicMock()
+    fake_store.search_fulltext.return_value = []
+    monkeypatch.setattr(
+        retrieval_module, "get_reranker_driver", lambda *a, **k: _NoopFakeReranker()
+    )
+
+    strategy = HybridRetrievalStrategy()
+    strategy.select_chunks("q", vector_results, fake_store, top_k=5, min_score=0.25)
+
+    fake_store.search_by_identifier.assert_not_called()
+
+
 def test_hybrid_strategy_truncates_to_top_k_after_fusion(monkeypatch):
     vector_results = [_chunk(1, score=0.9), _chunk(2, score=0.8)]
     fake_store = MagicMock()
