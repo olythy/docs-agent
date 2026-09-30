@@ -283,6 +283,7 @@ dependencies = [
     { name = "sentence-transformers" },
     { name = "striprtf" },
     { name = "tenacity" },
+    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -308,6 +309,7 @@ requires-dist = [
     { name = "sentence-transformers", specifier = ">=3.0.0,<3.4.0" },
     { name = "striprtf", specifier = ">=0.0.33" },
     { name = "tenacity", specifier = ">=9.1.4" },
+    { name = "typer", specifier = ">=0.27.2" },
 ]
 
 [package.metadata.requires-dev]

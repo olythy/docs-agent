@@ -1,56 +1,152 @@
-"""Unattended CLI for drafting and verifying golden-set questions.
+"""Unified CLI for the real-estate-law evaluation corpus: download, generate-questions, eval.
 
-Run from the repo root: uv run python skills/generate-golden-questions/cli.py <persona_id> [count]
+Deliberately Typer-based, not argparse -- every other CLI in this project
+(``scripts/*_cli.py``, ``corpus/download_court_decisions.py``) uses argparse;
+this is a scoped pilot for learning Typer before considering a project-wide
+migration (see ``docs/decisions.md`` for the full reasoning).
 
-Reads SKILL.md (same instructions the interactive Skill follows) and sends
-them to the project's own LLM_DRIVER (drivers.llm.get_answer_driver()) to
-draft a question, then runs it through the two-tier verification described
-there:
-    1. Deterministic citation-existence check (verify_citation_exists()).
-    2. A *separate* LLM call judging whether the cited content actually
-       supports the drafted answer (verify_content_support()) -- never the
-       same call that drafted the question, so it isn't grading its own work.
+Consolidates what used to be two separate entry points:
+    - ``corpus/download_court_decisions.py``'s own ``argparse`` CLI (still
+      importable/runnable directly -- unchanged, not touched by this pass;
+      the ``download`` command here just builds the same ``DownloadConfig``
+      it always took and calls its ``run()``).
+    - ``skills/generate-golden-questions/cli.py`` (now folded in here as
+      ``generate-questions`` -- ``SKILL.md`` invokes this module instead).
 
-Appends the result to corpus/golden_set/questions.json with
-verification_status set to "verified" (both checks passed),
-"needs_review" (citation missing, or content support NOT_SUPPORTED/UNCLEAR),
-or, for the adversarial persona, "verified" whenever the citation is
-correctly empty (an adversarial question has no real citation to check).
+Usage::
 
-This unattended path is expected to be noisier than drafting the question
-interactively inside Claude Code (see SKILL.md) -- that's exactly why
-nothing here is trusted without the verification step.
+    uv run python corpus/cli.py download [options]
+    uv run python corpus/cli.py generate-questions <persona_id> [--count N]
 """
 
 import json
 import re
 import sys
 from pathlib import Path
+from typing import Annotated
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+import typer
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-SKILL_DIR = Path(__file__).resolve().parent
-PERSONAS_PATH = PROJECT_ROOT / "corpus" / "golden_set" / "personas.json"
-QUESTIONS_PATH = PROJECT_ROOT / "corpus" / "golden_set" / "questions.json"
+from corpus.download_court_decisions import (
+    DEFAULT_DECISION_TYPES,
+    DEFAULT_KEYWORDS,
+    DownloadConfig,
+)
+from corpus.download_court_decisions import (
+    run as run_download,
+)
+
+CORPUS_DIR = Path(__file__).resolve().parent
+DATA_DIR = CORPUS_DIR / "data"
+PERSONAS_PATH = DATA_DIR / "personas.json"
+QUESTIONS_PATH = DATA_DIR / "questions.json"
+SKILL_DIR = PROJECT_ROOT / "skills" / "generate-golden-questions"
+
+app = typer.Typer(help=__doc__)
+
+
+# --- download ---------------------------------------------------------------
+
+
+@app.command()
+def download(
+    kollegium: Annotated[
+        str, typer.Option(help="Kollegium filter value, e.g. 'polgári'.")
+    ] = "polgári",
+    decision_types: Annotated[
+        list[str],
+        typer.Option(
+            "--decision-types",
+            help="HatarozatFajta values to search one at a time (the site allows only one per search).",
+        ),
+    ] = DEFAULT_DECISION_TYPES,
+    keywords: Annotated[
+        list[str],
+        typer.Option(
+            "--keywords",
+            help="Keywords searched one at a time; results are merged and deduplicated across all of them.",
+        ),
+    ] = DEFAULT_KEYWORDS,
+    year_from: Annotated[int, typer.Option()] = 2010,
+    year_to: Annotated[int, typer.Option()] = 2024,
+    max_documents: Annotated[
+        int, typer.Option(help="Stop after downloading this many new documents.")
+    ] = 10000,
+    page_size: Annotated[int, typer.Option()] = 20,
+    delay_min: Annotated[
+        float, typer.Option(help="Minimum seconds between requests.")
+    ] = 0.5,
+    delay_max: Annotated[
+        float, typer.Option(help="Maximum seconds between requests.")
+    ] = 1.0,
+    max_retries: Annotated[int, typer.Option()] = 3,
+    out_dir: Annotated[
+        Path,
+        typer.Option(
+            help="Directory to write raw/ and meta.csv into (default: corpus/)."
+        ),
+    ] = CORPUS_DIR,
+    file_format: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            help="Document format to download: 'pdf' or 'rtf' (default: rtf).",
+        ),
+    ] = "rtf",
+) -> None:
+    """Download court decisions from eakta.birosag.hu into corpus/raw/.
+
+    Thin wrapper around corpus/download_court_decisions.py's existing
+    DownloadConfig/run() -- that module's own internals are unchanged.
+    """
+    import logging
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
+
+    if file_format not in ("pdf", "rtf"):
+        raise typer.BadParameter("--format must be 'pdf' or 'rtf'")
+
+    config = DownloadConfig(
+        kollegium=kollegium,
+        decision_types=decision_types,
+        keywords=keywords,
+        year_from=year_from,
+        year_to=year_to,
+        max_documents=max_documents,
+        page_size=page_size,
+        delay_min=delay_min,
+        delay_max=delay_max,
+        max_retries=max_retries,
+        out_dir=out_dir,
+        file_format=file_format,
+    )
+    run_download(config)
+
+
+# --- generate-questions -------------------------------------------------------
 
 
 def load_personas() -> dict[str, dict]:
-    """Load corpus/golden_set/personas.json, keyed by persona id."""
+    """Load corpus/data/personas.json, keyed by persona id."""
     personas = json.loads(PERSONAS_PATH.read_text())
     return {p["id"]: p for p in personas}
 
 
 def load_questions() -> list[dict]:
-    """Load corpus/golden_set/questions.json (empty list if missing)."""
+    """Load corpus/data/questions.json (empty list if missing)."""
     if not QUESTIONS_PATH.exists():
         return []
     return json.loads(QUESTIONS_PATH.read_text())
 
 
 def save_questions(questions: list[dict]) -> None:
-    """Write corpus/golden_set/questions.json, pretty-printed."""
+    """Write corpus/data/questions.json, pretty-printed."""
     QUESTIONS_PATH.write_text(
         json.dumps(questions, indent=2, ensure_ascii=False) + "\n"
     )
@@ -81,7 +177,7 @@ def sample_chunks_for_persona(persona: dict, count: int = 1) -> list[dict]:
 
     A document's first chunk reliably contains the case header (court,
     case number, parties, subject) -- see the real examples used to seed
-    corpus/golden_set/questions.json's q0001/q0002. Good enough for
+    corpus/data/questions.json's q0001/q0002. Good enough for
     single-document personas; multi-document personas (precedent_seeker,
     synthesizer) get `count` independent documents to compare/connect, not
     one document with more chunks.
@@ -284,10 +380,7 @@ def generate_one(persona_id: str, personas: dict[str, dict]) -> dict:
     if missing:
         verdict, reason = (
             "NOT_SUPPORTED",
-            (
-                f"Citation(s) not found in document_chunks: "
-                f"{[c['source_file'] for c in missing]}"
-            ),
+            f"Citation(s) not found in document_chunks: {[c['source_file'] for c in missing]}",
         )
     else:
         verdict, reason = verify_content_support(drafted)
@@ -309,21 +402,26 @@ def generate_one(persona_id: str, personas: dict[str, dict]) -> dict:
     }
 
 
-def main(argv: list[str]) -> int:
-    """CLI entry point: draft and verify N questions for one persona."""
-    if not argv:
-        print(
-            "Usage: uv run python skills/generate-golden-questions/cli.py <persona_id> [count]"
-        )
-        return 1
+@app.command("generate-questions")
+def generate_questions(
+    persona_id: Annotated[
+        str, typer.Argument(help="A persona id from corpus/data/personas.json.")
+    ],
+    count: Annotated[
+        int, typer.Option(help="How many questions to draft and verify.")
+    ] = 1,
+) -> None:
+    """Draft + two-tier-verify N golden questions for one persona.
 
-    persona_id = argv[0]
-    count = int(argv[1]) if len(argv) > 1 else 1
-
+    Sends skills/generate-golden-questions/SKILL.md's instructions to the
+    project's own LLM_DRIVER, then verifies each draft (citation existence +
+    a separate content-support check) before appending it to
+    corpus/data/questions.json. See SKILL.md for the full design.
+    """
     personas = load_personas()
     if persona_id not in personas:
         print(f"Unknown persona_id: '{persona_id}'. Options: {list(personas)}")
-        return 1
+        raise typer.Exit(code=1)
 
     questions = load_questions()
     for _ in range(count):
@@ -335,8 +433,21 @@ def main(argv: list[str]) -> int:
             f"[{entry['id']}] {entry['verification_status']}: {entry['question'][:80]}"
         )
 
-    return 0
+
+# --- eval ---------------------------------------------------------------
+
+
+@app.command()
+def eval() -> None:
+    """Run the golden-set evaluation (persona-bucketed accuracy + citation correctness).
+
+    Not built yet -- corpus/data/questions.json only has a handful of seed
+    questions so far, and the real per-persona/citation-correctness scoring
+    design still needs to be worked out (see docs/decisions.md).
+    """
+    print("Not implemented yet -- see corpus/cli.py's eval() docstring.")
+    raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    app()

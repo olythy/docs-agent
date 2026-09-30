@@ -148,5 +148,24 @@
     "verification_status": "verified",
     "verification_notes": "A csatolt dokumentum ítélete kifejezetten tartalmazza, hogy a bíróság a felperes keresetét elutasította, és a felperest 92.634 forint + ÁFA ügyvédi munkadíjból álló perköltség megfizetésére kötelezte.",
     "notes": "A kérdés közvetlenül a megadott ítélet szövegrészén alapul, amely tartalmazza a perköltség összegét és a kereset elutasítását."
+  },
+  {
+    "id": "q0009",
+    "persona_id": "fact_finder",
+    "question": "Mennyi az alperes által fizetendő tőkeösszeg a Budai Központi Kerületi Bíróság 8.P.XI.21.329/2024/12. számú ügyében, és mi a per tárgya?",
+    "expected_answer": "A per tárgya jogalap nélküli gazdagodás. A bíróság kötelezése értelmében az alperesnek 15 napon belül 733.910 (hétszázharmincháromezer-kilencszáztíz) forintot kell megfizetnie a felperesnek, a hozzá tartozó késedelmi kamatokkal együtt.",
+    "citations": [
+      {
+        "court": "Budai Kozponti Keruleti Birosag",
+        "case_number": "P.21329.2024.12",
+        "source_file": "Budai_Kozponti_Keruleti_Birosag__P_21329_2024_12.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "A határozat kifejezetten megállapítja, hogy a per tárgya jogalap nélküli gazdagodás, és kötelezi az alperest 733.910 forint valamint a késedelmi kamatok megfizetésére 15 napon belül.",
+    "notes": "A kérdés egyetlen dokumentumból kérdez ki egy konkrét összeget és a per tárgyát, ami közvetlenül alátámasztható a megadott szövegrészlettel."
   }
 ]
