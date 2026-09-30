@@ -2,6 +2,16 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-09-30 — `corpus/` becomes a Typer-based "sub-app": `corpus/cli.py` (download + generate-questions), `golden_set/` renamed to `data/` (pending commit)
+
+After moving `eval_questions.json` (below) surfaced a real, recurring pattern this session — script and data drifting apart across `scripts/`/`corpus/golden_set/`/`skills/` — decided to treat `corpus/` as a self-contained unit with its own CLI, rather than continuing to spread corpus-related commands across `scripts/eval_cli.py` and standalone one-off scripts.
+
+**Deliberately introduces `typer`, breaking with every other CLI in this project** (`scripts/*_cli.py`, `corpus/download_court_decisions.py` all use hand-rolled `argparse`). Explicit, scoped decision, not a silent inconsistency: the user wants a full project-wide migration to Typer eventually (better `--help`, less boilerplate for the growing number of `make eval-*`-style commands), but migrating everything now would block ongoing work — `corpus/` becomes the deliberate, small-scale pilot to learn Typer on before committing the whole project to it. `Makefile` targets and every other CLI are untouched by this pass.
+
+**`corpus/cli.py`** now has two working commands: `download` (a thin wrapper — builds the same `DownloadConfig` and calls the same `run()` `download_court_decisions.py` always exposed; that module's own argparse-based internals are deliberately untouched, deferred to a later cleanup pass once Typer proves out) and `generate-questions` (the logic that used to live in `skills/generate-golden-questions/cli.py`, moved here wholesale — `SKILL.md` now invokes this command instead of its own standalone script, so there's one corpus-related CLI, not two). A third command, `eval` (the actual golden-set accuracy measurement — persona-bucketed scoring, citation correctness), is stubbed with a clear "not implemented yet" — the real design work for it is still pending, deliberately not rushed alongside a structural reorg.
+
+**`corpus/golden_set/` renamed to `corpus/data/`** — once a question set lives under `corpus/`, at all, it's understood to be the golden set; naming the directory that too was redundant.
+
 ## 2026-09-30 — Moved `eval_questions.json` to `scripts/eval_data/sample_questions.json`; made fixture discovery explicit (pending commit)
 
 Prompted by building `corpus/golden_set/` (above): noticed `tests/data/eval_questions.json` was misplaced by the same logic that just decided where the golden set should live. Confirmed via `grep` before acting (not assumed): it's referenced *only* by `scripts/eval_cli.py`, never by any pytest test (unit or db) — unlike `tests/data/sample.md`/`sample.pdf`/`sample_hu.md`, which real DB tests (`tests/db/test_ingest_db.py`) hardcode directly and depend on. Renamed to `sample_questions.json` and moved to sit next to its one real consumer, `scripts/eval_cli.py` — same reasoning as `corpus/`'s own script+data pairing.
