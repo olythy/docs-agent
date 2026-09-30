@@ -148,9 +148,18 @@ def cmd_doctor() -> int:
 
 
 def cmd_lint() -> int:
-    """Run ruff linter check."""
+    """Run ruff check, then pyright."""
     print("Running ruff check...")
-    return run_cmd([sys.executable, "-m", "ruff", "check", "."])
+    ruff_code = run_cmd([sys.executable, "-m", "ruff", "check", "."])
+    print("Running pyright...")
+    pyright_code = run_cmd([sys.executable, "-m", "pyright"])
+    return ruff_code if ruff_code != 0 else pyright_code
+
+
+def cmd_typecheck() -> int:
+    """Run pyright only."""
+    print("Running pyright...")
+    return run_cmd([sys.executable, "-m", "pyright"])
 
 
 def cmd_format() -> int:
@@ -181,12 +190,13 @@ COMMANDS = {
     "lint-fix": cmd_lint_fix,
     "fix": cmd_lint_fix,
     "format": cmd_format,
+    "typecheck": cmd_typecheck,
 }
 
 
 def print_help() -> None:
     """Print command usage and descriptions."""
-    print(__doc__.strip())
+    print((__doc__ or "").strip())
 
 
 def main() -> None:

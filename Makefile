@@ -38,7 +38,7 @@ doctor: ## Check configuration files, Docker status, and database health
 setup: ## One-shot onboarding: start Postgres + migrate both DBs
 	uv run python scripts/dev_cli.py setup
 
-lint: ## Check code style and rules with ruff
+lint: ## Check code style (ruff) and types (pyright)
 	uv run python scripts/dev_cli.py lint
 
 lint-fix: ## Auto-fix lint errors and format code
@@ -46,6 +46,9 @@ lint-fix: ## Auto-fix lint errors and format code
 
 format: ## Format code with ruff
 	uv run python scripts/dev_cli.py format
+
+typecheck: ## Check types with pyright only
+	uv run python scripts/dev_cli.py typecheck
 
 # --- Database & Migrations (scripts/db_cli.py) ---
 

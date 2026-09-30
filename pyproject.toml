@@ -35,9 +35,16 @@ required-environments = [
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.414",
     "pytest>=8.0.0",
     "ruff>=0.9.0",
 ]
+
+[tool.pyright]
+include = ["."]
+exclude = ["**/__pycache__", ".venv"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
