@@ -515,6 +515,7 @@ class GeminiEmbeddingDriver(EmbeddingDriver):
                 non-retryable error.
         """
         import time
+        from typing import cast
 
         from google.genai import types
         from google.genai.errors import APIError
@@ -526,7 +527,13 @@ class GeminiEmbeddingDriver(EmbeddingDriver):
         try:
             response = client.models.embed_content(
                 model=self._model,
-                contents=texts,
+                # google-genai's ContentListUnion stub doesn't include a
+                # plain list[str] (list invariance: list[str] isn't a
+                # list[str | Image | File | Part]), but a plain string list
+                # is confirmed working live against the real API — this
+                # cast documents that the stub is narrower than reality,
+                # not a guess.
+                contents=cast("types.ContentListUnion", texts),
                 config=types.EmbedContentConfig(output_dimensionality=self.dimension),
             )
         except APIError as exc:
@@ -537,7 +544,17 @@ class GeminiEmbeddingDriver(EmbeddingDriver):
                 ) from exc
             raise
 
-        return [item.values for item in response.embeddings]
+        assert response.embeddings is not None, (
+            "a successful embed_content() response always has embeddings"
+        )
+        embeddings = []
+        for item in response.embeddings:
+            assert item.values is not None, (
+                "a successful embed_content() response always has values "
+                "per embedding item"
+            )
+            embeddings.append(item.values)
+        return embeddings
 
 
 @lru_cache(maxsize=1)

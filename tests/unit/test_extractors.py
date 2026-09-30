@@ -28,7 +28,7 @@ def _write_docx(path: Path, paragraphs: list[tuple[str, bool]]) -> None:
         paragraph = document.add_paragraph(text)
         if centered:
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    document.save(path)
+    document.save(str(path))
 
 
 def _write_rtf(path: Path, body: str) -> None:

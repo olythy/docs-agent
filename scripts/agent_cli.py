@@ -357,7 +357,7 @@ def cmd_chat() -> int:
 
 def print_help() -> None:
     """Print command usage and descriptions."""
-    print(__doc__.strip())
+    print((__doc__ or "").strip())
 
 
 def main(argv: list[str] | None = None) -> int:

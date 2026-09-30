@@ -370,6 +370,17 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
             )
             return WarnOverflowStrategy().apply(chunks, driver)
 
+        def count_tokens(text: str) -> int:
+            """Non-Optional count_tokens, safe here since supports_token_counting()
+            was already confirmed True above — count_tokens() returning None would
+            mean that contract broke, not something to recover from silently."""
+            token_count = driver.count_tokens(text)
+            assert token_count is not None, (
+                f"{type(driver).__name__}.supports_token_counting() is True but "
+                "count_tokens() returned None"
+            )
+            return token_count
+
         corrected: list[Chunk] = []
         next_index = 0
         for chunk in chunks:
@@ -381,14 +392,14 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
             # a downstream model prefix ("passage: " ~4 tokens) so the final
             # piece never exceeds max_seq_length.
             header_prefix = f"{header_path}\n\n" if header_path else ""
-            header_tokens = driver.count_tokens(header_prefix) if header_prefix else 0
+            header_tokens = count_tokens(header_prefix) if header_prefix else 0
             safety_margin = 4 if max_seq_length > 16 else 0
             budget = max_seq_length - header_tokens - safety_margin
             effective_max_tokens = max(1, min(max_seq_length, budget))
 
             for piece in _split_oversized_text(
                 body,
-                driver.count_tokens,
+                count_tokens,
                 effective_max_tokens,
                 overlap_ratio=self.overlap_ratio,
             ):

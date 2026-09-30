@@ -16,8 +16,13 @@ def test_settings_has_sensible_defaults():
 
 
 def test_settings_is_frozen():
+    # setattr(), not `settings.CHUNK_SIZE = 999` directly: the direct form is
+    # a static type error pyright correctly flags (Settings is frozen) — but
+    # that's exactly what this test verifies at runtime, not a bug to fix.
+    # setattr() is a dynamic call pyright doesn't type-check, so the same
+    # runtime assertion holds with nothing to suppress there.
     with pytest.raises(dataclasses.FrozenInstanceError):
-        settings.CHUNK_SIZE = 999
+        setattr(settings, "CHUNK_SIZE", 999)  # noqa: B010 -- see comment above
 
 
 def test_settings_parsed_ingest_extensions():

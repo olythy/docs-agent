@@ -753,7 +753,7 @@ def cmd_eval(argv: list[str]) -> int:
 
 
 def print_help() -> None:
-    print(__doc__.strip())
+    print((__doc__ or "").strip())
 
 
 def main(argv: list[str] | None = None) -> int:

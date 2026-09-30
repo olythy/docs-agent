@@ -140,7 +140,9 @@ def get_next_batch_number(conn: PgConnection) -> int:
     """Calculate the next migration batch number."""
     with conn.cursor() as cur:
         cur.execute("SELECT COALESCE(MAX(batch), 0) + 1 FROM schema_migrations;")
-        return cur.fetchone()[0]
+        row = cur.fetchone()
+        assert row is not None, "aggregate SELECT always returns exactly one row"
+        return row[0]
 
 
 def compute_pending(files: list[Path], applied_stems: set[str]) -> list[Path]:
@@ -393,7 +395,7 @@ ALL_COMMANDS = list(DB_COMMANDS.keys()) + ["make", "make-migration"]
 
 def print_help() -> None:
     """Print command usage and descriptions."""
-    print(__doc__.strip())
+    print((__doc__ or "").strip())
 
 
 def main() -> None:

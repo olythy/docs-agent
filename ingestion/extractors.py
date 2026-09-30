@@ -234,7 +234,7 @@ class DocxExtractor(Extractor):
         if not file_path.exists():
             raise FileNotFoundError(f"DOCX file not found: {file_path}")
         try:
-            document = docx.Document(file_path)
+            document = docx.Document(str(file_path))
         except (PackageNotFoundError, zipfile.BadZipFile) as exc:
             raise ValueError(f"'{file_path.name}' is not a valid DOCX file.") from exc
         if not any(p.text.strip() for p in document.paragraphs):
@@ -265,7 +265,7 @@ def _docx_text_and_headers(file_path: Path) -> tuple[str, list[int], list[str]]:
     Returns:
         A ``(full_text, word_section_map, word_header_map)`` tuple.
     """
-    document = docx.Document(file_path)
+    document = docx.Document(str(file_path))
 
     full_text_parts: list[str] = []
     word_section_map: list[int] = []
