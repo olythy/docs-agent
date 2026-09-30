@@ -19,10 +19,54 @@ Usage::
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from functools import lru_cache
+from typing import TYPE_CHECKING, cast
 
 from config import settings
 from models import RetrievedChunk
+
+if TYPE_CHECKING:
+    # Only for type annotations — the real import is deferred to inside each
+    # driver's _get_client() to avoid the openai SDK's import cost when this
+    # module is merely imported, not actually used.
+    from openai import OpenAI
+    from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
+
+
+@dataclass(frozen=True)
+class ToolCallRequest:
+    """One tool call the model requested, in this project's own shape.
+
+    Mirrors the OpenAI SDK's ``ChatCompletionMessageFunctionToolCall`` but
+    is owned by this project — callers (e.g. ``agent.py``) depend on this
+    type, never the SDK's own, so the SDK's exact message/tool-call
+    TypedDict shapes stay confined to this driver module (see
+    :meth:`AnswerDriver.run_tool_calling_turn`'s docstring for why).
+
+    Attributes:
+        id: The tool call's id, to echo back in the follow-up ``role: "tool"`` message.
+        name: The requested tool's name (a key in the ``tools=[...]`` schema).
+        arguments: The model's arguments, as a raw (not yet JSON-decoded) string.
+    """
+
+    id: str
+    name: str
+    arguments: str
+
+
+@dataclass(frozen=True)
+class AgentTurnResult:
+    """The result of one chat-completion call, in this project's own shape.
+
+    Attributes:
+        content: The model's natural-language reply, or ``None`` if it
+            chose to call tool(s) instead of replying directly.
+        tool_calls: Tool call requests, if any (empty when the model replied directly).
+    """
+
+    content: str | None
+    tool_calls: list[ToolCallRequest] = field(default_factory=list)
 
 
 class AnswerDriver(ABC):
@@ -43,10 +87,10 @@ class AnswerDriver(ABC):
             model: The chat-completion model identifier to use.
         """
         self._model = model
-        self._client = None  # Lazy initialisation — avoids cost at import time
+        self._client: OpenAI | None = None  # Lazy init — avoids import cost
 
     @abstractmethod
-    def _get_client(self):
+    def _get_client(self) -> "OpenAI":
         """Lazily create and cache the provider-specific OpenAI-compatible client."""
 
     @property
@@ -54,20 +98,62 @@ class AnswerDriver(ABC):
         """The chat-completion model identifier this driver is configured for."""
         return self._model
 
-    def get_client(self):
-        """Return this driver's underlying OpenAI-compatible client.
+    def run_tool_calling_turn(
+        self, messages: list[dict], tools: list[dict] | None = None
+    ) -> AgentTurnResult:
+        """Send one chat-completion request, optionally offering tool schemas.
 
-        Public wrapper around :meth:`_get_client`. ``answer()`` (RAG-specific:
-        fixed system prompt, no tools) is the only thing most callers need —
-        but ``agent.py``'s function-calling loop needs the raw client itself,
-        to pass its own messages/``tools=[...]`` and read back tool-call
-        requests, which ``answer()``'s fixed shape doesn't expose.
+        ``answer()`` (RAG-specific: fixed system prompt, no tools) is the
+        only thing most callers need — but ``agent.py``'s function-calling
+        loop needs to pass its own growing ``messages`` history and
+        ``tools=[...]`` schemas, and read back tool-call requests, which
+        ``answer()``'s fixed shape doesn't expose.
+
+        This method (not a raw client getter) is the boundary instead: the
+        OpenAI SDK's exact typed ``ChatCompletionMessageParam``/
+        ``ChatCompletionToolParam`` shapes are only enforced *here*, via
+        the ``cast`` calls below — callers work with plain dicts and this
+        method's own :class:`AgentTurnResult`/:class:`ToolCallRequest`,
+        never the SDK's types directly. The ``cast`` is a deliberate,
+        narrow assertion (this driver is responsible for building
+        correctly-shaped dicts), not a blanket type-check suppression.
+
+        Args:
+            messages: Chat history so far, OpenAI ``role``/``content`` dict shape.
+            tools: OpenAI-style ``tools=[...]`` function schemas, or
+                ``None``/empty to omit tool-calling entirely for this call.
 
         Returns:
-            The provider-specific client (currently always an
-            ``openai.OpenAI`` instance, pointed at the right ``base_url``).
+            An :class:`AgentTurnResult` with the reply and/or requested tool calls.
         """
-        return self._get_client()
+        client = self._get_client()
+        create_kwargs: dict = {
+            "model": self._model,
+            "messages": cast("list[ChatCompletionMessageParam]", messages),
+        }
+        if tools:
+            create_kwargs["tools"] = cast("list[ChatCompletionToolParam]", tools)
+
+        response = client.chat.completions.create(**create_kwargs)
+        message = response.choices[0].message
+
+        tool_calls = []
+        for tool_call in message.tool_calls or []:
+            # Every schema this project offers is `"type": "function"` (see
+            # agent.py's TOOLS) — a custom tool call is a different SDK
+            # variant with no .function attribute, and shouldn't occur here.
+            assert hasattr(tool_call, "function"), (
+                f"Unexpected non-function tool call from the model: {tool_call!r}"
+            )
+            tool_calls.append(
+                ToolCallRequest(
+                    id=tool_call.id,
+                    name=tool_call.function.name,
+                    arguments=tool_call.function.arguments,
+                )
+            )
+
+        return AgentTurnResult(content=message.content, tool_calls=tool_calls)
 
     def answer(
         self,
@@ -168,7 +254,7 @@ class OpenAIAnswerDriver(AnswerDriver):
         """
         super().__init__(model or settings.LLM_MODEL)
 
-    def _get_client(self):
+    def _get_client(self) -> "OpenAI":
         """Lazily create and cache the OpenAI client.
 
         Returns:
@@ -207,7 +293,7 @@ class OpenRouterAnswerDriver(AnswerDriver):
         """
         super().__init__(model or settings.LLM_MODEL)
 
-    def _get_client(self):
+    def _get_client(self) -> "OpenAI":
         """Lazily create and cache the OpenRouter client.
 
         OpenRouter is accessed through the standard ``openai.OpenAI`` SDK

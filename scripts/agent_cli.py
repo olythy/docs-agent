@@ -345,7 +345,7 @@ def cmd_query(question: str) -> int:
 
 
 def cmd_chat() -> int:
-    """Start the interactive agent console session."""
+    """Start the interactive agent console session (isolated turns, no memory)."""
     from agent import run_interactive
 
     run_interactive()

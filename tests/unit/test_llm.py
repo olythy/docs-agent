@@ -108,11 +108,57 @@ def test_model_property_exposes_configured_model():
     assert driver.model == "some-model"
 
 
-def test_get_client_delegates_to_get_client_impl():
+def _fake_message(content=None, tool_calls=None):
+    return MagicMock(content=content, tool_calls=tool_calls)
+
+
+def _fake_response(message) -> MagicMock:
+    return MagicMock(choices=[MagicMock(message=message)])
+
+
+def _fake_function_tool_call(call_id: str, name: str, arguments: str) -> MagicMock:
+    # MagicMock(name=...) is a footgun: `name` sets the mock's own repr, not
+    # an attribute — build .function separately and assign .name after.
+    function = MagicMock(arguments=arguments)
+    function.name = name
+    return MagicMock(id=call_id, function=function)
+
+
+def test_run_tool_calling_turn_returns_direct_reply_with_no_tool_calls():
     client = MagicMock()
+    client.chat.completions.create.return_value = _fake_response(
+        _fake_message(content="hi", tool_calls=None)
+    )
     driver = _FakeAnswerDriver(model="some-model", client=client)
 
-    assert driver.get_client() is client
+    result = driver.run_tool_calling_turn([{"role": "user", "content": "hey"}])
+
+    assert result.content == "hi"
+    assert result.tool_calls == []
+    kwargs = client.chat.completions.create.call_args.kwargs
+    assert kwargs["model"] == "some-model"
+    assert "tools" not in kwargs
+
+
+def test_run_tool_calling_turn_passes_tools_and_returns_tool_call_requests():
+    tool_call = _fake_function_tool_call("call_1", "query_knowledge_base", '{"q": 1}')
+    client = MagicMock()
+    client.chat.completions.create.return_value = _fake_response(
+        _fake_message(content=None, tool_calls=[tool_call])
+    )
+    driver = _FakeAnswerDriver(model="some-model", client=client)
+
+    result = driver.run_tool_calling_turn(
+        [{"role": "user", "content": "hey"}], tools=[{"type": "function"}]
+    )
+
+    assert result.content is None
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0].id == "call_1"
+    assert result.tool_calls[0].name == "query_knowledge_base"
+    assert result.tool_calls[0].arguments == '{"q": 1}'
+    kwargs = client.chat.completions.create.call_args.kwargs
+    assert kwargs["tools"] == [{"type": "function"}]
 
 
 def test_openai_driver_get_client_caches_across_calls(monkeypatch):

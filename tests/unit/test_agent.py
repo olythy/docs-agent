@@ -1,33 +1,22 @@
 """Tests for agent.py's tool dispatch and the tool-calling loop.
 
-No real LLM call happens here — the OpenAI-compatible client returned by
-AnswerDriver.get_client() is faked with plain objects shaped like the
-openai SDK's response (choices[0].message.content/.tool_calls).
+No real LLM call happens here — AnswerDriver.run_tool_calling_turn() is
+faked directly, returning plain AgentTurnResult/ToolCallRequest values
+(this project's own shape, not the openai SDK's).
 """
 
 import json
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
 import agent
 from agent import _call_tool, run_agent
+from drivers.llm import AgentTurnResult, ToolCallRequest
 
 
-def _fake_message(content=None, tool_calls=None):
-    return SimpleNamespace(content=content, tool_calls=tool_calls)
-
-
-def _fake_response(message):
-    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
-
-
-def _fake_tool_call(call_id, name, arguments: dict):
-    return SimpleNamespace(
-        id=call_id,
-        function=SimpleNamespace(name=name, arguments=json.dumps(arguments)),
-    )
+def _tool_call(call_id, name, arguments: dict):
+    return ToolCallRequest(id=call_id, name=name, arguments=json.dumps(arguments))
 
 
 def test_call_tool_add_document_calls_ingest_and_returns_confirmation(monkeypatch):
@@ -73,38 +62,30 @@ def test_call_tool_raises_on_unknown_tool():
         _call_tool("delete_everything", {})
 
 
-def _fake_driver(client):
+def _fake_driver(*turns: AgentTurnResult) -> MagicMock:
     driver = MagicMock()
     driver.model = "test-model"
-    driver.get_client.return_value = client
+    driver.run_tool_calling_turn.side_effect = list(turns)
     return driver
 
 
 def test_run_agent_returns_direct_reply_when_no_tool_call(monkeypatch):
-    fake_client = MagicMock()
-    fake_client.chat.completions.create.return_value = _fake_response(
-        _fake_message(content="Hello there", tool_calls=None)
-    )
-    monkeypatch.setattr(agent, "get_answer_driver", lambda: _fake_driver(fake_client))
+    fake_driver = _fake_driver(AgentTurnResult(content="Hello there"))
+    monkeypatch.setattr(agent, "get_answer_driver", lambda: fake_driver)
 
     result = run_agent("hi")
 
     assert result == "Hello there"
-    assert fake_client.chat.completions.create.call_count == 1
+    assert fake_driver.run_tool_calling_turn.call_count == 1
 
 
 def test_run_agent_executes_tool_call_and_returns_final_reply(monkeypatch):
-    tool_call = _fake_tool_call(
-        "call_1", "query_knowledge_base", {"question": "What is X?"}
+    tool_call = _tool_call("call_1", "query_knowledge_base", {"question": "What is X?"})
+    fake_driver = _fake_driver(
+        AgentTurnResult(content=None, tool_calls=[tool_call]),
+        AgentTurnResult(content="Final answer"),
     )
-    first_response = _fake_response(_fake_message(content=None, tool_calls=[tool_call]))
-    final_response = _fake_response(
-        _fake_message(content="Final answer", tool_calls=None)
-    )
-
-    fake_client = MagicMock()
-    fake_client.chat.completions.create.side_effect = [first_response, final_response]
-    monkeypatch.setattr(agent, "get_answer_driver", lambda: _fake_driver(fake_client))
+    monkeypatch.setattr(agent, "get_answer_driver", lambda: fake_driver)
 
     fake_query = MagicMock(return_value="KB ANSWER")
     monkeypatch.setattr(agent, "query_knowledge_base", fake_query)
@@ -114,9 +95,7 @@ def test_run_agent_executes_tool_call_and_returns_final_reply(monkeypatch):
     assert result == "Final answer"
     fake_query.assert_called_once_with("What is X?")
 
-    second_call_messages = fake_client.chat.completions.create.call_args_list[1].kwargs[
-        "messages"
-    ]
+    second_call_messages = fake_driver.run_tool_calling_turn.call_args_list[1].args[0]
     tool_messages = [m for m in second_call_messages if m["role"] == "tool"]
     assert len(tool_messages) == 1
     assert tool_messages[0]["content"] == "KB ANSWER"
@@ -124,15 +103,12 @@ def test_run_agent_executes_tool_call_and_returns_final_reply(monkeypatch):
 
 
 def test_run_agent_reports_tool_execution_errors_to_the_model(monkeypatch):
-    tool_call = _fake_tool_call("call_1", "add_document", {"file_path": "missing.pdf"})
-    first_response = _fake_response(_fake_message(content=None, tool_calls=[tool_call]))
-    final_response = _fake_response(
-        _fake_message(content="Could not add it.", tool_calls=None)
+    tool_call = _tool_call("call_1", "add_document", {"file_path": "missing.pdf"})
+    fake_driver = _fake_driver(
+        AgentTurnResult(content=None, tool_calls=[tool_call]),
+        AgentTurnResult(content="Could not add it."),
     )
-
-    fake_client = MagicMock()
-    fake_client.chat.completions.create.side_effect = [first_response, final_response]
-    monkeypatch.setattr(agent, "get_answer_driver", lambda: _fake_driver(fake_client))
+    monkeypatch.setattr(agent, "get_answer_driver", lambda: fake_driver)
 
     fake_add_document = MagicMock(side_effect=FileNotFoundError("no such file"))
     monkeypatch.setattr(agent, "add_document", fake_add_document)
@@ -140,8 +116,6 @@ def test_run_agent_reports_tool_execution_errors_to_the_model(monkeypatch):
     result = run_agent("Add missing.pdf")
 
     assert result == "Could not add it."
-    second_call_messages = fake_client.chat.completions.create.call_args_list[1].kwargs[
-        "messages"
-    ]
+    second_call_messages = fake_driver.run_tool_calling_turn.call_args_list[1].args[0]
     tool_messages = [m for m in second_call_messages if m["role"] == "tool"]
     assert tool_messages[0]["content"].startswith("Error:")

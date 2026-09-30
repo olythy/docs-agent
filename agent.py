@@ -18,7 +18,7 @@ Flow (the standard OpenAI tool-calling loop):
 
 Caveat worth knowing: this uses the same ``AnswerDriver`` (and therefore
 the same ``LLM_MODEL``) as ``query_knowledge_base``'s answer generation —
-via its new public ``get_client()``/``model`` — but tool-calling support is
+via its ``run_tool_calling_turn()``/``model`` — but tool-calling support is
 model-dependent, and ``settings.LLM_MODEL``'s default (``openrouter/free``,
 which auto-routes to *some* available free model) is not guaranteed to
 support it. If the model doesn't support tools, expect either an API error
@@ -188,47 +188,41 @@ def run_agent(user_message: str) -> str:
         tool(s) it chose to call (if any).
     """
     driver = get_answer_driver()
-    client = driver.get_client()
 
-    messages = [
+    messages: list[dict] = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": user_message},
     ]
 
-    response = client.chat.completions.create(
-        model=driver.model,
-        messages=messages,
-        tools=TOOLS,
-    )
-    message = response.choices[0].message
+    turn = driver.run_tool_calling_turn(messages, tools=TOOLS)
 
-    if not message.tool_calls:
-        return message.content or ""
+    if not turn.tool_calls:
+        return turn.content or ""
 
-    print(f"[agent] Model requested {len(message.tool_calls)} tool call(s).")
+    print(f"[agent] Model requested {len(turn.tool_calls)} tool call(s).")
     messages.append(
         {
             "role": "assistant",
-            "content": message.content,
+            "content": turn.content,
             "tool_calls": [
                 {
                     "id": tool_call.id,
                     "type": "function",
                     "function": {
-                        "name": tool_call.function.name,
-                        "arguments": tool_call.function.arguments,
+                        "name": tool_call.name,
+                        "arguments": tool_call.arguments,
                     },
                 }
-                for tool_call in message.tool_calls
+                for tool_call in turn.tool_calls
             ],
         }
     )
 
-    for tool_call in message.tool_calls:
-        arguments = json.loads(tool_call.function.arguments)
-        print(f"[agent] Calling {tool_call.function.name}({arguments}) ...")
+    for tool_call in turn.tool_calls:
+        arguments = json.loads(tool_call.arguments)
+        print(f"[agent] Calling {tool_call.name}({arguments}) ...")
         try:
-            result = _call_tool(tool_call.function.name, arguments)
+            result = _call_tool(tool_call.name, arguments)
         except Exception as e:  # noqa: BLE001 — deliberately broad: a failing
             # tool call (bad path, DB error, API error, ...) must be reported
             # back to the model as a tool result, not crash the whole loop.
@@ -237,10 +231,29 @@ def run_agent(user_message: str) -> str:
             {"role": "tool", "tool_call_id": tool_call.id, "content": result}
         )
 
-    final_response = client.chat.completions.create(
-        model=driver.model, messages=messages
-    )
-    return final_response.choices[0].message.content or ""
+    final_turn = driver.run_tool_calling_turn(messages)
+    return final_turn.content or ""
+
+
+def run_interactive() -> None:
+    """Run an interactive console session: read a line, run one isolated turn, repeat.
+
+    Each turn is independent — no conversation memory carries over between
+    lines (see :func:`run_agent`'s docstring: one full tool-calling turn per
+    call). Exits cleanly on 'exit'/'quit' or EOF (Ctrl+D); Ctrl+C is handled
+    by the caller (``scripts/agent_cli.py``'s ``__main__`` block).
+    """
+    print("docs-agent — interactive agent CLI. Type 'exit' to quit.")
+    while True:
+        try:
+            user_input = input("\nYou: ").strip()
+        except EOFError:
+            break
+        if user_input.lower() in ("exit", "quit"):
+            break
+        if not user_input:
+            continue
+        print(f"\nAgent: {run_agent(user_input)}")
 
 
 if __name__ == "__main__":
@@ -250,11 +263,4 @@ if __name__ == "__main__":
     # handler here rather than leaving them silent (logging's default when
     # nothing calls basicConfig).
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    print("docs-agent — interactive agent CLI. Type 'exit' to quit.")
-    while True:
-        user_input = input("\nYou: ").strip()
-        if user_input.lower() in ("exit", "quit"):
-            break
-        if not user_input:
-            continue
-        print(f"\nAgent: {run_agent(user_input)}")
+    run_interactive()
