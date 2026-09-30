@@ -62,18 +62,25 @@ PREVIEW_CHARS = 500
 OVERFLOW_STRATEGIES = ["warn", "split"]
 
 EVAL_DATA_DIR = PROJECT_ROOT / "tests" / "data"
-EVAL_QUESTIONS_PATH = EVAL_DATA_DIR / "eval_questions.json"
+EVAL_QUESTIONS_PATH = PROJECT_ROOT / "scripts" / "eval_data" / "sample_questions.json"
 
 
-def discover_eval_fixtures(data_dir: Path = EVAL_DATA_DIR) -> list[Path]:
-    """Discover all document fixtures in tests/data (excluding JSON files and hidden files)."""
-    return sorted(
-        p
-        for p in data_dir.iterdir()
-        if p.is_file()
-        and p.suffix.lower() in {".md", ".pdf", ".txt"}
-        and not p.name.startswith(".")
+def discover_eval_fixtures() -> list[Path]:
+    """Return exactly the tests/data fixture files sample_questions.json's
+    questions reference, not everything that happens to be in that directory.
+
+    tests/data/ also holds fixtures real pytest DB tests depend on directly
+    (see tests/db/test_ingest_db.py) — scanning the whole directory would
+    silently couple this eval set to whatever gets added there for
+    unrelated reasons. Deriving the list from expected_source_file instead
+    means sample_questions.json (this eval set's own source of truth for
+    what it needs) is the only thing that decides what gets seeded.
+    """
+    questions = json.loads(EVAL_QUESTIONS_PATH.read_text())
+    names = sorted(
+        {q["expected_source_file"] for q in questions if q.get("expected_source_file")}
     )
+    return [EVAL_DATA_DIR / name for name in names]
 
 
 QUESTION_COLUMN_WIDTH = 42

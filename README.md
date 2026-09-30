@@ -55,6 +55,8 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── db_cli.py             # Database CLI: migrations, flush, make-migration (uv run python scripts/db_cli.py)
 │   ├── agent_cli.py          # Agent & runtime CLI: query, chat, ingest, mcp-dev, mcp-install, skills-install (uv run python scripts/agent_cli.py)
 │   ├── eval_cli.py           # Evaluation & diagnostics CLI: eval, inspect, extract (uv run python scripts/eval_cli.py)
+│   ├── eval_data/
+│   │   └── sample_questions.json  # eval_cli.py's own 25-question self-referential eval set (fixture docs live in tests/data/)
 │   ├── log_cli.py            # Telemetry & logging CLI: watch/tail, stats, clear (uv run python scripts/log_cli.py)
 │   └── utils.py              # Shared CLI utilities (subprocess runner, paths, terminal formatting)
 ├── docker-compose.yml       # Local Postgres+pgvector (dev + test databases)
@@ -346,7 +348,7 @@ Controlled by `RERANKER_DRIVER` (`.env`, default `cross_encoder`) — a Strategy
 
 ### How quality is measured
 
-`scripts/eval_cli.py eval` (`make eval`) + `tests/data/eval_questions.json` — **25 bilingual questions** (19 answerable, 6 deliberately unanswerable) across three committed fixtures (`tests/data/sample.md`, `tests/data/sample.pdf`, `tests/data/sample_hu.md` — an Hungarian enterprise IT policy). It runs every question through `retrieve_chunks()` with each `RetrievalStrategy` swapped in explicitly — **vector-only** (`VectorRetrievalStrategy`) and **hybrid+rerank** (`HybridRetrievalStrategy`, with whatever `RERANKER_DRIVER` is currently configured) — through the exact same production code path, not a hand-rolled duplicate, and reports:
+`scripts/eval_cli.py eval` (`make eval`) + `scripts/eval_data/sample_questions.json` — **25 bilingual questions** (19 answerable, 6 deliberately unanswerable) across three committed fixtures (`tests/data/sample.md`, `tests/data/sample.pdf`, `tests/data/sample_hu.md` — an Hungarian enterprise IT policy). It runs every question through `retrieve_chunks()` with each `RetrievalStrategy` swapped in explicitly — **vector-only** (`VectorRetrievalStrategy`) and **hybrid+rerank** (`HybridRetrievalStrategy`, with whatever `RERANKER_DRIVER` is currently configured) — through the exact same production code path, not a hand-rolled duplicate, and reports:
 
 - **Passage Hit@1**: did the passage containing the expected gold fact land at rank 1?
 - **Passage Recall@k**: did it land anywhere in the top-k?
