@@ -44,20 +44,23 @@ app = typer.Typer()
 def load_verified_questions(persona_filter: str | None = None) -> list[dict]:
     """Load corpus/data/questions.json, keeping only trustworthy entries.
 
+    Only requires verification_status="verified" -- the two-tier pipeline
+    (citation existence + a separate content-support/citation-verbatim
+    check) is trusted on its own now that Part 2's verbatim-citation check
+    exists (see docs/decisions.md for the live-confirmed bug it was added
+    to catch). ``reviewed`` stays in the schema as an optional, stronger
+    signal for anyone who does look a question over by hand, but isn't
+    required to include a question here anymore.
+
     Args:
         persona_filter: If given, only questions for this persona_id.
 
     Returns:
-        Questions with verification_status="verified" and reviewed=true --
-        anything still "needs_review"/"unverified" isn't a trustworthy
-        yardstick yet.
+        Questions with verification_status="verified" -- anything still
+        "needs_review"/"unverified" isn't a trustworthy yardstick yet.
     """
     questions = json.loads(QUESTIONS_PATH.read_text())
-    questions = [
-        q
-        for q in questions
-        if q.get("verification_status") == "verified" and q.get("reviewed") is True
-    ]
+    questions = [q for q in questions if q.get("verification_status") == "verified"]
     if persona_filter:
         questions = [q for q in questions if q["persona_id"] == persona_filter]
     return questions
