@@ -2,6 +2,14 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-09-30 — Trust `verification_status="verified"` alone; `reviewed` no longer required for eval (pending commit)
+
+Now that Part 2's verbatim-citation check exists (see the generate-questions citation bug entry above) and has been confirmed live to correctly verify q0011/q0012's citations, decided the automated two-tier pipeline is trustworthy enough on its own — `corpus/commands/eval.py`'s `load_verified_questions()` no longer also requires `reviewed=true`. `reviewed` stays in the schema as an optional, stronger signal for anyone who does look a question over by hand, just isn't a hard requirement anymore.
+
+Before relying on this for q0009/q0010 specifically (drafted *before* the Part 2 fix existed, so not covered by the stronger check retroactively), spot-checked their citations live against the real document content anyway -- all three case numbers found verbatim (missing only a leading prefix the golden question's citation field paraphrased away, e.g. "P.21329.2024.12" for the real "8.P.XI.21.329/2024/12" -- the core numeric identifier matched exactly, which is within the tier-2 check's own "near-verbatim" tolerance).
+
+Also confirmed empirically, prompted by a sharp question about `prepare_fulltext_query()`: a duplicate word in its `kept` list (no deduplication there, unlike `extract_identifier_tokens()`) does not skew `ts_rank` -- tested directly that `ts_rank` scores identically whether a term appears once or three times in an OR-joined `websearch_to_tsquery`. No code change needed.
+
 ## 2026-09-30 — Deferred: bake each document's identifier into every chunk's header, not just chunk 0
 
 While discussing the identifier-rescue fixes above, a real gap surfaced that today's fixes don't address: a document's case number typically only appears once, near the top (`chunk_index=0`) — `search_by_identifier()` can only find *that* chunk via an exact match, not a different chunk deeper in the same document that might hold the actually-relevant content (e.g. the court's reasoning, several chunks in). Today's `retrieval_hit_rate` metric checks at the *document* level (`source_file` presence), so this gap could be silently masked there even after the identifier-rescue fixes.
