@@ -167,5 +167,29 @@
     "verification_status": "verified",
     "verification_notes": "A határozat kifejezetten megállapítja, hogy a per tárgya jogalap nélküli gazdagodás, és kötelezi az alperest 733.910 forint valamint a késedelmi kamatok megfizetésére 15 napon belül.",
     "notes": "A kérdés egyetlen dokumentumból kérdez ki egy konkrét összeget és a per tárgyát, ami közvetlenül alátámasztható a megadott szövegrészlettel."
+  },
+  {
+    "id": "q0010",
+    "persona_id": "synthesizer",
+    "question": "Hogyan alakult a Budapest Környéki Törvényszék ítélkezési gyakorlata a 2020 és 2024 közötti időszakban a közös tulajdon megszüntetése, illetve a tulajdonjog megállapítása iránti perekben a rendelkezésre álló dokumentumok alapján?",
+    "expected_answer": "A rendelkezésre álló dokumentumok alapján a Budapest Környéki Törvényszék a P.20.487/2020/221. számú ügyben a Budapest II. kerületi ingatlanon fennálló tulajdonközösséget megszüntette akként, hogy az I.r. felperes javára döntött, míg a G.40.154/2024/4. számú, tulajdonjog megállapítása iránti perben a bíróság a felperes keresetét elutasította, és a felperest perköltség megfizetésére kötelezte.",
+    "citations": [
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "P.20487.2020.221",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20487_2020_221.docx"
+      },
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "G.40154.2024.4",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__G_40154_2024_4.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "A csatolt dokumentumok tartalma pontosan alátámasztja az elvárt válaszban szereplő mindkét ítélet kimenetelét: a P.20.487/2020/221. számú ügyben a bíróság megszüntette a közös tulajdont a felperes javára, míg a G.40.154/2024/4. számú ügyben elutasította a felperes keresetét és perköltség megfizetésére kötelezte.",
+    "notes": "A kérdés a két különböző évben (2020 és 2024) kelt, a Budapest Környéki Törvényszék által hozott ítélet tényállását és kimenetelét köti össze időrendi szintézisben."
   }
 ]

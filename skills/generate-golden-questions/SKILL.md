@@ -64,7 +64,7 @@ cited `source_file`, answer only:
 
 1. Does each cited `(court, case_number)` actually match a real ingested
    document? (This check is deterministic — done in code, not by you — see
-   `corpus/cli.py`'s `verify_citation_exists()`. Skip straight to step 2.)
+   `corpus/commands/generate_questions.py`'s `verify_citation_exists()`. Skip straight to step 2.)
 2. Does the cited content actually support `expected_answer`, in substance
    (paraphrasing is fine — this is not a string-match check)? Answer with
    exactly one of:

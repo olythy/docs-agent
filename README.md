@@ -66,13 +66,17 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── decisions.md          # Engineering decision & bug-log history (the "why" behind this README)
 │   └── architecture.md       # Pipeline diagrams + Strategy/Driver selection table (the "how it flows")
 ├── corpus/                  # The real-estate-law evaluation corpus "sub-app" — see corpus/cli.py
-│   ├── cli.py                # Unified Typer CLI: download, generate-questions (eval: not built yet)
-│   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by cli.py's `download` (raw/ + meta.csv are gitignored)
+│   ├── cli.py                # Thin Typer entrypoint: merges commands/ modules via add_typer()
+│   ├── commands/
+│   │   ├── download.py        # `download` command (thin wrapper around download_court_decisions.py)
+│   │   ├── generate_questions.py  # `generate-questions` command (draft + two-tier-verify golden questions)
+│   │   └── eval.py            # `eval` command (not built yet)
+│   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/
 │       ├── personas.json    # 5 user-profile definitions driving golden-question style
 │       └── questions.json   # Golden-set questions (question/answer/citation/verification_status)
 ├── skills/                  # Claude Code skills (canonical source — `make skills-install` symlinks into .claude/skills/)
-│   └── generate-golden-questions/  # SKILL.md only -- the actual logic lives in corpus/cli.py's `generate-questions` command
+│   └── generate-golden-questions/  # SKILL.md only -- the actual logic lives in corpus/commands/generate_questions.py
 ├── pyproject.toml           # Project metadata, dependencies, pytest config
 ├── uv.lock                  # Locked, reproducible dependency versions
 ├── .env.example             # Environment variable template
