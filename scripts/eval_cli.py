@@ -693,10 +693,12 @@ def cmd_eval(argv: list[str]) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    if args.with_rerank and not args.reranker:
-        settings.RERANKER_DRIVER = "cross_encoder"
-    elif args.reranker:
-        settings.RERANKER_DRIVER = args.reranker
+    if args.reranker:
+        reranker_driver_name = args.reranker
+    elif args.with_rerank:
+        reranker_driver_name = "cross_encoder"
+    else:
+        reranker_driver_name = None
 
     _print_target_database()
     _ensure_fixtures_seeded()
@@ -715,13 +717,14 @@ def cmd_eval(argv: list[str]) -> int:
         questions,
     )
 
-    print(
-        f"\n[eval] Running hybrid+rerank (RERANKER_DRIVER={settings.RERANKER_DRIVER}) ..."
-    )
+    resolved_reranker_name = reranker_driver_name or settings.RERANKER_DRIVER
+    print(f"\n[eval] Running hybrid+rerank (RERANKER_DRIVER={resolved_reranker_name}) ...")
     hybrid_results = evaluate(
-        f"hybrid+rerank ({settings.RERANKER_DRIVER})",
+        f"hybrid+rerank ({resolved_reranker_name})",
         lambda q: retrieve_chunks(
-            q, strategy=HybridRetrievalStrategy(), query_vector=embeddings[q]
+            q,
+            strategy=HybridRetrievalStrategy(reranker_driver_name=reranker_driver_name),
+            query_vector=embeddings[q],
         ),
         questions,
     )

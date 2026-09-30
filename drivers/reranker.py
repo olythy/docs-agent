@@ -22,7 +22,7 @@ Usage::
 
 from abc import ABC, abstractmethod
 from dataclasses import replace
-from functools import lru_cache
+from functools import cache
 
 from config import settings
 from models import RetrievedChunk
@@ -132,21 +132,34 @@ class CrossEncoderRerankerDriver(RerankerDriver):
         return reranked
 
 
-@lru_cache(maxsize=1)
-def get_reranker_driver() -> RerankerDriver:
-    """Factory function: return the active reranker driver from settings.
+@cache
+def get_reranker_driver(driver_name: str | None = None) -> RerankerDriver:
+    """Factory function: return the active reranker driver.
 
-    Reads ``settings.RERANKER_DRIVER`` and instantiates the matching driver.
-    Cached with ``@lru_cache(maxsize=1)`` so repeated calls reuse the same
-    driver instance and its loaded in-memory model instead of reloading from disk.
+    Reads ``settings.RERANKER_DRIVER`` unless ``driver_name`` is given, which
+    lets a caller (e.g. ``scripts/eval_cli.py``, comparing rerankers within
+    one process) select a driver explicitly instead of mutating the global
+    ``settings`` — which can't work anyway, since ``Settings`` is a frozen
+    dataclass (confirmed live: assigning ``settings.RERANKER_DRIVER``
+    directly raises ``dataclasses.FrozenInstanceError``).
+
+    Cached with ``@cache`` so repeated calls with the same
+    ``driver_name`` reuse the same instance and its loaded in-memory model
+    instead of reloading from disk; ``maxsize=None`` rather than ``1``
+    since a caller may legitimately want more than one driver name cached
+    at once within a single process (e.g. an eval run comparing them).
+
+    Args:
+        driver_name: Reranker driver to instantiate ('none' or
+            'cross_encoder'). Defaults to ``settings.RERANKER_DRIVER``.
 
     Returns:
         A :class:`RerankerDriver` instance ready to call.
 
     Raises:
-        ValueError: If ``RERANKER_DRIVER`` is set to an unknown value.
+        ValueError: If the resolved driver name is unknown.
     """
-    driver_name = settings.RERANKER_DRIVER.lower()
+    driver_name = (driver_name or settings.RERANKER_DRIVER).lower()
 
     if driver_name == "none":
         return NoopRerankerDriver()

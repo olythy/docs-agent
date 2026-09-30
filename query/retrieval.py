@@ -133,6 +133,16 @@ class VectorRetrievalStrategy(RetrievalStrategy):
 class HybridRetrievalStrategy(RetrievalStrategy):
     """Vector + keyword search, fused with RRF, then optionally reranked."""
 
+    def __init__(self, reranker_driver_name: str | None = None) -> None:
+        """Initialise the strategy.
+
+        Args:
+            reranker_driver_name: Explicit reranker driver override, passed
+                through to :func:`drivers.reranker.get_reranker_driver`.
+                Defaults to ``None``, i.e. read ``settings.RERANKER_DRIVER``.
+        """
+        self._reranker_driver_name = reranker_driver_name
+
     def select_chunks(
         self,
         question: str,
@@ -169,7 +179,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             len(fused),
         )
 
-        reranker = get_reranker_driver()
+        reranker = get_reranker_driver(self._reranker_driver_name)
         reranked = reranker.rerank(question, fused)
 
         if isinstance(reranker, CrossEncoderRerankerDriver):

@@ -100,7 +100,7 @@ def test_hybrid_strategy_fuses_vector_and_fulltext_results(monkeypatch):
     fake_store = MagicMock()
     fake_store.search_fulltext.return_value = [_chunk(2, score=0.5)]
     monkeypatch.setattr(
-        retrieval_module, "get_reranker_driver", lambda: _NoopFakeReranker()
+        retrieval_module, "get_reranker_driver", lambda *a, **k: _NoopFakeReranker()
     )
 
     strategy = HybridRetrievalStrategy()
@@ -117,7 +117,7 @@ def test_hybrid_strategy_truncates_to_top_k_after_fusion(monkeypatch):
     fake_store = MagicMock()
     fake_store.search_fulltext.return_value = []
     monkeypatch.setattr(
-        retrieval_module, "get_reranker_driver", lambda: _NoopFakeReranker()
+        retrieval_module, "get_reranker_driver", lambda *a, **k: _NoopFakeReranker()
     )
 
     strategy = HybridRetrievalStrategy()
@@ -141,7 +141,7 @@ def test_hybrid_strategy_cross_encoder_filters_low_scores(
     monkeypatch.setattr(
         retrieval_module,
         "get_reranker_driver",
-        lambda: _FakeCrossEncoderReranker([1.5, -2.0]),
+        lambda *a, **k: _FakeCrossEncoderReranker([1.5, -2.0]),
     )
 
     strategy = HybridRetrievalStrategy()
@@ -167,7 +167,7 @@ def test_hybrid_strategy_cross_encoder_rejects_when_all_below_threshold(
     monkeypatch.setattr(
         retrieval_module,
         "get_reranker_driver",
-        lambda: _FakeCrossEncoderReranker([-3.5, -7.2]),
+        lambda *a, **k: _FakeCrossEncoderReranker([-3.5, -7.2]),
     )
 
     strategy = HybridRetrievalStrategy()
