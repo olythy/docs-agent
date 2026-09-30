@@ -191,5 +191,245 @@
     "verification_status": "verified",
     "verification_notes": "Both cited case numbers appear verbatim in their respective source files, and the content fully supports the expected answer regarding the court rulings on litigation costs and monetary claims.",
     "notes": "A kérdés két különböző bíróság (Budapest Környéki Törvényszék és Egri Törvényszék) határozatának pénzügyi rendelkezéseit (perköltség, illetve követelés és kamatai) köti össze a rendelkezésre álló dokumentumok alapján."
+  },
+  {
+    "id": "q0013",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben hozott a bíróság felperes általi keresetet elutasító ítéletet a megadott korpuszban szereplő határozatok alapján?",
+    "expected_answer": "A korpuszban szereplő határozatok alapján a Budapesti II. és III. Kerületi Bíróság az 19.P.22760/2022/62/II. számú ügyben a közgyűlési határozatok érvénytelenítése iránti keresetet, míg a Budapest Környéki Törvényszék az 1.P.20.435/2021/14. számú ügyben a végrendelet érvénytelenségének megállapítása iránt indított keresetet egyaránt elutasította.",
+    "citations": [
+      {
+        "court": "Budapesti II es III Keruleti Birosag",
+        "case_number": "19.P.22760/2022/62",
+        "source_file": "Budapesti_II_es_III_Keruleti_Birosag__P_22760_2022_62.docx"
+      },
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "1.P.20.435/2021/14",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20435_2021_14.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "A hivatkozott ítéletek mindkét korpuszbeli dokumentumban valósak, a konkrét ügyszámok pontosan szerepelnek a szövegekben (step 2), és a határozatok ténylegesen a felperes általi keresetek elutasításáról szólnak a megjelölt ügyekben (step 3).",
+    "notes": "A kérdés a korpuszban szereplő két különböző bírósági ügyet köti össze tartalmi mintázat (a kereset elutasítása) alapján, pontosan hivatkozva a szövegből kiolvasott hivatalos ügyszámokra."
+  },
+  {
+    "id": "q0014",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben mondta ki a bíróság egyrészt a szerződés érvénytelenségének megállapítását, másrészt a testi épség megsértésének megállapítását és sérelemdíj fizetését a korpuszban szereplő határozatok alapján?",
+    "expected_answer": "A korpuszban található határozatok közül a Fővárosi Ítélőtábla a 9.Pf.20.021/2024/5. számú ügyben szerződés érvénytelenségének megállapítására irányuló perben hozott ítéletet (melyben az elsőfokú határozatot helybenhagyta), míg a Budapest Környéki Törvényszék a 10. P. 20.552/2020/16. számú ügyben testi épség megsértésének megállapításáról és sérelemdíj fizetéséről (25.000 Ft) döntött.",
+    "citations": [
+      {
+        "court": "Fovarosi Itelotabla",
+        "case_number": "9.Pf.20.021/2024/5",
+        "source_file": "Fovarosi_Itelotabla__Pf_20021_2024_5.docx"
+      },
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "10. P. 20.552/2020/16",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20552_2020_16.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited case numbers appear verbatim in their respective source files, and the content fully supports the expected answer regarding the contract invalidity and bodily integrity/fee claims.",
+    "notes": "A kérdés a precendens-kereső persona stílusának megfelelően két különböző tárgyú (szerződés érvénytelensége, illetve testi épség sérelme miatt sérelemdíj) ügyet köt össze a korpuszban szereplő valós adatok alapján."
+  },
+  {
+    "id": "q0015",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben hozott másodfokú határozatot a Debreceni Ítélőtábla és a Fővárosi Ítélőtábla, amelyek fellebbezéssel érintett perek voltak?",
+    "expected_answer": "A Debreceni Ítélőtábla vételár megfizetése iránt indított perben (Egri Törvényszék ítélete ellen) hozott határozatot, míg a Fővárosi Ítélőtábla személyiségi jog megsértése miatt indított perben (Fővárosi Törvényszék ítélete ellen) hozott fellebbezési ítéletet.",
+    "citations": [
+      {
+        "court": "Debreceni Itelotabla",
+        "case_number": "Pf.II.20.300/2022/3",
+        "source_file": "Debreceni_Itelotabla__Pf_20300_2022_3.docx"
+      },
+      {
+        "court": "Fovarosi Itelotabla",
+        "case_number": "17.Pf.20.107/2021/4",
+        "source_file": "Fovarosi_Itelotabla__Pf_20107_2021_4.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited case numbers appear verbatim in their respective source files, and the content fully supports the expected answer regarding the legal nature and subject matter of the second-instance decisions rendered by the Debrecen and Budapest Courts of Appeal.",
+    "notes": "A kérdés a korpuszban szereplő két különböző ítélőtábla (Debreceni és Fővárosi) határozatainak jogi tárgyát és jellegét köti össze a szövegből pontosan kitermelt ügytípusok alapján."
+  },
+  {
+    "id": "q0016",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben mondta ki a bíróság egyrészt azt, hogy az alperes az adós fizetésképtelenséggel fenyegető helyzetének bekövetkezte után nem a hitelezők érdekei szerint látta el vezetői feladatait (Cstv. 33/A § alapján), másrészt pedig azt, hogy egy földhasználat bejegyzésének tárgyában hozott közigazgatási végzést megsemmisít és új eljárásra kötelez?",
+    "expected_answer": "A Budapest Környéki Törvényszék a 13.G.40398/2020/25. számú ügyben megállapította az alperes ügyvezető személyes felelősségét a Cstv. 33/A §-a alapján, mivel a fizetésképtelenséggel fenyegető helyzet bekövetkezte után vezetői feladatait nem a hitelezők érdekeinek figyelembevételével látta el, 10.835.891 Ft kielégítési mihiúsítást okozva. A Debreceni Törvényszék pedig a 2.K.703.030/2022/7. számú ügyben (földhasználat bejegyzésének tárgyában hozott közigazgatási végzés jogszerűsége iránti perben) az alperes végzését megsemmisítette és új eljárásra kötelezte az alperest.",
+    "citations": [
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "13.G.40398/2020/25",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__G_40398_2020_25.docx"
+      },
+      {
+        "court": "Debreceni Torvenyszek",
+        "case_number": "2.K.703.030/2022/7",
+        "source_file": "Debreceni_Torvenyszek__K_703030_2022_7.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Mindkét idézett határozat ügyszáma pontosan szerepel a vonatkozó dokumentum tartalméban, és a szövegek valósághűen és megalapozottan támasztják alá a várt válaszban szereplő állításokat.",
+    "notes": "A kérdés a korpuszban szereplő két különböző bírósági ügy (egy Cstv. 33/A § szerinti ügyvezetői felelősség megállapítása és egy földhasználat bejegyzési közigazgatási per) határozatait köti össze a prece-kereső persona stílusának megfelelően, a dokumentumokból pontosan kinyert ügyszámok használatával."
+  },
+  {
+    "id": "q0017",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben mondta ki a bíróság a házastársi vagyonközösség megosztását vagy az ingatlan-nyilvántartási bejegyzés törlését, és mik voltak ezeknek az ügyeknek a pontos ügyszámai a megadott korpuszban?",
+    "expected_answer": "A korpuszban szereplő egyik ügy a Budapest Környéki Törvényszék előtt indult (20.P.20.395/2020/30. számú közbenső ítélet), amelyben a bíróság megállapította a felperes és az alperes házassági életközösségének fennállását 2009. június 10. és 2019. október 1. között házastársi vagyonközösség megosztása iránt. A másik ügy a Fővárosi Ítélőtábla elé került (3.Pf.20.166/2022/4. számú végzés), amely ingatlan-nyilvántartási bejegyzés törlése iránt indult perben a Fővárosi Törvényszék 37.P.20.980/2021/25. számú ítéletével szemben hozott határozatot.",
+    "citations": [
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "20.P.20.395/2020/30",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20395_2020_30.docx"
+      },
+      {
+        "court": "Fovarosi Itelotabla",
+        "case_number": "3.Pf.20.166/2022/4",
+        "source_file": "Fovarosi_Itelotabla__Pf_20166_2022_4.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited case numbers appear verbatim in their respective source files, and the content fully supports the expected answer regarding the courts, case numbers, and subject matter of the lawsuits.",
+    "notes": "A kérdés a precendens-kereső persona stílusát követve két, a korpuszban ténylegesen szereplő ügy tartalmi jellemzőit és pontos ügyszámait köti össze."
+  },
+  {
+    "id": "q0018",
+    "persona_id": "synthesizer",
+    "question": "Milyen jellegű ügyekben hozott ítéletet a Budapest Környéki Törvényszék a P.20.457/2018/11. és a 18.K.700.752/2022/2. számú ügyekben?",
+    "expected_answer": "A Budapest Környéki Törvényszék az első ügyben (21. P. 20.457/2018/11) deviza alapú szerződés érvénytelensége iránt indított peres eljárásban hozott ítéletet, míg a második ügyben (18.K.700.752/2022/2) kisajátítási ügyben hozott végzés megtámadása tárgyában eljárva semmisítette meg az alperes végzését és kötelezte új eljárásra.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "21. P. 20.457/2018/11",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20457_2018_11.docx"
+      },
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "18.K.700.752/2022/2",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_700752_2022_2.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "A bíróságok neve, a határozatok tárgya és a hivatkozott ügyszámok pontosan egyeznek a dokumentumok tartalmával, és a várt válasz teljes mértékben fedi a valóságot.",
+    "notes": "A kérdés két különböző, a Budapest Környéki Törvényszék által hozott határozatot kapcsol össze, pontosan hivatkozva a szövegekben szereplő hiteles ügyszámokra és a per tárgyára."
+  },
+  {
+    "id": "q0019",
+    "persona_id": "synthesizer",
+    "question": "Milyen jellegű polgári perekben hozott ítéletet a Balassagyarmati Járásbíróság, illetve a Fővárosi Ítélőtábla a rendelkezésre álló dokumentumok alapján?",
+    "expected_answer": "A Balassagyarmati Járásbíróság szerződés hatálytalanságának megállapítása iránt indított perben hozott ítéletet (P.20434/2019/38.), míg a Fővárosi Ítélőtábla a gazdasági társaság vezető tisztségviselője felelősségének megállapítása iránt indított perben eljárva hozott másodfokú határozatot (11.Gf.40.318/2022/8.).",
+    "citations": [
+      {
+        "court": "Balassagyarmati Jarasbirosag",
+        "case_number": "P.20434/2019/38",
+        "source_file": "Balassagyarmati_Jarasbirosag__P_20434_2019_38.docx"
+      },
+      {
+        "court": "Fovarosi Itelotabla",
+        "case_number": "11.Gf.40.318/2022/8",
+        "source_file": "Fovarosi_Itelotabla__Gf_40318_2022_8.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "A hivatkozott dokumentumok mindkét bíróság tekintetében pontosan tartalmazzák a megjelölt ügyszámokat (P.20434/2019/38. és 11.Gf.40.318/2022/8.), és a szövegek tartalma is maradéktalanul alátámasztja a válaszban szereplő perek jellegét (szerződés hatálytalansága, illetve gazdasági társaság vezető tisztségviselőjének felelőssége).",
+    "notes": "A kérdés a két különböző bíróság által tárgyalt ügyek típusait és tárgyát kapcsolja össze a dokumentumok tartalma alapján."
+  },
+  {
+    "id": "q0020",
+    "persona_id": "synthesizer",
+    "question": "Hogyan alakult a bírósági határozatok jogi álláspontja a Békéscsabai Járásbíróság 2020-as és a Debreceni Ítélőtábla 2021-es ügyei alapján?",
+    "expected_answer": "A Békéscsabai Járásbíróság a 3.P.20.580/2020/8. számú ügyben a lakásvásárlás céljából indult perben a felperes keresetét elutasította, míg a Debreceni Ítélőtábla a Pf.I.20.324/2021/4. számú bírósági jogkörben okozott kár megtérítése iránti ügyben helybenhagyta az elsőfokú bíróság ítéletét.",
+    "citations": [
+      {
+        "court": "Bekescsabai Jarasbirosag",
+        "case_number": "3.P.20.580/2020/8.",
+        "source_file": "Bekescsabai_Jarasbirosag__P_20580_2020_8.docx"
+      },
+      {
+        "court": "Debreceni Itelotabla",
+        "case_number": "Pf.I.20.324/2021/4.",
+        "source_file": "Debreceni_Itelotabla__Pf_20324_2021_4.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Mindkét idézett határozatszám pontosan szerepel a dokumentumokban, és a szövegtartalom teljesen alátámasztja a Békéscsabai Járásbíróság, valamint a Debreceni Ítélőtábla ügyeinek összefoglalt jogi álláspontját és kimenetelét.",
+    "notes": "A kérdés a két különböző dokumentumban szereplő bírósági ügy adatait és kimenetelét köti össze időrendi sorrendben."
+  },
+  {
+    "id": "q0021",
+    "persona_id": "synthesizer",
+    "question": "Hogyan alakult a Fővárosi Ítélőtábla és a Debreceni Ítélőtábla gyakorlata a kártérítési és szerződésszegési ügyekben a rendelkezésre álló dokumentumok alapján?",
+    "expected_answer": "A Fővárosi Ítélőtábla Gf.40501/2020/7. számú közbenső ítéletében egy bérleti szerződés teljesítésével összefüggő kártérítési perben döntött (ahol a szerződést 2012-ben kötötték újra és utoljára 2014-ben módosították), míg a Debreceni Ítélőtábla Gf.III.30.071/2024/9. számú ítéletében kötbér, szerződésszegéssel okozott kártérítés megfizetése és jognyilatkozat pótlása iránti perben hozott részbeni változtató határozatot a Debreceni Törvényszék 2023. december 18-i ítéletét követően.",
+    "citations": [
+      {
+        "court": "Fovarosi Itelotabla",
+        "case_number": "Gf.40501.2020.7",
+        "source_file": "Fovarosi_Itelotabla__Gf_40501_2020_7.docx"
+      },
+      {
+        "court": "Debreceni Itelotabla",
+        "case_number": "Gf.III.30.071/2024/9",
+        "source_file": "Debreceni_Itelotabla__Gf_30071_2024_9.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Mindkét idézett határozat ügyszáma pontosan szerepel a dokumentumokban, és a tartalmak teljesen alátámasztják a kérdésben és a válaszban szereplő megállapításokat a kártérítési, illetve szerződésszegési ügyek részleteiről.",
+    "notes": "A kérdés a két különböző ítélőtábla (Fővárosi és Debreceni) határozatait szintetizálja, felhasználva a szövegekben szereplő pontos ügy számokat és eljárási tárgyakat."
+  },
+  {
+    "id": "q0022",
+    "persona_id": "synthesizer",
+    "question": "Hogyan alakult a bírósági döntésekben megállapított anyagi kötelezettségek mértéke (tartásdíj és sérelemdíj) a bekési és debreceni határozatokban szereplő esetekben?",
+    "expected_answer": "A Békési Járásbíróság ítéletében (3.P.20.202/2022/30.) a bíróság a felperest 2023. február 1. napjától kezdődően havi 20.000 Ft házastársi tartás megfizetésére kötelezte az alperes javára, míg a Debreceni Ítélőtábla határozatában (Pf.I.20.248/2023/6.) az elsőfokú bíróság ítéletét megváltoztatva a sérelemdíj összegét 11.000.000 forintra emelte fel.",
+    "citations": [
+      {
+        "court": "Bekesi Jarasbirosag",
+        "case_number": "3.P.20.202/2022/30.",
+        "source_file": "Bekesi_Jarasbirosag__P_20202_2022_30.docx"
+      },
+      {
+        "court": "Debreceni Itelotabla",
+        "case_number": "Pf.I.20.248/2023/6.",
+        "source_file": "Debreceni_Itelotabla__Pf_20248_2023_6.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "A békési határozat szövege megerősíti a havi 20.000 Ft-os tartásdíjat a megjelölt ügyszámmal, a debreceni ítélőtábla határozata pedig verbatim tartalmazza a 11.000.000 forintra emelt sérelemdíjat és azonos ügyszámot.",
+    "notes": "A kérdés tematikus szintézist teremt a két különböző ügyben (békési és debreceni) megállapított pénzbeli marasztalások (tartásdíj vs. sérelemdíj) között, a szövegekben szereplő hivatalos ügyszámok pontos felhasználásával."
   }
 ]
