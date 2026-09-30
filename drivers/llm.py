@@ -544,6 +544,14 @@ class GeminiAnswerDriver(AnswerDriver):
         attempts, via :func:`retry_policy.retry_on_transient_error`); any
         other error propagates immediately.
 
+        Also retries ``httpx.TransportError`` (connection failures, DNS
+        errors, timeouts) the same way — see
+        :meth:`drivers.embedding.GeminiEmbeddingDriver._embed_one_batch`'s
+        docstring for why this is a separate exception hierarchy from
+        ``APIError`` that was previously not retried at all, confirmed live
+        with a real "No route to host" mid-ingestion crashing an otherwise
+        unrelated run.
+
         Raises:
             TransientAPIError: If every retry is exhausted.
             Exception: Whatever the ``google-genai`` client raises, for a
@@ -551,6 +559,7 @@ class GeminiAnswerDriver(AnswerDriver):
         """
         import time
 
+        import httpx
         from google.genai import types
         from google.genai.errors import APIError
 
@@ -569,6 +578,10 @@ class GeminiAnswerDriver(AnswerDriver):
                 contents=contents,
                 config=types.GenerateContentConfig(**config_kwargs),
             )
+        except httpx.TransportError as exc:
+            raise TransientAPIError(
+                f"Gemini generate_content network error: {exc}"
+            ) from exc
         except APIError as exc:
             status = getattr(exc, "code", None)
             if status == 429 or (status is not None and status >= 500):

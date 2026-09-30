@@ -566,6 +566,35 @@ def test_gemini_driver_retries_on_429_then_succeeds(monkeypatch, settings_overri
     assert fake_client.models.embed_content.call_count == 2
 
 
+def test_gemini_driver_retries_network_error_then_succeeds(
+    monkeypatch, settings_override
+):
+    """Regression test for a real, live "No route to host" mid-ingestion
+    crash: httpx.TransportError is a completely different exception
+    hierarchy from google.genai.errors.APIError and was previously not
+    retried at all."""
+    import httpx
+
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(EMBEDDING_DIMENSION=384, EMBEDDING_REQUEST_DELAY_SECONDS=0.0),
+    )
+    fake_response = MagicMock(embeddings=[MagicMock(values=[0.1, 0.2])])
+    fake_client = MagicMock()
+    fake_client.models.embed_content.side_effect = [
+        httpx.ConnectError("No route to host"),
+        fake_response,
+    ]
+    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    result = GeminiEmbeddingDriver().embed_batch(["text"])
+
+    assert result == [[0.1, 0.2]]
+    assert fake_client.models.embed_content.call_count == 2
+
+
 def test_gemini_driver_raises_immediately_on_non_retryable_error(
     monkeypatch, settings_override
 ):

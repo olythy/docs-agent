@@ -509,6 +509,17 @@ class GeminiEmbeddingDriver(EmbeddingDriver):
         :meth:`OpenRouterEmbeddingDriver._embed_one_batch`; any other error
         propagates immediately.
 
+        Also retries ``httpx.TransportError`` (connection failures, DNS
+        errors, timeouts — confirmed live with a real "No route to host"
+        mid-ingestion, a transient WiFi drop) the same way — the
+        ``google-genai`` SDK uses ``httpx`` internally, and this exception
+        is a completely different hierarchy from ``APIError`` (Gemini's own
+        API-level error type), so it was previously not retried at all and
+        crashed the whole ``add_directory()`` run instead of just this one
+        batch, the same class of bug already fixed for
+        :meth:`OpenRouterEmbeddingDriver._embed_one_batch` via
+        ``requests.RequestException``.
+
         Raises:
             TransientAPIError: If every retry is exhausted.
             Exception: Whatever the ``google-genai`` client raises, for a
@@ -517,6 +528,7 @@ class GeminiEmbeddingDriver(EmbeddingDriver):
         import time
         from typing import cast
 
+        import httpx
         from google.genai import types
         from google.genai.errors import APIError
 
@@ -536,6 +548,8 @@ class GeminiEmbeddingDriver(EmbeddingDriver):
                 contents=cast("types.ContentListUnion", texts),
                 config=types.EmbedContentConfig(output_dimensionality=self.dimension),
             )
+        except httpx.TransportError as exc:
+            raise TransientAPIError(f"Gemini embeddings network error: {exc}") from exc
         except APIError as exc:
             status = getattr(exc, "code", None)
             if status == 429 or (status is not None and status >= 500):

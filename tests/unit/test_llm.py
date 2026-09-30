@@ -377,6 +377,34 @@ def test_gemini_driver_run_tool_calling_turn_retries_on_429_then_succeeds(
     assert fake_client.models.generate_content.call_count == 2
 
 
+def test_gemini_driver_retries_network_error_then_succeeds(
+    monkeypatch, settings_override
+):
+    """Regression test for a real, live "No route to host" mid-ingestion
+    crash: httpx.TransportError is a completely different exception
+    hierarchy from google.genai.errors.APIError and was previously not
+    retried at all."""
+    import httpx
+
+    monkeypatch.setattr(
+        llm_module, "settings", settings_override(LLM_REQUEST_DELAY_SECONDS=0.0)
+    )
+    fake_response = MagicMock(text="ok", candidates=[MagicMock(content=None)])
+    fake_client = MagicMock()
+    fake_client.models.generate_content.side_effect = [
+        httpx.ConnectError("No route to host"),
+        fake_response,
+    ]
+    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    driver = GeminiAnswerDriver(model="gemini-2.5-flash")
+    result = driver.run_tool_calling_turn([{"role": "user", "content": "hey"}])
+
+    assert result.content == "ok"
+    assert fake_client.models.generate_content.call_count == 2
+
+
 def test_get_answer_driver_returns_gemini(monkeypatch, settings_override):
     monkeypatch.setattr(llm_module, "settings", settings_override(LLM_DRIVER="gemini"))
     assert isinstance(get_answer_driver(), GeminiAnswerDriver)
