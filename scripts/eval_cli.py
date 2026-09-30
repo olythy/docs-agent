@@ -43,6 +43,7 @@ from ingestion.chunker import (
 from ingestion.extractors import get_extractor
 from ingestion.ingest import add_document
 from models import Chunk, RetrievedChunk
+from query.decline_detection import looks_like_a_decline as _looks_like_a_decline
 from query.retrieval import (
     NO_RESULTS_MESSAGE,
     HybridRetrievalStrategy,
@@ -477,28 +478,6 @@ def print_per_question_breakdown(vector_result: dict, hybrid_result: dict) -> No
     print(
         f"\n{differences} of {total} question(s) got a different result between strategies."
     )
-
-
-def _looks_like_a_decline(answer: str) -> bool:
-    lower = answer.lower()
-    decline_phrases = [
-        "could not find",
-        "does not mention",
-        "cannot find",
-        "not mentioned",
-        "not provided",
-        "no information",
-        "unable to find",
-        "nem találtam",
-        "nem található",
-        "nem tartalmaz",
-        "nem szerepel",
-        "nincs információ",
-        "nem tér ki",
-        "nem derül ki",
-        "nem állapítható meg",
-    ]
-    return any(p in lower for p in decline_phrases)
 
 
 def _print_llm_scorecard(v_stats: dict, h_stats: dict) -> None:
