@@ -186,6 +186,43 @@ def test_hybrid_strategy_guarantees_identifier_match_survives_top_k_truncation(
     assert len(result) == 4
 
 
+def test_hybrid_strategy_guarantees_identifier_match_survives_reranker_threshold(
+    monkeypatch, settings_override
+):
+    """Regression test for a real, live miss: a compound multi-case question
+    can make the cross-encoder score a definitionally-correct identifier
+    match well below RERANKER_MIN_SCORE, since the chunk only reads as
+    on-topic for *part* of the question (see docs/decisions.md). The
+    threshold filter must not drop it before _apply_top_k_with_guarantees
+    ever sees it."""
+    monkeypatch.setattr(
+        retrieval_module, "settings", settings_override(RERANKER_MIN_SCORE=-2.0)
+    )
+    vector_results = [_chunk(1, score=0.9)]
+    fake_store = MagicMock()
+    fake_store.search_fulltext.return_value = []
+    fake_store.search_by_identifier.return_value = [_chunk(99, score=1.0)]
+    # The identifier match (99) is merged in ahead of the fused list (see
+    # select_chunks), so rerank() receives [99, 1] -- 99 scores well below
+    # threshold, candidate 1 scores above it.
+    monkeypatch.setattr(
+        retrieval_module,
+        "get_reranker_driver",
+        lambda *a, **k: _FakeCrossEncoderReranker([-4.3, 1.5]),
+    )
+
+    strategy = HybridRetrievalStrategy()
+    result = strategy.select_chunks(
+        "Mi történt a 4.P.20.409/2023/4. ügyben?",
+        vector_results,
+        fake_store,
+        top_k=5,
+        min_score=0.25,
+    )
+
+    assert 99 in [c.id for c in result]
+
+
 def test_hybrid_strategy_skips_identifier_search_when_question_has_no_identifiers(
     monkeypatch,
 ):

@@ -236,7 +236,18 @@ class HybridRetrievalStrategy(RetrievalStrategy):
 
         if isinstance(reranker, CrossEncoderRerankerDriver):
             threshold = settings.RERANKER_MIN_SCORE
-            valid_chunks = [c for c in reranked if c.score >= threshold]
+            # An exact identifier match must survive this gate too, not just
+            # the later top_k cut (see _apply_top_k_with_guarantees) -- a
+            # compound multi-case question can make the cross-encoder score
+            # a definitionally-correct chunk (it matches one of several
+            # cited cases) well below threshold, since the chunk only reads
+            # as on-topic for *part* of the question. Confirmed live via the
+            # golden-set eval (see docs/decisions.md).
+            valid_chunks = [
+                c
+                for c in reranked
+                if c.score >= threshold or c.id in identifier_chunk_ids
+            ]
             get_logger().log(
                 LogAction.RERANK_APPLIED,
                 {
