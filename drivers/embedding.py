@@ -315,16 +315,29 @@ class OpenAIEmbeddingDriver(EmbeddingDriver):
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a list of strings in one OpenAI API call.
 
+        Passes ``dimensions=self.dimension`` explicitly — without it, the
+        ``text-embedding-3-*`` models return their native size (1536 for
+        ``text-embedding-3-small``) regardless of ``EMBEDDING_DIMENSION``,
+        silently breaking the contract :attr:`dimension` claims to honor:
+        ``document_chunks.embedding`` is a fixed-width ``vector(N)`` column
+        (``N`` = ``EMBEDDING_DIMENSION`` at migration time), so a native-size
+        vector would fail to insert with a dimension mismatch the moment
+        ``EMBEDDING_DIMENSION`` differs from the model's native size (which
+        it does at this project's default of 384).
+
         Args:
             texts: A list of input strings.
 
         Returns:
-            A list of float vectors, one per input string.
+            A list of float vectors, one per input string, each of length
+            :attr:`dimension`.
         """
         from openai import OpenAI
 
         client = OpenAI(api_key=settings.EMBEDDING_API_KEY)
-        response = client.embeddings.create(input=texts, model=self._model)
+        response = client.embeddings.create(
+            input=texts, model=self._model, dimensions=self.dimension
+        )
         return [item.embedding for item in response.data]
 
 

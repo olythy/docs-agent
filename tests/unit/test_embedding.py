@@ -73,6 +73,28 @@ def test_openai_driver_supports_token_counting_is_false():
     assert OpenAIEmbeddingDriver().supports_token_counting() is False
 
 
+def test_openai_driver_embed_batch_passes_dimensions(monkeypatch, settings_override):
+    """Regression test: without dimensions=, text-embedding-3-* returns its
+    native size (1536) regardless of EMBEDDING_DIMENSION, silently breaking
+    the fixed-width vector(N) document_chunks.embedding column."""
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    fake_response = MagicMock(
+        data=[MagicMock(embedding=[0.1, 0.2]), MagicMock(embedding=[0.3, 0.4])]
+    )
+    fake_client = MagicMock()
+    fake_client.embeddings.create.return_value = fake_response
+    monkeypatch.setattr("openai.OpenAI", lambda api_key: fake_client)
+
+    result = OpenAIEmbeddingDriver().embed_batch(["a", "b"])
+
+    assert result == [[0.1, 0.2], [0.3, 0.4]]
+    fake_client.embeddings.create.assert_called_once_with(
+        input=["a", "b"], model="text-embedding-3-small", dimensions=384
+    )
+
+
 def test_local_driver_max_sequence_length_reads_from_model(monkeypatch):
     fake_model = MagicMock()
     fake_model.max_seq_length = 128
