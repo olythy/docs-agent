@@ -17,7 +17,7 @@ Unlike a static RAG pipeline (query → embed → retrieve → answer), this pro
 | `add_directory(dir_path)` | User wants to batch-ingest an entire directory |
 | `query_knowledge_base(question)` | User wants to ask a question |
 
-`agent.py` wires this up: tools are described to the LLM as OpenAI-style `tools=[...]` function schemas, and a single free-form message runs the standard tool-calling loop — the model decides whether to call `add_document`, `add_directory`, `query_knowledge_base`, or neither. Try it interactively with `uv run python agent.py`, or call `agent.run_agent("...")` directly. `AnswerDriver` (the same driver `query_knowledge_base` uses for answer generation) exposes a public `get_client()`/`model` for this — the agent loop needs the raw, tools-capable chat client, not the RAG-specific `answer()` method with its fixed prompt shape.
+`agent.py` wires this up: tools are described to the LLM as OpenAI-style `tools=[...]` function schemas, and a single free-form message runs the standard tool-calling loop — the model decides whether to call `add_document`, `add_directory`, `query_knowledge_base`, or neither. Try it interactively with `uv run python agent.py` (or `make chat`), or call `agent.run_agent("...")` directly — each call/line is an isolated turn, with no memory carried over from previous ones. `AnswerDriver` (the same driver `query_knowledge_base` uses for answer generation) exposes `run_tool_calling_turn(messages, tools)` for this — the agent loop needs to pass its own growing message history and `tools=[...]` schemas and read back tool-call requests, not the RAG-specific `answer()` method with its fixed prompt shape. The OpenAI SDK's exact typed message/tool-call shapes are confined to that one driver-layer method; callers work with plain dicts and this project's own `AgentTurnResult`/`ToolCallRequest`, never the SDK's types directly.
 
 **Caveat:** tool-calling support is model-dependent, and `LLM_MODEL`'s default (`openrouter/free`, which auto-routes to *some* available free model) isn't guaranteed to support it — pick a model explicitly known to support tools if `agent.py` doesn't behave as expected.
 
@@ -192,7 +192,7 @@ Run `make` or `make help` any time for this same list straight from the terminal
 | `make add-directory <dir> [ext=.md]`<br>*(or `path=...`)* | `uv run python scripts/agent_cli.py ingest <dir> [--ext <ext>]` — batch-ingest a directory |
 | `make delete-document <file>`<br>*(or `path="..."`)* | `uv run python scripts/agent_cli.py ingest --delete <file>` — delete chunks by path or hash |
 | `make query "<question>"`<br>*(or `q="..."`)* | `uv run python scripts/agent_cli.py query "<question>"` — ask a question (full RAG pipeline, real LLM call) |
-| `make chat` | `uv run python scripts/agent_cli.py chat` — interactive conversational terminal REPL |
+| `make chat` | `uv run python scripts/agent_cli.py chat` — interactive terminal REPL, one isolated tool-calling turn per line (no memory across lines) |
 | `make mcp-dev` | `uv run python scripts/agent_cli.py mcp-dev` — run under MCP Inspector |
 | `make mcp-install` | `uv run python scripts/agent_cli.py mcp-install` — register with Claude Desktop and auto-patch launch config |
 | `make skills-install` | `uv run python scripts/agent_cli.py skills-install` — symlink `skills/` into `.claude/skills/` so Claude Code discovers this project's skills |
@@ -222,9 +222,10 @@ Run `make` or `make help` any time for this same list straight from the terminal
 | Command | Equivalent / Description |
 |---|---|
 | `make test` | `AGENT_ENV=test uv run pytest -v` — runs full test suite against test database |
-| `make lint` | `uv run python scripts/dev_cli.py lint` — check code style and rules with ruff |
+| `make lint` | `uv run python scripts/dev_cli.py lint` — ruff check, then pyright |
 | `make lint-fix` | `uv run python scripts/dev_cli.py lint-fix` — auto-fix lint errors and reformat code |
 | `make format` | `uv run python scripts/dev_cli.py format` — format code with ruff format |
+| `make typecheck` | `uv run python scripts/dev_cli.py typecheck` — pyright only |
 
 Every `db-*` and `migrate-*` command (except `db-migrate-test`, and `test`) acts on whatever `DATABASE_URL` is currently set to in `.env` — with the local Docker setup that's the separate `docs_agent` database, so this is safe by default; if you point `DATABASE_URL` at a shared/managed database, double-check `.env` before running them.
 
@@ -437,7 +438,7 @@ An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast appro
 - **Architecture:** Driver / Strategy pattern for swappable backends.
 - **Config:** Single `Settings` dataclass in `config.py` — no scattered `os.getenv()` calls.
 - **Dependency management:** `uv` — `pyproject.toml` + `uv.lock` are the single source of truth (no `requirements.txt`).
-- **Linting:** `ruff` for formatting and static analysis.
+- **Linting:** `ruff` for formatting and lint rules; `pyright` (basic mode) for static type checking — see `docs/decisions.md` for why pyright over mypy/ty.
 - **Tests:** `pytest`
 
 ## Roadmap (per PLAN.md)
