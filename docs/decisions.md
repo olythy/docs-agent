@@ -2,6 +2,14 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-09-30 — Split `corpus/cli.py` into `corpus/commands/` (Typer's own "one file per command" layout) (pending commit)
+
+Immediate follow-up to the `corpus/cli.py` consolidation above, before adding the `eval` command's real logic: split the single, growing `cli.py` into `corpus/commands/download.py`/`generate_questions.py`/`eval.py`, each with its own `typer.Typer()` instance, merged back into a now-thin `corpus/cli.py` via `app.add_typer(module.app)` with no explicit group name -- confirmed via Context7 (Typer's own docs, "One File Per Command") that omitting the name is exactly what keeps commands flat at the top level instead of nesting them under a group, which matters here since `download`/`generate-questions`/`eval` are independent commands, not a hierarchy.
+
+**Real naming/layout constraint found along the way, not just a style choice**: the user's first instinct was a `corpus/cli/` *directory* for the per-command modules — checked empirically (a real, disposable test package) that Python silently resolves `corpus/cli/__init__.py` over `corpus/cli.py` when both exist in the same parent, with no error, silently making the existing entrypoint file dead code. Named the directory `corpus/commands/` instead (matching Typer's own doc example layout: `mycli/users/add.py`), keeping the already-documented `uv run python corpus/cli.py <command>` invocation working unchanged rather than switching to `python -m corpus.cli`.
+
+Verified live after the split: `corpus/cli.py --help`/`download --help` render identically to before, and `generate-questions synthesizer --count 1` drafted and verified a real question (q0010).
+
 ## 2026-09-30 — `corpus/` becomes a Typer-based "sub-app": `corpus/cli.py` (download + generate-questions), `golden_set/` renamed to `data/` (pending commit)
 
 After moving `eval_questions.json` (below) surfaced a real, recurring pattern this session — script and data drifting apart across `scripts/`/`corpus/golden_set/`/`skills/` — decided to treat `corpus/` as a self-contained unit with its own CLI, rather than continuing to spread corpus-related commands across `scripts/eval_cli.py` and standalone one-off scripts.
