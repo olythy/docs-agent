@@ -431,5 +431,77 @@
     "verification_status": "verified",
     "verification_notes": "A békési határozat szövege megerősíti a havi 20.000 Ft-os tartásdíjat a megjelölt ügyszámmal, a debreceni ítélőtábla határozata pedig verbatim tartalmazza a 11.000.000 forintra emelt sérelemdíjat és azonos ügyszámot.",
     "notes": "A kérdés tematikus szintézist teremt a két különböző ügyben (békési és debreceni) megállapított pénzbeli marasztalások (tartásdíj vs. sérelemdíj) között, a szövegekben szereplő hivatalos ügyszámok pontos felhasználásával."
+  },
+  {
+    "id": "q0023",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben hozott a Balassagyarmati Törvényszék személyiségi jogsértés megállapítása iránti perben marasztaló ítéletet az alperes által nem biztosított 4 m2/fő élettér miatt, és milyen ügyekben hozott elutasító határozatot a Budapest Környéki Törvényszék ingatlan-nyilvántartási ügyben?",
+    "expected_answer": "A Balassagyarmati Törvényszék a P.20.538/2023/11. számú ügyben megállapította, hogy az alperes megsértette a felperes emberi méltóságát azáltal, hogy meghatározott időszakokban nem biztosította a 4 m2/fő életteret, és 227.500 forint perköltség megfizetésére kötelezte az alperest. Ezzel szemben a Budapest Környéki Törvényszék a 18.K.700.612/2022/12. számú ingatlan-nyilvántartási közigazgatási perben a felperes keresetét elutasította, és kötelezte a felperest a perköltség, valamint a feljegyzett eljárási illeték megfizetésére.",
+    "citations": [
+      {
+        "court": "Balassagyarmati Torvenyszek",
+        "case_number": "47.P.20.538/2023/11",
+        "source_file": "Balassagyarmati_Torvenyszek__P_20538_2023_11.docx"
+      },
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "18.K.700.612/2022/12",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_700612_2022_12.docx"
+      }
+    ],
+    "difficulty": "hard",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "Step 2 failed because the case number for the first citation is cited as '47.P.20.538/2023/11' in the citations list and expected answer, whereas the real content in the source file actually starts with 'Balassagyarmati Törvényszék 47.P.20.538/2023/11. szám' but the strict citation string format including the court prefix differs or contains extra segments not matching the exact document text verbatim as required.",
+    "notes": "A kérdés két teljesen eltérő tárgyú és kimenetelű (egy személyiségi jogsértési marasztaló és egy ingatlan-nyilvántartási elutasító) ügyet köt össze a precedens-kereső persona elvárásainak megfelelően, a tartalomban szereplő pontos ügyszámok felhasználásával."
+  },
+  {
+    "id": "q0024",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben hozott ítéletet a Budapest Környéki Törvényszék közigazgatási vitában (ahol az alperes a Pest Vármegyei Kormányhivatal volt), illetve a Budakörnyéki Járásbíróság jogalap nélküli gazdagodás iránti perben?",
+    "expected_answer": "A Budapest Környéki Törvényszék a 102.K.700.143/2022/30. számú ügyben (melyben a Pest Vármegyei Kormányhivatal volt az alperes) közigazgatási eljárásban határozott, míg a Budakörnyéki Járásbíróság a P.20611.2019.30. számú ügyben jogalap nélküli gazdagodás iránt indult perben hozott ítéletet, amelyben az alperest tőke, késedelmi kamat és perköltség megfizetésére kötelezte, a keresetet ezt meghaladóan elutasította, és az ítéletet részben előzetesen végrehajthatóvá nyilvánította.",
+    "citations": [
+      {
+        "court": "Budapest Kornyeki Torvenyszek",
+        "case_number": "102.K.700.143/2022/30",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_700143_2022_30.docx"
+      },
+      {
+        "court": "Budakornyeki Jarasbirosag",
+        "case_number": "P.20611.2019.30",
+        "source_file": "Budakornyeki_Jarasbirosag__P_20611_2019_30.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited case numbers appear verbatim in their respective source files, and the content fully supports the expected answer regarding the administrative litigation and the unjust enrichment lawsuit.",
+    "notes": "A kérdés két különböző bíróság (Budapest Környéki Törvényszék és Budakörnyéki Járásbíróság) eltérő tárgyú ügyeit köti össze a korpuszban szereplő konkrét adatok alapján, a helyes ügy számokat a szövegből (102.K.700.143/2022/30 és P.20611.2019.30) véve át."
+  },
+  {
+    "id": "q0025",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben hozott a Fővárosi Ítélőtábla olyan határozatot, amelyekben az egyik esetben az elsőfokú bíróság részítéletét hatályon kívül helyezve új eljárásra utasított adásvételi szerződés létrehozása iránti perben, a másik esetben pedig megváltoztatta az elsőfokú ítéletet és megállapította gazdasági társasági részesedés rosszhiszemű átruházása miatti felelősséget?",
+    "expected_answer": "A Fővárosi Ítélőtábla az egyik ügyben (Fővárosi Ítélőtábla 4.Pf.20.218/2022/5.) az adásvételi szerződés létrehozása iránt indult perben az elsőfokú bíróság részítéletét hatályon kívül helyezte és az elsőfokú bíróságot új eljárásra és új határozat hozatalára utasította. A másik ügyben (12.Gf.40.028/2023/5-II.) a gazdasági társasági részesedés rosszhiszemű átruházása miatti felelősség megállapítása iránti perben megváltoztatta az elsőfokú ítéletet, és megállapította a felszámolási eljárás megindítását megelőző három éven belül a részesedését átruházó, többségi befolyással rendelkező tag korlátlan felelősségét a társaság ki nem elégített kötelezettségeiért.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "4.Pf.20.218/2022/5.",
+        "source_file": "Fovarosi_Itelotabla__Pf_20218_2022_5.docx"
+      },
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "12.Gf.40.028/2023/5-II.",
+        "source_file": "Fovarosi_Itelotabla__Gf_40028_2023_5.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Mindkét idézett határozat szövege pontosan tartalmazza a hivatkozott ügyszámot és a helyes, ékezetes bírósági nevet (Fővárosi Ítélőtábla), a dokumentumok tartalma pedig maradéktalanul alátámasztja a kérdésben és az elvárható válaszban szereplő ítéleti rendelkezéseket.",
+    "notes": "A kérdés két különálló, a Fővárosi Ítélőtábla által elbírált ügy specifikus rendelkező részét és tárgyát köti össze, pontosan lekövetve a megadott dokumentumok tartalmát és a helyes, ékezetes bírósági neveket."
   }
 ]

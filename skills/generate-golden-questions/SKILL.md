@@ -29,19 +29,45 @@ You will be given:
 - One or more real chunks: `(source_file, court, case_number, content)` tuples
   pulled from `document_chunks`.
 
-**The given `case_number` is only a best-effort guess, reconstructed from
-the filename — it is NOT authoritative and is confirmed, live, to sometimes
-be wrong** (missing prefixes, wrong punctuation, or even the wrong trailing
-number entirely — see `docs/decisions.md` for a real example). Before
-writing a citation's `case_number`, find the actual case number as it's
-written in the given `content` itself (typically near "Az ügy száma:" or
-similar) and use *that* verbatim — never the given hint unread. If you
-cannot find a real case number written in the content, say so in `notes`
-rather than guessing or falling back to the hint.
+**The given `court` and `case_number` are both only best-effort guesses,
+reconstructed from the filename — neither is authoritative, and both are
+confirmed, live, to sometimes be wrong.** `case_number` can have missing
+prefixes, wrong punctuation, or even the wrong trailing number entirely —
+see `docs/decisions.md` for a real example. `court` is reconstructed by
+replacing the filename's underscores with spaces, so it is plain ASCII with
+no Hungarian diacritics (e.g. "Budapest Kornyeki Torvenyszek" instead of
+"Budapest Környéki Törvényszék") — confirmed live that a drafted question's
+prose correctly used the real, accented court name read from `content`,
+while its structured `citations[].court` field still echoed the unaccented
+filename-derived hint verbatim, instead of the same real name already used
+in the prose. Before writing a citation's `court` or `case_number`, find
+both as they're actually written in the given `content` itself (the court
+name typically opens the document; the case number is typically near "Az
+ügy száma:" or similar) and use *those* verbatim — never either given hint
+unread. If you cannot find a real case number written in the content, say
+so in `notes` rather than guessing or falling back to the hint.
 
 Draft exactly one question matching the persona's `question_style`, using
 **only** facts that actually appear in the given content. Do not invent case
 numbers, dates, amounts, or legal reasoning not present in the text.
+
+**For multi-document personas (`document_scope: "multi"`, e.g.
+`precedent_seeker`, `synthesizer`) that don't cite a case number in the
+question itself: the question must still carry enough distinguishing detail
+to point at the specific cited document(s), not just at a court and a broad
+topic.** The corpus can contain multiple, near-identical anonymized
+boilerplate decisions from the *same court* on the *same broad topic*
+(placeholder party names, same year, same one-line case type) that differ
+only in a narrower sub-topic or outcome — confirmed live: a question like
+"Milyen ügyekben hozott ítéletet a Debreceni Törvényszék kisajátítási
+ügyben?" matched two real, unrelated documents equally well, because the
+one fact that actually distinguished them (one judgment upheld the claim in
+part, the other rejected it outright) only ended up in `expected_answer`,
+never in the question (see `docs/decisions.md`'s 2026-10-01 entry). Before
+finalizing such a question, check: does it already name the specific
+outcome, sub-topic, or legal principle you're about to write into
+`expected_answer` — the detail that makes *this* document the right one,
+not just *a* plausible one? If not, rewrite the question to include it.
 
 For the `adversarial` persona specifically: you will *not* be given real
 content to ground it in — instead, invent a case number/court combination
@@ -72,18 +98,24 @@ Output **exactly** this JSON shape (no surrounding prose):
 Given a drafted question (as above) and the **real, full content** of each
 cited `source_file`, answer only:
 
-1. Does each cited `(court, case_number)` actually match a real ingested
-   document? (This check is deterministic — done in code, not by you — see
-   `corpus/commands/generate_questions.py`'s `verify_citation_exists()`. Skip straight to step 2.)
+1. Does each cited `source_file` actually match a real ingested document?
+   (This check is deterministic — done in code, not by you — see
+   `corpus/commands/generate_questions.py`'s `verify_citation_exists()`,
+   which matches on `source_file` alone, not `court`/`case_number` — those
+   two are free text, not part of this check. Skip straight to step 2.)
 2. **Does each cited `case_number` appear verbatim (or near-verbatim — minor
    whitespace differences are fine, but not missing/extra segments) in that
-   document's real content?** This is a literal text-presence check, unlike
-   step 3 — confirmed live that a citation can cite the wrong case number
-   while the *answer's content* still reads as substantively correct (the
-   drafting model copied an unreliable filename-derived hint instead of
-   reading the real case number from the content — see Part 1). If the
-   exact case number string isn't findable in the content, the verdict must
-   be `NOT_SUPPORTED` regardless of step 3's answer.
+   document's real content, and does each cited `court` name match the real,
+   accented court name as written in that content (not the unaccented
+   filename-derived hint)?** This is a literal text-presence check, unlike
+   step 3 — confirmed live, twice, that a citation can cite the wrong case
+   number, or echo the unaccented filename-derived court name, while the
+   *answer's content* still reads as substantively correct (the drafting
+   model copied an unreliable hint instead of reading the real value from
+   the content — see Part 1). If the exact case number string isn't
+   findable in the content, or the cited court name doesn't match the real
+   accented name in the content, the verdict must be `NOT_SUPPORTED`
+   regardless of step 3's answer.
 3. Does the cited content actually support `expected_answer`, in substance
    (paraphrasing is fine — this is not a string-match check)? Answer with
    exactly one of:
