@@ -271,6 +271,23 @@ class Settings:
 
     Database (REQUIRED):
         DATABASE_URL          PostgreSQL connection URL with pgvector enabled.
+        HNSW_EF_SEARCH        Set via ``SET hnsw.ef_search = ...`` on every
+                              connection (default: 400; pgvector's own
+                              default is 40). Caps how many candidates the
+                              HNSW index explores per query *regardless of
+                              the SQL LIMIT requested* -- confirmed live
+                              that the pgvector default silently returned
+                              only ~40 rows for a `LIMIT 2272` vector query
+                              once the corpus grew into the tens of
+                              thousands of chunks, independent of this
+                              project's own RETRIEVAL_TOP_K/
+                              RETRIEVAL_CANDIDATE_POOL_SIZE settings
+                              upstream of it. Higher values trade query
+                              latency for recall; not a fix for a document
+                              genuinely ranking outside the exact top-K by
+                              raw cosine similarity (confirmed live,
+                              separately, that raising this alone doesn't
+                              rescue every miss -- see docs/decisions.md).
 
     Development / Testing / Observability:
         LOG_FILE              Path to the structured JSONL audit/events log file
@@ -368,6 +385,7 @@ class Settings:
 
     # --- Database ---
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    HNSW_EF_SEARCH: int = int(os.getenv("HNSW_EF_SEARCH", "400"))
 
     # --- Development / Testing ---
     TEST_DOC_PATH: str = os.getenv("TEST_DOC_PATH", "")

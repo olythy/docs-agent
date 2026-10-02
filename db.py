@@ -16,8 +16,15 @@ from config import settings
 def get_connection() -> PgConnection:
     """Open and return a new Postgres connection using settings.DATABASE_URL.
 
+    Sets ``hnsw.ef_search`` for the session (see ``settings.HNSW_EF_SEARCH``'s
+    docstring) -- confirmed live that pgvector's own default (40) silently
+    caps how many rows a vector query can return, independent of the SQL
+    ``LIMIT`` requested, once the corpus grows large enough. A session-level
+    ``SET`` here, rather than per-query, since every vector query on this
+    connection should use the same value.
+
     Returns:
-        A ``psycopg2`` connection object.
+        A ``psycopg2`` connection object, with ``hnsw.ef_search`` already set.
 
     Raises:
         RuntimeError: If ``DATABASE_URL`` is not configured.
@@ -26,4 +33,8 @@ def get_connection() -> PgConnection:
         raise RuntimeError(
             "DATABASE_URL is not configured. Set DATABASE_URL in your .env file."
         )
-    return psycopg2.connect(settings.DATABASE_URL)
+    conn = psycopg2.connect(settings.DATABASE_URL)
+    with conn.cursor() as cur:
+        cur.execute("SET hnsw.ef_search = %s", (settings.HNSW_EF_SEARCH,))
+    conn.commit()
+    return conn
