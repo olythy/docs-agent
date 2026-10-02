@@ -606,6 +606,17 @@ class JinaEmbeddingDriver(EmbeddingDriver):
     ``"query: "``/``"passage: "`` text prefixes for E5-family models --
     same asymmetric-embedding concept, just expressed as a parameter
     instead of a string prefix since Jina's models expect it that way.
+
+    Throttled via a real sleep (``EMBEDDING_REQUEST_DELAY_SECONDS``)
+    before each request, same mechanism as :class:`GeminiEmbeddingDriver`
+    -- confirmed live during a real bulk `add_directory()` run that a
+    plain per-document ingest loop (no batching across documents) can
+    exceed a Jina account's *token*-per-minute limit (not just a
+    requests-per-minute one) well before the 3-attempt retry's ~14s of
+    total backoff lets the per-minute window clear, even though each
+    individual request is well within the per-call batch size limit --
+    the cap is cumulative across many small calls in the same minute, not
+    about any single call being too large.
     """
 
     _ENDPOINT = "https://api.jina.ai/v1/embeddings"
@@ -671,13 +682,22 @@ class JinaEmbeddingDriver(EmbeddingDriver):
     def _embed_one_batch(self, texts: list[str], task: str) -> list[list[float]]:
         """Embed at most ``_MAX_BATCH_SIZE`` strings in one Jina API call.
 
+        Sleeps ``EMBEDDING_REQUEST_DELAY_SECONDS`` before every attempt
+        (including retries, since the whole function re-runs from the top
+        on each retry) to stay under the account's token-per-minute limit.
+
         Raises:
             TransientAPIError: On a 429/5xx response or a network-level
                 failure, triggering a retry with exponential backoff (up
                 to 3 attempts) -- same policy as
                 :meth:`GeminiEmbeddingDriver._embed_one_batch`.
         """
+        import time
+
         import httpx
+
+        if settings.EMBEDDING_REQUEST_DELAY_SECONDS > 0:
+            time.sleep(settings.EMBEDDING_REQUEST_DELAY_SECONDS)
 
         try:
             response = httpx.post(

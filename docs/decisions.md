@@ -2,6 +2,12 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-02 — JinaEmbeddingDriver needed EMBEDDING_REQUEST_DELAY_SECONDS throttling too (pending commit)
+
+First real bulk ingest with `EMBEDDING_DRIVER=jina` (a fresh re-ingest, now with the `document_identifiers` header-enrichment fix) hit Jina's token-per-minute limit almost immediately: `429 RATE_TOKEN_LIMIT_EXCEEDED, "109,535/100,000 tokens per minute"`. The 3-attempt retry (`retry_on_transient_error`, 2s/4s backoff, ~14s total) correctly caught and retried each 429, but that's nowhere near enough time for a per-minute token bucket to clear, and a plain per-document `add_directory()` loop keeps firing new embedding calls continuously -- the cap is cumulative across many small calls within the same minute, not about any single call's batch size (each document here was only 5 chunks).
+
+**Fix**: `JinaEmbeddingDriver._embed_one_batch()` now sleeps `EMBEDDING_REQUEST_DELAY_SECONDS` before every attempt, same mechanism `GeminiEmbeddingDriver` already had for exactly this kind of free-tier rate limit -- it had simply been omitted when `JinaEmbeddingDriver` was first written. Set to `1.5` in `.env` (was `5.0`, left over from the unrelated `LLM_DRIVER=gemini` config): at ~7.65 chunks/document and ~200-300 tokens/chunk average for this corpus, 1.5s/document keeps throughput around 60-90K tokens/min, under the 100K cap with margin, without throttling as conservatively as the inherited `5.0` would have.
+
 ## 2026-10-02 — Added Jina AI embedding/reranker drivers after a GCP GPU infra attempt hit a quota wall (pending commit)
 
 Live profiling (see entries below) identified two real, CPU-bound costs: ingestion-time embedding (~0.28s/chunk, ~90%+ of per-document ingest time on the local model) and query-time reranking (~6s/question, steady-state on the local cross-encoder). Both seemed like a good fit for a self-hosted GPU inference server (HuggingFace Text Embeddings Inference, serving the *same* models to avoid a vector-space-incompatible re-ingestion).
