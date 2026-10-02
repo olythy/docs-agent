@@ -56,28 +56,38 @@ class Settings:
                               ``openrouter`` (routes to any OpenRouter-hosted
                               embedding model, e.g. ``google/gemini-embedding-001``,
                               using the same account/key shape as
-                              ``LLM_DRIVER=openrouter``), or ``gemini`` (Google's
+                              ``LLM_DRIVER=openrouter``), ``gemini`` (Google's
                               native AI Studio API directly, not via OpenRouter --
                               for a free-tier API key with its own rate limit,
-                              see EMBEDDING_REQUEST_DELAY_SECONDS below).
+                              see EMBEDDING_REQUEST_DELAY_SECONDS below), or
+                              ``jina`` (Jina AI's hosted Embeddings API --
+                              chosen as a no-infra way to offload the CPU-bound
+                              cost of the local model during bulk ingestion,
+                              confirmed live to dominate ~90%+ of per-document
+                              ingest time; see docs/decisions.md).
         EMBEDDING_MODEL       Model name/id for the active driver (default:
                               ``intfloat/multilingual-e5-small`` for local).
                               Set to an OpenRouter embedding model id when
-                              ``EMBEDDING_DRIVER=openrouter``, or a Gemini model
+                              ``EMBEDDING_DRIVER=openrouter``, a Gemini model
                               id (e.g. ``gemini-embedding-001``) when
-                              ``EMBEDDING_DRIVER=gemini``.
+                              ``EMBEDDING_DRIVER=gemini``, or a Jina model id
+                              (e.g. ``jina-embeddings-v3``) when
+                              ``EMBEDDING_DRIVER=jina``.
         EMBEDDING_DIMENSION   Output vector dimension (must match the model; 384 for
-                              e5-small; both OpenRouter's ``dimensions`` request
-                              parameter and the native Gemini API's
-                              ``output_dimensionality`` config truncate a larger
+                              e5-small; OpenRouter's ``dimensions`` request
+                              parameter, the native Gemini API's
+                              ``output_dimensionality`` config, and Jina's own
+                              ``dimensions`` parameter all truncate a larger
                               native model output to this value, e.g.
                               gemini-embedding-001's native 3072 -> 384).
         EMBEDDING_API_KEY     API key for the embedding driver (only when
-                              ``EMBEDDING_DRIVER`` is ``openai``, ``openrouter``, or
-                              ``gemini`` — for ``openrouter``, the same OpenRouter
-                              key as ``LLM_API_KEY``; for ``gemini``, a native
-                              Google AI Studio key (aistudio.google.com/apikey),
-                              a different kind of key than the OpenRouter one.
+                              ``EMBEDDING_DRIVER`` is ``openai``, ``openrouter``,
+                              ``gemini``, or ``jina`` — for ``openrouter``, the
+                              same OpenRouter key as ``LLM_API_KEY``; for
+                              ``gemini``, a native Google AI Studio key
+                              (aistudio.google.com/apikey); for ``jina``, a
+                              Jina AI API key (jina.ai/?sui=apikey) -- each a
+                              different kind of key, none interchangeable.
                               Configured independently of LLM_API_KEY since
                               embedding and answer generation are separate concerns).
         EMBEDDING_REQUEST_DELAY_SECONDS
@@ -200,10 +210,18 @@ class Settings:
                               ``none`` skips reranking entirely -- kept for
                               comparison/eval only (see ``make eval`` vs.
                               ``make eval-rerank``), not recommended for
-                              production. Only applies when
+                              production. ``jina`` offloads reranking to
+                              Jina AI's hosted Reranker API instead of the
+                              local cross-encoder -- see JINA scaling note
+                              below. Only applies when
                               RETRIEVAL_STRATEGY=hybrid. See
                               ``drivers/reranker.py``.
-        RERANKER_MODEL        Model name/id for the cross_encoder reranker.
+        RERANKER_MODEL        Model name/id for the active reranker driver
+                              (the local cross-encoder's HuggingFace id, or
+                              a Jina reranker model id when
+                              RERANKER_DRIVER=jina).
+        RERANKER_API_KEY      API key for the reranker driver (only when
+                              RERANKER_DRIVER=jina).
         RERANKER_MIN_SCORE    Minimum logit relevance score required from the
                               cross-encoder reranker (default: -2.0). When
                               RERANKER_DRIVER=cross_encoder, candidates scoring
@@ -310,6 +328,7 @@ class Settings:
         "RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     )
     RERANKER_MIN_SCORE: float = float(os.getenv("RERANKER_MIN_SCORE", "-2.0"))
+    RERANKER_API_KEY: str = os.getenv("RERANKER_API_KEY", "")
     RETRIEVAL_CANDIDATE_POOL_SIZE: int = int(
         os.getenv("RETRIEVAL_CANDIDATE_POOL_SIZE", "20")
     )

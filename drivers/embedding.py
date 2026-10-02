@@ -14,6 +14,9 @@ The active driver is selected at runtime via ``settings.EMBEDDING_DRIVER``:
                          Studio API directly, not via OpenRouter — free-tier
                          friendly, rate-limited via
                          ``EMBEDDING_REQUEST_DELAY_SECONDS``)
+    - ``"jina"``       → :class:`JinaEmbeddingDriver` (Jina AI's Embeddings
+                         API — a hosted alternative to running the local
+                         model, with no GPU/infra to manage)
 
 Usage::
 
@@ -584,6 +587,128 @@ class GeminiEmbeddingDriver(EmbeddingDriver):
         return embeddings
 
 
+class JinaEmbeddingDriver(EmbeddingDriver):
+    """Embedding driver using Jina AI's hosted Embeddings API.
+
+    A fully-managed alternative to :class:`LocalSentenceTransformerDriver`:
+    no model to load, no CPU/GPU to provision — chosen specifically to
+    offload the CPU-bound embedding cost confirmed live during ingestion
+    profiling (~0.28s/chunk on the local model, ~90%+ of per-document
+    ingest time; see docs/decisions.md). Defaults to
+    ``settings.EMBEDDING_MODEL``, which should be a Jina model id (e.g.
+    ``jina-embeddings-v3``) when this driver is active -- the default
+    value of that setting is the local model's name and only applies when
+    ``EMBEDDING_DRIVER=local``.
+
+    Uses the ``task`` request parameter to distinguish query vs. document
+    embedding (``retrieval.query``/``retrieval.passage``), the API-level
+    equivalent of :class:`LocalSentenceTransformerDriver`'s
+    ``"query: "``/``"passage: "`` text prefixes for E5-family models --
+    same asymmetric-embedding concept, just expressed as a parameter
+    instead of a string prefix since Jina's models expect it that way.
+    """
+
+    _ENDPOINT = "https://api.jina.ai/v1/embeddings"
+    _MAX_BATCH_SIZE = 2048
+
+    def __init__(self, model: str | None = None) -> None:
+        """Initialise the driver without creating an HTTP client yet.
+
+        Args:
+            model: Jina embedding model id. Defaults to ``settings.EMBEDDING_MODEL``.
+        """
+        self._model = model or settings.EMBEDDING_MODEL
+
+    @property
+    def dimension(self) -> int:
+        """Return the embedding dimension from settings."""
+        return settings.EMBEDDING_DIMENSION
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Embed a list of strings with ``task="retrieval.passage"``.
+
+        Most callers go through :meth:`embed_documents`/:meth:`embed_query`
+        instead, which set the correct ``task`` for their use -- this
+        default matches :class:`EmbeddingDriver`'s base ``embed_text``
+        delegating here, where there's no query/document distinction to
+        make.
+
+        Args:
+            texts: A list of input strings.
+
+        Returns:
+            A list of float vectors, one per input string (same order).
+        """
+        return self._embed(texts, task="retrieval.passage")
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed a search query with ``task="retrieval.query"``."""
+        return self._embed([text], task="retrieval.query")[0]
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed document chunks with ``task="retrieval.passage"``, batched."""
+        return self._embed(texts, task="retrieval.passage")
+
+    def _embed(self, texts: list[str], task: str) -> list[list[float]]:
+        """Embed ``texts`` in sub-batches of at most ``_MAX_BATCH_SIZE``.
+
+        Args:
+            texts: A list of input strings.
+            task: Jina's ``task`` parameter -- ``retrieval.query`` or
+                ``retrieval.passage``.
+
+        Returns:
+            A list of float vectors, one per input string (same order).
+        """
+        embeddings: list[list[float]] = []
+        for start in range(0, len(texts), self._MAX_BATCH_SIZE):
+            embeddings.extend(
+                self._embed_one_batch(texts[start : start + self._MAX_BATCH_SIZE], task)
+            )
+        return embeddings
+
+    @retry_on_transient_error(max_attempts=3)
+    def _embed_one_batch(self, texts: list[str], task: str) -> list[list[float]]:
+        """Embed at most ``_MAX_BATCH_SIZE`` strings in one Jina API call.
+
+        Raises:
+            TransientAPIError: On a 429/5xx response or a network-level
+                failure, triggering a retry with exponential backoff (up
+                to 3 attempts) -- same policy as
+                :meth:`GeminiEmbeddingDriver._embed_one_batch`.
+        """
+        import httpx
+
+        try:
+            response = httpx.post(
+                self._ENDPOINT,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {settings.EMBEDDING_API_KEY}",
+                    "Accept": "application/json",
+                },
+                json={
+                    "model": self._model,
+                    "task": task,
+                    "dimensions": self.dimension,
+                    "input": texts,
+                },
+                timeout=60.0,
+            )
+        except httpx.TransportError as exc:
+            raise TransientAPIError(f"Jina embeddings network error: {exc}") from exc
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise TransientAPIError(
+                f"Jina embeddings request status {response.status_code}: {response.text}"
+            )
+        response.raise_for_status()
+
+        data = response.json()["data"]
+        ordered = sorted(data, key=lambda item: item["index"])
+        return [item["embedding"] for item in ordered]
+
+
 @lru_cache(maxsize=1)
 def get_embedding_driver() -> EmbeddingDriver:
     """Factory function: return the active embedding driver from settings.
@@ -608,8 +733,10 @@ def get_embedding_driver() -> EmbeddingDriver:
         return OpenRouterEmbeddingDriver()
     if driver_name == "gemini":
         return GeminiEmbeddingDriver()
+    if driver_name == "jina":
+        return JinaEmbeddingDriver()
 
     raise ValueError(
         f"Unknown EMBEDDING_DRIVER: '{driver_name}'. "
-        "Valid options are: 'local', 'openai', 'openrouter', 'gemini'."
+        "Valid options are: 'local', 'openai', 'openrouter', 'gemini', 'jina'."
     )

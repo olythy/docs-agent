@@ -13,6 +13,7 @@ import drivers.embedding as embedding_module
 from drivers.embedding import (
     EmbeddingDriver,
     GeminiEmbeddingDriver,
+    JinaEmbeddingDriver,
     LocalSentenceTransformerDriver,
     OpenAIEmbeddingDriver,
     OpenRouterEmbeddingDriver,
@@ -667,3 +668,169 @@ def test_get_embedding_driver_returns_gemini(monkeypatch, settings_override):
         embedding_module, "settings", settings_override(EMBEDDING_DRIVER="gemini")
     )
     assert isinstance(get_embedding_driver(), GeminiEmbeddingDriver)
+
+
+def _fake_jina_response(status_code: int, embeddings: list[list[float]] | None = None):
+    response = MagicMock()
+    response.status_code = status_code
+    if embeddings is not None:
+        response.json.return_value = {
+            "data": [
+                {"index": i, "embedding": vec} for i, vec in enumerate(embeddings)
+            ]
+        }
+    else:
+        response.text = "error"
+    return response
+
+
+def test_jina_driver_dimension_reads_from_settings(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    assert JinaEmbeddingDriver().dimension == 384
+
+
+def test_jina_driver_uses_given_model_over_settings_default():
+    driver = JinaEmbeddingDriver(model="jina-embeddings-v3")
+    assert driver._model == "jina-embeddings-v3"
+
+
+def test_jina_driver_embed_documents_sends_passage_task(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(
+            EMBEDDING_DIMENSION=384, EMBEDDING_API_KEY="fake-key", EMBEDDING_MODEL="jina-embeddings-v3"
+        ),
+    )
+    fake_post = MagicMock(
+        return_value=_fake_jina_response(200, [[0.1, 0.2], [0.3, 0.4]])
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    result = JinaEmbeddingDriver().embed_documents(["first chunk", "second chunk"])
+
+    assert result == [[0.1, 0.2], [0.3, 0.4]]
+    call = fake_post.call_args
+    assert call.kwargs["json"]["task"] == "retrieval.passage"
+    assert call.kwargs["json"]["model"] == "jina-embeddings-v3"
+    assert call.kwargs["json"]["dimensions"] == 384
+    assert call.kwargs["json"]["input"] == ["first chunk", "second chunk"]
+    assert call.kwargs["headers"]["Authorization"] == "Bearer fake-key"
+
+
+def test_jina_driver_embed_query_sends_query_task(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    fake_post = MagicMock(return_value=_fake_jina_response(200, [[0.1, 0.2]]))
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    result = JinaEmbeddingDriver().embed_query("a question")
+
+    assert result == [0.1, 0.2]
+    assert fake_post.call_args.kwargs["json"]["task"] == "retrieval.query"
+
+
+def test_jina_driver_reorders_results_by_index(monkeypatch, settings_override):
+    """Regression guard: the API is not guaranteed to return results in
+    the same order as the input, so the driver must sort by `index`."""
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    response = MagicMock(status_code=200)
+    response.json.return_value = {
+        "data": [
+            {"index": 1, "embedding": [0.3, 0.4]},
+            {"index": 0, "embedding": [0.1, 0.2]},
+        ]
+    }
+    monkeypatch.setattr("httpx.post", MagicMock(return_value=response))
+
+    result = JinaEmbeddingDriver().embed_batch(["first", "second"])
+
+    assert result == [[0.1, 0.2], [0.3, 0.4]]
+
+
+def test_jina_driver_retries_on_429_then_succeeds(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    fake_post = MagicMock(
+        side_effect=[
+            _fake_jina_response(429),
+            _fake_jina_response(200, [[0.1, 0.2]]),
+        ]
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    result = JinaEmbeddingDriver().embed_batch(["text"])
+
+    assert result == [[0.1, 0.2]]
+    assert fake_post.call_count == 2
+
+
+def test_jina_driver_retries_network_error_then_succeeds(monkeypatch, settings_override):
+    import httpx
+
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    fake_post = MagicMock(
+        side_effect=[
+            httpx.ConnectError("No route to host"),
+            _fake_jina_response(200, [[0.1, 0.2]]),
+        ]
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    result = JinaEmbeddingDriver().embed_batch(["text"])
+
+    assert result == [[0.1, 0.2]]
+    assert fake_post.call_count == 2
+
+
+def test_jina_driver_raises_after_exhausting_retries_on_persistent_429(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    fake_post = MagicMock(return_value=_fake_jina_response(429))
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    with pytest.raises(TransientAPIError, match="status 429"):
+        JinaEmbeddingDriver().embed_batch(["text"])
+
+    assert fake_post.call_count == 3
+
+
+def test_jina_driver_splits_batches_over_max_batch_size(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=2)
+    )
+    call_sizes: list[int] = []
+
+    def fake_post(*args, **kwargs):
+        texts = kwargs["json"]["input"]
+        call_sizes.append(len(texts))
+        return _fake_jina_response(200, [[0.0, 0.0] for _ in texts])
+
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    texts = [f"chunk {i}" for i in range(2100)]
+    result = JinaEmbeddingDriver().embed_batch(texts)
+
+    assert len(result) == 2100
+    assert call_sizes == [2048, 52]
+
+
+def test_get_embedding_driver_returns_jina(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DRIVER="jina")
+    )
+    assert isinstance(get_embedding_driver(), JinaEmbeddingDriver)

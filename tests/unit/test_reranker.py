@@ -11,10 +11,12 @@ import pytest
 import drivers.reranker as reranker_module
 from drivers.reranker import (
     CrossEncoderRerankerDriver,
+    JinaRerankerDriver,
     NoopRerankerDriver,
     get_reranker_driver,
 )
 from models import ChunkMetadata, RetrievedChunk
+from retry_policy import TransientAPIError
 
 
 def _chunk(content, page=1):
@@ -103,6 +105,111 @@ def test_get_reranker_driver_raises_on_unknown(monkeypatch, settings_override):
     )
     with pytest.raises(ValueError, match="Unknown RERANKER_DRIVER"):
         get_reranker_driver()
+
+
+def _fake_jina_rerank_response(status_code: int, results: list[dict] | None = None):
+    response = MagicMock()
+    response.status_code = status_code
+    if results is not None:
+        response.json.return_value = {"results": results}
+    else:
+        response.text = "error"
+    return response
+
+
+def test_jina_driver_uses_given_model_over_settings_default():
+    driver = JinaRerankerDriver(model_name="jina-reranker-v2-base-multilingual")
+    assert driver._model_name == "jina-reranker-v2-base-multilingual"
+
+
+def test_jina_driver_returns_empty_list_without_calling_api(monkeypatch):
+    fake_post = MagicMock()
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    assert JinaRerankerDriver().rerank("question", []) == []
+    fake_post.assert_not_called()
+
+
+def test_jina_driver_reorders_and_scores_by_relevance(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        reranker_module,
+        "settings",
+        settings_override(RERANKER_API_KEY="fake-key", RERANKER_MODEL="jina-reranker-v2-base-multilingual"),
+    )
+    chunks = [_chunk("low relevance"), _chunk("high relevance")]
+    fake_post = MagicMock(
+        return_value=_fake_jina_rerank_response(
+            200,
+            [
+                {"index": 1, "relevance_score": 0.9},
+                {"index": 0, "relevance_score": 0.1},
+            ],
+        )
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    reranked = JinaRerankerDriver().rerank("question", chunks)
+
+    assert [c.content for c in reranked] == ["high relevance", "low relevance"]
+    assert reranked[0].score == 0.9
+    assert reranked[1].score == 0.1
+    call = fake_post.call_args
+    assert call.kwargs["json"]["model"] == "jina-reranker-v2-base-multilingual"
+    assert call.kwargs["json"]["query"] == "question"
+    assert call.kwargs["json"]["documents"] == ["low relevance", "high relevance"]
+    assert call.kwargs["headers"]["Authorization"] == "Bearer fake-key"
+
+
+def test_jina_driver_retries_on_429_then_succeeds(monkeypatch):
+    fake_post = MagicMock(
+        side_effect=[
+            _fake_jina_rerank_response(429),
+            _fake_jina_rerank_response(200, [{"index": 0, "relevance_score": 0.5}]),
+        ]
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    reranked = JinaRerankerDriver().rerank("q", [_chunk("a")])
+
+    assert reranked[0].score == 0.5
+    assert fake_post.call_count == 2
+
+
+def test_jina_driver_retries_network_error_then_succeeds(monkeypatch):
+    import httpx
+
+    fake_post = MagicMock(
+        side_effect=[
+            httpx.ConnectError("No route to host"),
+            _fake_jina_rerank_response(200, [{"index": 0, "relevance_score": 0.5}]),
+        ]
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    reranked = JinaRerankerDriver().rerank("q", [_chunk("a")])
+
+    assert reranked[0].score == 0.5
+    assert fake_post.call_count == 2
+
+
+def test_jina_driver_raises_after_exhausting_retries_on_persistent_429(monkeypatch):
+    fake_post = MagicMock(return_value=_fake_jina_rerank_response(429))
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    with pytest.raises(TransientAPIError, match="status 429"):
+        JinaRerankerDriver().rerank("q", [_chunk("a")])
+
+    assert fake_post.call_count == 3
+
+
+def test_get_reranker_driver_returns_jina(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        reranker_module, "settings", settings_override(RERANKER_DRIVER="jina")
+    )
+    assert isinstance(get_reranker_driver(), JinaRerankerDriver)
 
 
 def test_get_reranker_driver_is_cached():

@@ -12,6 +12,8 @@ The active driver is selected at runtime via ``settings.RERANKER_DRIVER``:
                              compatible: candidates keep their hybrid-search
                              order, nothing extra is computed)
     - ``"cross_encoder"``  → :class:`CrossEncoderRerankerDriver`
+    - ``"jina"``           → :class:`JinaRerankerDriver` (Jina AI's hosted
+                             Reranker API, no local model/GPU to run)
 
 Usage::
 
@@ -26,6 +28,7 @@ from functools import cache
 
 from config import settings
 from models import RetrievedChunk
+from retry_policy import TransientAPIError, retry_on_transient_error
 
 
 class RerankerDriver(ABC):
@@ -132,6 +135,91 @@ class CrossEncoderRerankerDriver(RerankerDriver):
         return reranked
 
 
+class JinaRerankerDriver(RerankerDriver):
+    """Reranker using Jina AI's hosted Reranker API.
+
+    A fully-managed alternative to :class:`CrossEncoderRerankerDriver`: no
+    model to load, no CPU/GPU to provision — chosen specifically to offload
+    the CPU-bound reranking cost confirmed live during query profiling
+    (~6s/question, steady-state with the model already loaded; see
+    docs/decisions.md). Defaults to ``settings.RERANKER_MODEL``, which
+    should be a Jina reranker model id (e.g.
+    ``jina-reranker-v2-base-multilingual``) when this driver is active --
+    the default value of that setting is the local cross-encoder's name
+    and only applies when ``RERANKER_DRIVER=cross_encoder``.
+    """
+
+    _ENDPOINT = "https://api.jina.ai/v1/rerank"
+
+    def __init__(self, model_name: str | None = None) -> None:
+        """Initialise the driver without creating an HTTP client yet.
+
+        Args:
+            model_name: Jina reranker model id. Defaults to ``settings.RERANKER_MODEL``.
+        """
+        self._model_name = model_name or settings.RERANKER_MODEL
+
+    def rerank(
+        self, question: str, chunks: list[RetrievedChunk]
+    ) -> list[RetrievedChunk]:
+        """Score every (question, chunk.content) pair via the Jina API.
+
+        Args:
+            question: The user's query text.
+            chunks: Candidate chunks.
+
+        Returns:
+            The same chunks, each with ``score`` replaced by Jina's
+            ``relevance_score``, sorted descending (the API already
+            returns results in that order). Returns ``[]`` unchanged for
+            an empty candidate list, avoiding a pointless API call.
+        """
+        if not chunks:
+            return []
+
+        results = self._rerank_one_batch(question, [c.content for c in chunks])
+        return [replace(chunks[r["index"]], score=r["relevance_score"]) for r in results]
+
+    @retry_on_transient_error(max_attempts=3)
+    def _rerank_one_batch(self, question: str, documents: list[str]) -> list[dict]:
+        """Call the Jina rerank endpoint once for the whole candidate list.
+
+        Raises:
+            TransientAPIError: On a 429/5xx response or a network-level
+                failure, triggering a retry with exponential backoff (up
+                to 3 attempts) -- same policy as
+                :meth:`drivers.embedding.JinaEmbeddingDriver._embed_one_batch`.
+        """
+        import httpx
+
+        try:
+            response = httpx.post(
+                self._ENDPOINT,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {settings.RERANKER_API_KEY}",
+                    "Accept": "application/json",
+                },
+                json={
+                    "model": self._model_name,
+                    "query": question,
+                    "documents": documents,
+                    "top_n": len(documents),
+                },
+                timeout=60.0,
+            )
+        except httpx.TransportError as exc:
+            raise TransientAPIError(f"Jina rerank network error: {exc}") from exc
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise TransientAPIError(
+                f"Jina rerank request status {response.status_code}: {response.text}"
+            )
+        response.raise_for_status()
+
+        return response.json()["results"]
+
+
 @cache
 def get_reranker_driver(driver_name: str | None = None) -> RerankerDriver:
     """Factory function: return the active reranker driver.
@@ -165,8 +253,10 @@ def get_reranker_driver(driver_name: str | None = None) -> RerankerDriver:
         return NoopRerankerDriver()
     if driver_name == "cross_encoder":
         return CrossEncoderRerankerDriver()
+    if driver_name == "jina":
+        return JinaRerankerDriver()
 
     raise ValueError(
         f"Unknown RERANKER_DRIVER: '{driver_name}'. "
-        "Valid options are: 'none', 'cross_encoder'."
+        "Valid options are: 'none', 'cross_encoder', 'jina'."
     )
