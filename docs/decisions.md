@@ -2,6 +2,28 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-02 — Deferred: read Word header/footer text during DOCX extraction (confirmed real, not yet fixed)
+
+Investigated the already-known gap (a document's case number sometimes isn't present in its extracted text at all -- see the 2026-10-02 header-enrichment entry below) on a concrete failing case, `q0029`: `Balassagyarmati_Jarasbirosag__P_20434_2019_38.docx`. Confirmed directly with `python-docx` that the real case number (`"4.P.20.434/2019/38*"`, near-identical to the citation that failed verification) lives in the document's **header** (`document.sections[0].header`), not its body -- `DocxExtractor`/`_docx_text_and_headers()` only ever iterates `document.paragraphs`, which structurally excludes header/footer content in `python-docx`'s API; there was never a chance of finding it there.
+
+This also explains the specific *way* `q0029` failed: tier-2 verification correctly found a *different*, real case number in the body text (a related/underlying proceeding this judgment reviews) and flagged a mismatch against the cited number -- a reasonable conclusion given what it could see, just blind to the header where the actually-correct number was.
+
+**Not fixed now, deliberately**: the fix isn't a quick read-and-append -- `_docx_text_and_headers()` would need to prepend header words to `full_text` *and* extend `word_section_map`/`word_header_map` with matching entries for those words, keeping every array's index alignment intact (the same constraint that already shapes the rest of that function). Changing extraction logic while a multi-hour bulk ingest is running would also split the corpus into "ingested before the fix" and "ingested after," another reason to treat this as its own, separate piece of work rather than a mid-flight patch.
+
+## 2026-10-02 — `generate-questions` must not cite a document it couldn't verify an identifier for (pending commit)
+
+Second finding from the same `needs_review` batch as the entry above: `q0035` (`synthesizer`) correctly left a citation's `court`/`case_number` blank rather than guessing -- the right call per the existing instruction to say so in `notes` instead of guessing -- but still went ahead and cited that document as one of its two sources anyway. The blank fields then failed Part 2's verbatim check, a foreseeable outcome at drafting time: leaving fields blank is only safe as a *reason not to use* a sample, not as a way to still use one in `citations`.
+
+**Fix**: added a `SKILL.md` Part 1 instruction: if a given sample doesn't yield a verifiable court/case number, don't cite it at all -- draft the question around whichever sample(s) do verify, even if that means fewer citations than samples given, rather than forcing a multi-document question out of material that doesn't support it. No code change needed: `corpus/commands/generate_questions.py` never required `len(citations) == len(samples)` in the first place, only that `citations` be non-empty.
+
+## 2026-10-02 — `generate-questions` was "correcting" `source_file`'s spelling, breaking the exact-match lookup it depends on (pending commit)
+
+Resumed golden-set generation (`precedent_seeker`/`synthesizer`, 5 each) now that the local DB is growing again post-ingest-restart. 3 of the 10 drafted questions came back `needs_review`. Two of the three (`q0032`, `q0034`) failed on the same new root cause: `citations[].source_file` read `Budapest_Kornyeki_Torvenyszék__...` (accented "é") while the real, ingested filename is `Budapest_Kornyeki_Torvenyszek__...` (plain ASCII, like every filename in this corpus) -- `verify_citation_exists()`'s exact-string DB lookup correctly failed to find it.
+
+Unlike the already-documented `court`/`case_number` hint-copying bug (where the model echoed an *unreliable* filename-derived guess verbatim instead of reading the real value from content), this was the opposite mistake on the *one* field that actually is authoritative: the model "corrected" a technically-misspelled-looking filename back to proper Hungarian orthography, not realizing `source_file` must be copied character-for-character, not treated as prose. (The remaining `needs_review` case, `q0029`, is the already-known, separate issue of a document whose real case number isn't present in its extracted text at all -- not a new bug.)
+
+**Fix**: added an explicit `SKILL.md` Part 1 instruction distinguishing `source_file` (authoritative, exact, never "improved") from `court`/`case_number` (unreliable hints, read the real value from content instead). Confirmed live: regenerated 2 more `synthesizer` questions post-fix, both `verified`, all 4 of their citations' `source_file` values exactly unaccented.
+
 ## 2026-10-02 — All three Vertex drivers now invalidate the cached gcloud token on a 401 (pending commit)
 
 A real, several-hours-long bulk ingest (`EMBEDDING_DRIVER=vertex`) crashed on `401 Unauthorized` -- `drivers/gcloud_auth.py`'s cached token assumes a fixed ~1-hour lifetime and only refetches once that assumption's clock runs out, but a token can evidently stop working before that. The 401 wasn't retried at all: `VertexEmbeddingDriver._embed_one_batch()` only ever classified 429/5xx as a retryable `TransientAPIError`; everything else fell through to `response.raise_for_status()`, an unretried `HTTPStatusError` that propagated straight up and ended the whole `add_directory()` run.

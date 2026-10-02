@@ -503,5 +503,355 @@
     "verification_status": "verified",
     "verification_notes": "Mindkét idézett határozat szövege pontosan tartalmazza a hivatkozott ügyszámot és a helyes, ékezetes bírósági nevet (Fővárosi Ítélőtábla), a dokumentumok tartalma pedig maradéktalanul alátámasztja a kérdésben és az elvárható válaszban szereplő ítéleti rendelkezéseket.",
     "notes": "A kérdés két különálló, a Fővárosi Ítélőtábla által elbírált ügy specifikus rendelkező részét és tárgyát köti össze, pontosan lekövetve a megadott dokumentumok tartalmát és a helyes, ékezetes bírósági neveket."
+  },
+  {
+    "id": "q0026",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben vizsgálta felül a Budapest Környéki Törvényszék a hatóságok ingatlanokkal kapcsolatos döntéseit, mint például kisajátítási végzések vagy övezeti besorolás változása miatti károk megállapítása?",
+    "expected_answer": "A Budapest Környéki Törvényszék a 9.K.701.329/2022/5. számú ügyben megsemmisítette a Pest Megyei Kormányhivatal kisajátítási ügyben hozott végzését, mely egy dunakeszi ingatlan oktatási létesítmények céljára történő kisajátítására vonatkozott. A 22.P. 20.535/2020/52. számú ügyben pedig megállapította az alperes felelősségét a felperesek ingatlanának övezeti besorolásának megváltozása (Lke övezetből VT-2 településközponti vegyes övezetbe) következtében bekövetkező károkért.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "9.K.701.329/2022/5",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_701329_2022_5.docx"
+      },
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "22.P. 20.535/2020/52",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20535_2020_52.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited case numbers and court names appear verbatim in their respective documents, and the content of each document fully supports the claims made in the expected answer regarding the court's decisions on expropriation and zoning reclassification damages.",
+    "notes": "This question is grounded in two decisions from the Budapest Környéki Törvényszék, examining the court's review of administrative actions impacting property rights, specifically an expropriation order and liability for damages due to zoning reclassification."
+  },
+  {
+    "id": "q0027",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyekben kötelezte a bíróság az alperest pénzösszeg megfizetésére a felperes részére, határidő megjelölésével?",
+    "expected_answer": "A Budapest Környéki Törvényszék 20.P.20.291/2021/31. számú ítéletében házastársi közös vagyon megosztása iránti perben kötelezte az I. rendű alperest 26.349.011 forint megváltási ár megfizetésére a felperes részére 15 napon belül. A Budai Központi Kerületi Bíróság 1.P.XI.21.867/2018/57. számú ítéletében kártérítés tárgyában kötelezte az alperest 9.000.000 forint és 1.190.000 forint perköltség megfizetésére a felperesnek 15 napon belül.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "20.P.20.291/2021/31.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20291_2021_31.docx"
+      },
+      {
+        "court": "Budai Központi Kerületi Bíróság",
+        "case_number": "1.P.XI.21.867/2018/57.",
+        "source_file": "Budai_Kozponti_Keruleti_Birosag__P_21867_2018_57.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited case numbers and accented court names appear verbatim or near-verbatim in their respective documents, and the content of each document clearly supports the corresponding part of the expected answer regarding the type of case, the amount, the payer, and the deadline.",
+    "notes": "The question and answer are grounded in two different court decisions where the court ordered the defendant to pay a specific sum of money to the plaintiff within 15 days, linking them by this common legal obligation and timeframe."
+  },
+  {
+    "id": "q0028",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen esetekben utasította el a bíróság a felperes gyermektartás megváltoztatása iránti keresetét, vagy változtatta meg részben az elsőfokú ítéletet vállalkozási díj megfizetése iránti perben, egyúttal eljárási költségfizetési kötelezettséget megállapítva?",
+    "expected_answer": "A Budapesti IV. és XV. Kerületi Bíróság ítéletében elutasította a felperes gyermektartás megváltoztatása iránti keresetét, és 32.400,- Ft eljárási illeték megfizetésére kötelezte. A Debreceni Ítélőtábla Gf.III.30.152/2023/12 ügyszámú részítéletében egy vállalkozási díj megfizetése iránti perben az elsőfokú bíróság ítéletét részben megváltoztatta, az alperes marasztalásának tőkeösszegét 69 537 106 Ft-ra felemelte, és a felperes egyes kereseti kérelmei tárgyában hatályon kívül helyezte az elsőfokú ítéletet, újabb tárgyalásra utasítva az elsőfokú bíróságot, továbbá mindkét fél számára perköltségfizetési kötelezettséget állapított meg.",
+    "citations": [
+      {
+        "court": "Budapesti IV. és XV. Kerületi Bíróság",
+        "case_number": "",
+        "source_file": "Budapesti_IV_es_XV_Keruleti_Birosag__P_21303_2023_22.docx"
+      },
+      {
+        "court": "Debreceni Ítélőtábla",
+        "case_number": "Gf.III.30.152/2023/12",
+        "source_file": "Debreceni_Itelotabla__Gf_30152_2023_12.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited court names and the provided case number appear verbatim in their respective documents. The first document explicitly states that the court rejected the plaintiff's child support modification request and ordered the plaintiff to pay 32,400 Ft in procedural fees. The second document details that the Debreceni Ítélőtábla, in a case regarding a contractor's fee, partially modified the first-instance judgment, increased the defendant's principal payment obligation to 69,537,106 Ft, annulled the first-instance judgment for certain claims, ordered a new hearing, and established litigation cost payment obligations for both parties, all of which aligns with the expected answer.",
+    "notes": "A kérdés a 'precedent_seeker' perszóna elvárásainak megfelelően két, eltérő témájú ügyet kapcsol össze a bírósági döntések típusai és az eljárási költségekre vonatkozó rendelkezések alapján. A 'Budapesti_IV_es_XV_Keruleti_Birosag__P_21303_2023_22.docx' dokumentum tartalmában nem található meg explicit ügyszám, ezért a citáció 'case_number' mezője üres maradt."
+  },
+  {
+    "id": "q0029",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyben mondta ki a Balassagyarmati Járásbíróság, hogy az adásvételi szerződés hatályos maradt, mivel a felperes szerződés hatálytalanságának megállapítása iránti keresetét elutasította, figyelembe véve a kifüggesztett szerződés jogvesztő határidejének leteltét?",
+    "expected_answer": "A Balassagyarmati Járásbíróság a P.20434.2019.38. számú ügyben elutasította JGy felperes keresetét az I. és II. rendű alperesek között 2016. július 13-án kifüggesztett adásvételi szerződés hatálytalanságának megállapítása iránt, miután a jognyilatkozat megtételére nyitva álló 60 napos jogvesztő határidő 2016. szeptember 12-én lejárt, és ezzel az adásvételi szerződés hatályos maradt.",
+    "citations": [
+      {
+        "court": "Balassagyarmati Járásbíróság",
+        "case_number": "P.20434.2019.38",
+        "source_file": "Balassagyarmati_Jarasbirosag__P_20434_2019_38.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "Step 2 failed because the cited case number 'P.20434.2019.38' does not appear verbatim in the document's content; the document mentions 'P.20.434/2019/12.' for a related proceeding, which is a different case number.",
+    "notes": "Grounded in the Balassagyarmati Járásbíróság's decision to reject a claim regarding the ineffectiveness of an agricultural land sale contract after the pre-emption deadline, thereby affirming its validity."
+  },
+  {
+    "id": "q0030",
+    "persona_id": "precedent_seeker",
+    "question": "Milyen ügyben mondta ki a Budapest Környéki Törvényszék, hogy a kisajátítás tárgyában hozott közigazgatási határozatot meg kell semmisíteni és új eljárást kell lefolytatni?",
+    "expected_answer": "A Budapest Környéki Törvényszék a 102.K.700.539/2022/44. számú ügyben semmisítette meg a kisajátítás tárgyában hozott közigazgatási határozatot és kötelezte az I. rendű alperest új eljárás lefolytatására.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "102.K.700.539/2022/44.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_700539_2022_44.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Step 2 passed as the cited case number and court name appear verbatim in the document. Step 3 passed as the document explicitly states in the 'Í T É L E T' section and paragraph [64] that the court annulled the administrative expropriation decision and ordered the first defendant to conduct a new procedure, directly supporting the expected answer.",
+    "notes": "Grounded in the first provided document, focusing on the court's decision to annul an administrative expropriation decision and order a new procedure."
+  },
+  {
+    "id": "q0031",
+    "persona_id": "synthesizer",
+    "question": "Milyen típusú közigazgatási határozatokat vizsgált felül a Budapest Környéki Törvényszék 2022-ben az alábbi esetekben, és milyen eredménnyel zárultak ezek a felülvizsgálatok?",
+    "expected_answer": "A Budapest Környéki Törvényszék 2022-ben kétféle közigazgatási határozatot vizsgált felül a megadott esetekben:\n1. Kisajátítási ügyben hozott határozat megtámadása (104.K.701.843/2022/39): A bíróság az alperes határozatát megváltoztatta, a kisajátítási kártalanítás összegét 291.000 forintban határozta meg.\n2. Ingatlan-nyilvántartási ügyben hozott határozat megtámadása (14.K.701.047/2022/15): A bíróság a felperes keresetét elutasította.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "104.K.701.843/2022/39",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_701843_2022_39.docx"
+      },
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "14.K.701.047/2022/15",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_701047_2022_15.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited case numbers and court names appear verbatim in their respective documents. The first case (104.K.701.843/2022/39) concerns an expropriation administrative decision, and the court indeed modified the defendant's decision to set the compensation at 291,000 forints. The second case (14.K.701.047/2022/15) pertains to a land registry administrative decision, and the court clearly rejected the plaintiff's claim. All claims in the `expected_answer` are directly supported by the content of the source files.",
+    "notes": "Grounded in two distinct 2022 cases from the same court, synthesizing the type of administrative decision challenged and the court's outcome in each, as per the synthesizer persona's requirement for thematic synthesis."
+  },
+  {
+    "id": "q0032",
+    "persona_id": "synthesizer",
+    "question": "A Budapest Környéki Törvényszék milyen típusú ingatlanügyekben hozott ítéletet a 2020-2022 közötti időszakban, és milyen jogi eredményekkel zárultak ezek?",
+    "expected_answer": "A Budapest Környéki Törvényszék a 2020-2022 közötti időszakban több ingatlanügyben is ítéletet hozott. 2020-ban (4.P.20.487/2020/221-ítélet) egy közös tulajdon megszüntetése iránti perben döntött, ahol az egyik tulajdonostárs tulajdonrészét 57.709.272 forint megváltási ár ellenében a felperes tulajdonába és birtokába adta. 2022-ben (7.K.700.263/2022/2) pedig egy kisajátítási ügyben hozott végzés megtámadása tárgyában járt el, ahol az alperes terület- és településrendezési célú kisajátításról szóló végzését megsemmisítette és új eljárásra kötelezte az alperest.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "4.P.20.487/2020/221-ítélet",
+        "source_file": "Budapest_Kornyeki_Torvenyszék__P_20487_2020_221.docx"
+      },
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "7.K.700.263/2022/2",
+        "source_file": "Budapest_Kornyeki_Torvenyszék__K_700263_2022_2.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "Citation(s) not found in document_chunks: ['Budapest_Kornyeki_Torvenyszék__P_20487_2020_221.docx', 'Budapest_Kornyeki_Torvenyszék__K_700263_2022_2.docx']",
+    "notes": "Grounded in two judgments from the same court but different years and distinct property law topics, demonstrating a synthesis of judicial action over time."
+  },
+  {
+    "id": "q0033",
+    "persona_id": "synthesizer",
+    "question": "Milyen eltérések és hasonlóságok figyelhetők meg a magyar bíróságok döntési mechanizmusaiban, ha egy szülői felügyelet rendezéséről szóló ítéletet és egy államigazgatási károkozás megtérítése iránti ítéletet vizsgálunk?",
+    "expected_answer": "A Budai Központi Kerületi Bíróság P.30560.2023.81 ügyszámú ítéletében a bíróság az édesapát jogosította fel a gyermekek feletti szülői felügyelet gyakorlására, közös joggyakorlással a lényeges kérdésekben, és gyermektartásdíjat, valamint kapcsolattartási rendet állapított meg. Ezzel szemben a Budapest Környéki Törvényszék 22.P.20.169/2020/75. számú ítéletében a felperesek államigazgatási jogkörben okozott kár megtérítése iránti keresetét elutasította. A két ügy kimenetele eltérő: az egyik esetben a bíróság rendezési megállapodásra jutott, míg a másikban elutasította a követelést.",
+    "citations": [
+      {
+        "court": "N/A - Nem található a dokumentum tartalmában",
+        "case_number": "N/A - Nem található a dokumentum tartalmában",
+        "source_file": "Budai_Kozponti_Keruleti_Birosag__P_30560_2023_81.docx"
+      },
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "22.P.20.169/2020/75.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20169_2020_75.docx"
+      }
+    ],
+    "difficulty": "hard",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited documents were found, and their respective court names and case numbers were either verified verbatim (for Budapest Környéki Törvényszék 22.P.20.169/2020/75.) or correctly noted as 'N/A - Nem található a dokumentum tartalmában' in the citation itself, which is accurate as the first document does not contain its own court name or case number verbatim. The content of the first document (Budai Központi Kerületi Bíróság) supports the claim that the court granted parental supervision to the father, established child support, and regulated contact. The content of the second document (Budapest Környéki Törvényszék) supports the claim that the court rejected the plaintiffs' request for compensation for damages caused in an administrative capacity. The expected answer accurately contrasts these two outcomes.",
+    "notes": "Ezen a kérdésen keresztül a bírósági döntéshozatali mechanizmusok tematikus szintézisére tettem kísérletet különböző jogterületeken, mivel a rendelkezésre álló dokumentumok nem tettek lehetővé 'X jogi álláspont időbeli változását' elemző kérdést; az első dokumentum tartalmában nem található a bíróság neve és az ügyszám verbatim formában, így az 'N/A' jelölés utal arra, hogy a forrásfájl nevéből származó adatok nem igazolhatók a szöveg alapján."
+  },
+  {
+    "id": "q0034",
+    "persona_id": "synthesizer",
+    "question": "Hogyan változott a fellebbezési eljárás szabályozása a Budapest Környéki Törvényszék ítéleteiben 2019 és 2023 között, különös tekintettel az elektronikus kapcsolattartásra és a jogi képviseletre?",
+    "expected_answer": "A Budapest Környéki Törvényszék ítéleteiben a fellebbezési eljárás szabályozása 2019 és 2023 között több ponton is fejlődött. Míg a 2019-es G.40.362/2019/46. számú ügyben a bíróság kiemelte, hogy az elektronikus úton kapcsolatot tartó fél fellebbezésének nem elektronikus úton történő előterjesztése hatálytalan és pénzbírsággal jár, addig a 2023-as 21.P.20.034/2023/10. számú ítélet már a jogi képviselet kötelező voltát hangsúlyozta a Fővárosi Ítélőtábla előtti eljárásban (a Pp. 72. § (1) bekezdése szerint) a fellebbező fél számára. Mindkét ítélet rögzíti a 15 napos fellebbezési határidőt és azt, hogy a másodfokú bíróság tárgyaláson kívül bírálja el a fellebbezést, kivéve ha a felek tárgyalást kérnek, vagy bizonyítást kell lefolytatni.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "21.P.20.034/2023/10.",
+        "source_file": "Budapest_Kornyeki_Torvenyszék__P_20034_2023_10.docx"
+      },
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "9.G.40.362/2019/46.",
+        "source_file": "Budapest_Kornyeki_Torvenyszék__G_40362_2019_46.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "Citation(s) not found in document_chunks: ['Budapest_Kornyeki_Torvenyszék__P_20034_2023_10.docx', 'Budapest_Kornyeki_Torvenyszék__G_40362_2019_46.docx']",
+    "notes": "The question is grounded in the evolution of procedural rules regarding appeals, electronic communication, and mandatory legal representation, as detailed in two judgments from the same court spanning 2019 and 2023."
+  },
+  {
+    "id": "q0035",
+    "persona_id": "synthesizer",
+    "question": "A Budapest Környéki Törvényszék milyen típusú ügyekben és milyen eredménnyel hozott döntéseket 2018 és 2022 között, az elérhető információk alapján?",
+    "expected_answer": "A rendelkezésre álló információk szerint a Budapest Környéki Törvényszék a 24.K.700.905/2022/5 számú ügyben 2022-ben egy kisajátítási végzés megtámadása tárgyában eljárva megsemmisítette az alperes végzését és új eljárásra kötelezte az alperest. Egy korábbi, 2018-as rész- és közbenső ítéletében érvénytelennek nyilvánított egy 2007. április 26-án kötött kölcsönszerződést és az ahhoz kapcsolódó vételi jogot alapító szerződést, valamint egy 2013. április 10-én létrejött tulajdonjog átszállása és kölcsöntartozás átvállalása tárgyában létrejött megállapodást és az ahhoz kapcsolódó vételi jogot alapító szerződést.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "24.K.700.905/2022/5",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_700905_2022_5.docx"
+      },
+      {
+        "court": "",
+        "case_number": "",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__G_40510_2018_35.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "Step 2 failed for the second citation because both the 'court' and 'case_number' fields were blank in the citation, and thus could not be found verbatim in the document content as required for verification. The drafted answer also incorrectly states that the second judgment was from 2018, while the document itself is dated February 23, 2021.",
+    "notes": "The question synthesizes case types and outcomes from two documents spanning different years, fulfilling the temporal and thematic synthesis expectation. The court name and case number for the second citation were not explicitly found in the provided content snippet; they are left blank in the citation and mentioned here."
+  },
+  {
+    "id": "q0036",
+    "persona_id": "synthesizer",
+    "question": "Milyen típusú ügyekben hoztak ítéleteket az Egri Törvényszék és a Balassagyarmati Törvényszék 2020 és 2022 között, és milyen főbb döntéseket hoztak ezekben a bíróságok?",
+    "expected_answer": "Az Egri Törvényszék 2022-ben személyiségi jog megsértése ügyében járt el, ahol megállapította az alperes becsület- és emberi méltóság megsértését, és kötelezte őt 400.000 Ft, illetve 300.000 Ft sérelemdíj fizetésére, valamint bocsánatkérésre. A Balassagyarmati Törvényszék 2020-ban egy vállalkozói díj megfizetése iránti perben a felperes keresetét elutasította, és a felperest 9.000.000 Ft ügyvédi munkadíj, valamint 629.920 Ft tolmácsolási díj megfizetésére kötelezte.",
+    "citations": [
+      {
+        "court": "Egri Törvényszék",
+        "case_number": "12.P.20.125/2022/53",
+        "source_file": "Egri_Torvenyszek__P_20125_2022_53.docx"
+      },
+      {
+        "court": "Balassagyarmati Törvényszék",
+        "case_number": "22.G.20.126/2020/3",
+        "source_file": "Balassagyarmati_Torvenyszek__G_20126_2020_3.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited court names and case numbers appear verbatim in their respective documents. The content of 'Egri_Torvenyszek__P_20125_2022_53.docx' explicitly details that the Egri Törvényszék acted in a personal rights infringement case in 2022, found the defendant liable for violating honor and human dignity, and ordered payment of 400,000 Ft and 300,000 Ft in non-pecuniary damages (sérelemdíj), and an apology. The content of 'Balassagyarmati_Torvenyszek__G_20126_2020_3.docx' confirms that the Balassagyarmati Törvényszék dismissed the plaintiff's claim in a contractor's fee payment case in 2020 and ordered the plaintiff to pay 9,000,000 Ft in legal fees and 629,920 Ft in interpretation fees.",
+    "notes": "A kérdés a különböző bíróságok által 2020 és 2022 között tárgyalt ügytípusokról és azok kimeneteléről ad szintézist, a rendelkezésre álló eltérő témájú dokumentumok kronológiai elhelyezése alapján."
+  },
+  {
+    "id": "q0037",
+    "persona_id": "synthesizer",
+    "question": "Milyen eredménnyel jártak a Budapest Környéki Törvényszék előtt 2022-ben a termőföld időleges más célú hasznosításával és a kisajátítási üggyel kapcsolatos közigazgatási határozatok megtámadására irányuló perek, és mi volt a bíróság indokolásának fő különbsége a döntésekben?",
+    "expected_answer": "A Budapest Környéki Törvényszék 2022-ben elutasította azt a felperesi keresetet, amely a termőföld 132 kV-os távvezetékhez kapcsolódó időleges más célú hasznosítását engedélyező közigazgatási határozat megtámadására irányult. Ezzel szemben, egy másik ügyben, amely kisajátítási végzés megtámadására irányult egy nemzetgazdasági szempontból kiemelt jelentőségű beruházás kapcsán, a bíróság megsemmisítette az alperes végzését és új eljárásra kötelezte az alperest. A döntések fő különbsége az indokolásban abban rejlik, hogy az első esetben a bíróság jogszerűnek találta az adminisztratív határozatot és elutasította a kifogást, míg a másodikban hibásnak ítélte a kisajátítási végzést, és ezért az eljárás megismétlésére kötelezte a hatóságot.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "104.K.701.064/2022/5.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_701064_2022_5.docx"
+      },
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "5.K.701.211/2022/5.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_701211_2022_5.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited case numbers ('104.K.701.064/2022/5.' and '5.K.701.211/2022/5.') and the court name ('Budapest Környéki Törvényszék') appear verbatim in their respective documents. The first document confirms the rejection of a plaintiff's claim against an administrative decision allowing temporary alternative use of arable land for a 132 kV power line, stating the court found the administrative decision lawful. The second document confirms the annulment of an expropriation order related to a nationally significant investment and an order for a new procedure, because the authority did not properly verify the expert's fee, supporting the claim that the expropriation order was deemed erroneous. The explanation of the differing outcomes and reasoning is consistent with the provided content.",
+    "notes": "Question grounded in two administrative law decisions from the same court and year, highlighting the differing outcomes and reasoning based on the specific nature of the land-related administrative action challenged."
+  },
+  {
+    "id": "q0038",
+    "persona_id": "synthesizer",
+    "question": "A 2022-es évben a Budapest Környéki Törvényszék és a Fővárosi Ítélőtábla milyen eltérő típusú jogesetekben hozott ítéletet, és milyen főbb döntéseket tartalmaztak ezek?",
+    "expected_answer": "A Budapest Környéki Törvényszék a 105.K.702.595/2022/3. számú ügyben egy kisajátítási ügyben hozott közigazgatási határozatot semmisített meg a kártalanításról rendelkező részében, új eljárásra kötelezve az alperest. Ezzel szemben a Fővárosi Ítélőtábla a 14. Gf.40.222/2022/13/II. számú ügyben megállapította egy 2007. szeptember 20-án kötött kölcsönszerződés érvénytelenségét, de elutasította a kezelési költségre és a folyósítási jutalékra vonatkozó keresetet.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "105.K.702.595/2022/3.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_702595_2022_3.docx"
+      },
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "14. Gf.40.222/2022/13/II.",
+        "source_file": "Fovarosi_Itelotabla__Gf_40222_2022_13.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Step 2 passed as both the court names and case numbers appear verbatim in their respective documents. Step 3 passed as the content of the first document explicitly states the annulment of the administrative decision regarding compensation and the order for a new procedure in an expropriation case. The second document's content explicitly states the invalidity of the loan agreement signed on September 20, 2007, and the rejection of the claims regarding handling fees and disbursement fees.",
+    "notes": "Grounded in specific details from two distinct 2022 court decisions, highlighting different case types and outcomes."
+  },
+  {
+    "id": "q0039",
+    "persona_id": "synthesizer",
+    "question": "Milyen jogvitákkal és kimenetelekkel találkozunk a 2021-es és 2023-as években hozott bírósági döntésekben, ha az egyik egy közigazgatási határozattal kapcsolatos kisajátítási ügyet, a másik pedig egy kártérítési ügyet tárgyal?",
+    "expected_answer": "A 2021-es, Budapest Környéki Törvényszék által hozott döntés (7.K.701.728/2021/29.) egy közigazgatási határozattal kapcsolatos kisajátítási ügyben született, melyben a bíróság elutasította a felperes keresetét, helybenhagyva a közút létesítése céljából indított kisajátítási kérelmet. A 2023-as, Fővárosi Ítélőtábla által tárgyalt ügy (14.Gf.40.037/2023/8/II.) egy kártérítési jogvita volt, ahol a felperes az alperes adatbázisban foglalt adatok valóságáért és helytállóságáért vállalt felelőssége megszegése miatt kért kártérítést; az ítélőtábla az elsőfokú bíróság ítéletét helybenhagyta, így a felperes keresete ez esetben sem járt sikerrel.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "7.K.701.728/2021/29.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_701728_2021_29.docx"
+      },
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "14.Gf.40.037/2023/8/II.",
+        "source_file": "Fovarosi_Itelotabla__Gf_40037_2023_8.docx"
+      }
+    ],
+    "difficulty": "hard",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited court names and case numbers appear verbatim or near-verbatim in their respective documents, and the content of each document fully supports the claims made in the expected answer regarding the nature of the disputes and their outcomes. The first citation details an expropriation case where the plaintiff's claim was rejected, upholding the expropriation for road construction. The second citation describes a damages dispute where the plaintiff sought compensation for the defendant's breach of responsibility regarding data accuracy, and the appeal court upheld the first instance court's decision to reject the claim.",
+    "notes": "A kérdés kifejezetten kiemeli a jogviták disparate jellegét (kisajátítás vs. kártérítés), hogy megfeleljen a több dokumentumra vonatkozó követelménynek. A mellékelt dokumentumok nem kínálnak közös jogi álláspontot az időbeli szintézishez, ami a perszóna elsődleges célja. Ez egy olyan forgatókönyvet képvisel, ahol a megadott tartalom nem ideális a perszóna specifikus kérdezési stílusához."
+  },
+  {
+    "id": "q0040",
+    "persona_id": "synthesizer",
+    "question": "Hogyan alakultak a bírósági eljárások költségei a Fővárosi Ítélőtábla és a Debreceni Törvényszék ítélkezési gyakorlatában a 2022 és 2024 közötti időszakban, figyelembe véve a szerződés érvénytelenségi és a vezető tisztségviselői felelősségi ügyeket?",
+    "expected_answer": "A Fővárosi Ítélőtábla 4.Pf.20.024/2024/7. számú végzése egy szerződés érvénytelenségi ügyben a fellebbezési eljárásban felmerült költségeket a felperes részére 800.000 forintban, az I. rendű alperes részére 800.000 forint + áfa mértékben, a II. rendű alperes részére pedig 200.000 forintban állapította meg. Ezen felül a le nem rótt fellebbezési eljárási illeték összege 5.000.000 forint volt. Ezzel szemben a Debreceni Törvényszék 10.G.40.160/2022/18. számú ítélete egy vezető tisztségviselő felelősségének megállapítása tárgyában kötelezte az alperest 4.307.478 forint, valamint 215.374 forint perköltség megfizetésére, továbbá 258.449 forint meg nem fizetett illeték befizetésére.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "4.Pf.20.024/2024/7.",
+        "source_file": "Fovarosi_Itelotabla__Pf_20024_2024_7.docx"
+      },
+      {
+        "court": "Debreceni Törvényszék",
+        "case_number": "10.G.40.160/2022/18.",
+        "source_file": "Debreceni_Torvenyszek__G_40160_2022_18.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "Both cited source files contain the exact court names and case numbers as provided in the citations, and the content within each document explicitly supports the corresponding statements about the costs and fees awarded in the respective cases, aligning perfectly with the expected answer.",
+    "notes": "A kérdés a 'synthesizer' persona elvárásainak megfelelően a bírósági eljárások költségeinek alakulását vizsgálja különböző ügytípusokban és bíróságokon a megadott időszakban, a két dokumentum konkrét költségadatai alapján."
   }
 ]

@@ -47,6 +47,35 @@ name typically opens the document; the case number is typically near "Az
 unread. If you cannot find a real case number written in the content, say
 so in `notes` rather than guessing or falling back to the hint.
 
+**If you cannot find a verifiable court/case number for one of the given
+samples, do not cite that document at all — pick a different sample
+instead of drafting a citation with blank or guessed fields.** Confirmed
+live: a drafted `synthesizer` question correctly left a citation's
+`court`/`case_number` blank rather than guessing (the right call per the
+instruction above), but still went ahead and cited that document as one
+of two sources — the blank fields then failed verification's verbatim
+check anyway, for a reason that was foreseeable at drafting time. Leaving
+fields blank is only safe to do in `notes`, as a *reason you're not using*
+a sample; it's not a safe way to still use one in `citations`. For a
+multi-document persona, this means: if a given sample doesn't yield a
+verifiable identifier, draft the question around the sample(s) that do,
+even if that means citing only one document instead of the number you
+were given, or saying so in `notes` and requesting a different sample
+rather than forcing a multi-document question out of what you have.
+
+**`source_file`, unlike `court`/`case_number`, IS authoritative — copy it
+character-for-character from the given sample, never "corrected."**
+Confirmed live: a drafted citation's `source_file` read
+`Budapest_Kornyeki_Torvenyszék__...` (with an accented "é") when the real
+filename is `Budapest_Kornyeki_Torvenyszek__...` (plain ASCII, like every
+filename in this corpus) — the model "fixed" the court name's spelling
+inside what must be an exact, literal filename, breaking the lookup this
+citation depends on. Hungarian institution names are correctly spelled
+*with* diacritics in prose (the question text, `expected_answer`, and the
+citation's `court` field once read from real content) — but `source_file`
+is a filename, not prose, and this corpus's filenames are deliberately
+unaccented; don't "improve" it.
+
 Draft exactly one question matching the persona's `question_style`, using
 **only** facts that actually appear in the given content. Do not invent case
 numbers, dates, amounts, or legal reasoning not present in the text.
