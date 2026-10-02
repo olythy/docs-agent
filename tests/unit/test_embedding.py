@@ -1010,6 +1010,37 @@ def test_vertex_driver_raises_after_exhausting_retries_on_persistent_429(
     assert fake_post.call_count == 3
 
 
+def test_vertex_driver_invalidates_token_and_retries_on_401(
+    monkeypatch, settings_override
+):
+    """Regression test for a real, live 401 mid-bulk-ingest: retrying with
+    the same cached token would fail identically, so a 401 must invalidate
+    drivers.gcloud_auth's cache before the decorator's retry re-fetches."""
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    fake_gcloud = MagicMock(
+        side_effect=[_fake_gcloud_token("stale-token"), _fake_gcloud_token("fresh-token")]
+    )
+    monkeypatch.setattr("subprocess.run", fake_gcloud)
+    fake_post = MagicMock(
+        side_effect=[
+            _fake_vertex_response(401),
+            _fake_vertex_response(200, [[0.1, 0.2]]),
+        ]
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    result = VertexEmbeddingDriver().embed_batch(["text"])
+
+    assert result == [[0.1, 0.2]]
+    assert fake_post.call_count == 2
+    assert fake_gcloud.call_count == 2
+    assert fake_post.call_args_list[0].kwargs["headers"]["Authorization"] == "Bearer stale-token"
+    assert fake_post.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer fresh-token"
+
+
 def test_vertex_driver_splits_batches_over_max_batch_size(monkeypatch, settings_override):
     monkeypatch.setattr(
         embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=2)

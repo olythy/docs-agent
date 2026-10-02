@@ -589,6 +589,19 @@ class GeminiAnswerDriver(AnswerDriver):
             ) from exc
         except APIError as exc:
             status = getattr(exc, "code", None)
+            if status == 401:
+                # Only meaningful for VertexAnswerDriver (which inherits
+                # this method unchanged) -- a no-op for GeminiAnswerDriver,
+                # which doesn't use gcloud_auth at all. Confirmed live,
+                # during a real multi-hour bulk ingest, that a Vertex AI
+                # driver's cached gcloud token can stop working before our
+                # ~1-hour assumption expects; invalidating it here means
+                # the retry actually fetches a fresh one instead of
+                # failing identically with the same stale cached token.
+                from drivers.gcloud_auth import invalidate as invalidate_gcloud_token
+
+                invalidate_gcloud_token()
+                raise TransientAPIError("Gemini generate_content status 401") from exc
             if status == 429 or (status is not None and status >= 500):
                 raise TransientAPIError(
                     f"Gemini generate_content status {status}"

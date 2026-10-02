@@ -345,6 +345,31 @@ def test_vertex_ranker_raises_after_exhausting_retries_on_persistent_429(monkeyp
     assert fake_post.call_count == 3
 
 
+def test_vertex_ranker_invalidates_token_and_retries_on_401(monkeypatch):
+    """Regression test for a real, live 401 mid-bulk-ingest -- see
+    test_embedding.py's matching test for the full explanation."""
+    fake_gcloud = MagicMock(
+        side_effect=[_fake_gcloud_token("stale-token"), _fake_gcloud_token("fresh-token")]
+    )
+    monkeypatch.setattr("subprocess.run", fake_gcloud)
+    fake_post = MagicMock(
+        side_effect=[
+            _fake_vertex_rank_response(401),
+            _fake_vertex_rank_response(200, [{"id": "0", "score": 0.5}]),
+        ]
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    reranked = VertexRankerDriver().rerank("q", [_chunk("a")])
+
+    assert reranked[0].score == 0.5
+    assert fake_post.call_count == 2
+    assert fake_gcloud.call_count == 2
+    assert fake_post.call_args_list[0].kwargs["headers"]["Authorization"] == "Bearer stale-token"
+    assert fake_post.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer fresh-token"
+
+
 def test_get_reranker_driver_returns_vertex(monkeypatch, settings_override):
     monkeypatch.setattr(
         reranker_module, "settings", settings_override(RERANKER_DRIVER="vertex")

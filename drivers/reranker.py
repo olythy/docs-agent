@@ -33,6 +33,7 @@ from functools import cache
 
 from config import settings
 from drivers.gcloud_auth import get_access_token
+from drivers.gcloud_auth import invalidate as invalidate_gcloud_token
 from models import RetrievedChunk
 from retry_policy import TransientAPIError, retry_on_transient_error
 
@@ -322,6 +323,12 @@ class VertexRankerDriver(RerankerDriver):
         except httpx.TransportError as exc:
             raise TransientAPIError(f"Vertex AI rank network error: {exc}") from exc
 
+        if response.status_code == 401:
+            # See drivers.embedding.VertexEmbeddingDriver._embed_one_batch's
+            # matching comment -- confirmed live that the cached gcloud
+            # token can stop working before our ~1-hour assumption expects.
+            invalidate_gcloud_token()
+            raise TransientAPIError(f"Vertex AI rank request status 401: {response.text}")
         if response.status_code == 429 or response.status_code >= 500:
             raise TransientAPIError(
                 f"Vertex AI rank request status {response.status_code}: {response.text}"

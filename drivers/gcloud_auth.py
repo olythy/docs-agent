@@ -19,6 +19,12 @@ Key exports:
         a raw bearer string -- confirmed live that this works without a
         separate ``gcloud auth application-default login`` setup, which
         would need its own interactive browser login.
+    invalidate -- Force the next ``get_access_token()`` call to actually
+        refetch, instead of trusting the ~1-hour assumption. Confirmed
+        live, during a real multi-hour bulk ingest: a token can stop
+        working before that assumption expects, and every driver's retry
+        handling calls this on a 401 before retrying -- retrying with the
+        *same* still-cached token would just fail identically.
 """
 
 import subprocess
@@ -57,6 +63,13 @@ def get_access_token() -> str:
         _cached_token = result.stdout.strip()
         _token_fetched_at = time.monotonic()
     return _cached_token
+
+
+def invalidate() -> None:
+    """Force the next :func:`get_access_token` call to refetch a token."""
+    global _cached_token, _token_fetched_at
+    _cached_token = None
+    _token_fetched_at = 0.0
 
 
 def get_credentials():

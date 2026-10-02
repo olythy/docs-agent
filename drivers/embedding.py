@@ -31,6 +31,7 @@ from functools import lru_cache
 
 from config import settings
 from drivers.gcloud_auth import get_access_token
+from drivers.gcloud_auth import invalidate as invalidate_gcloud_token
 from retry_policy import TransientAPIError, retry_on_transient_error
 
 logger = logging.getLogger(__name__)
@@ -890,6 +891,16 @@ class VertexEmbeddingDriver(EmbeddingDriver):
         except httpx.TransportError as exc:
             raise TransientAPIError(f"Vertex AI embeddings network error: {exc}") from exc
 
+        if response.status_code == 401:
+            # Confirmed live during a real multi-hour bulk ingest: the
+            # cached gcloud token can stop working before our ~1-hour
+            # assumption expects. Invalidate it so the retry actually
+            # fetches a fresh one -- retrying with the same cached token
+            # would just fail identically.
+            invalidate_gcloud_token()
+            raise TransientAPIError(
+                f"Vertex AI embeddings request status 401: {response.text}"
+            )
         if response.status_code == 429 or response.status_code >= 500:
             raise TransientAPIError(
                 f"Vertex AI embeddings request status {response.status_code}: {response.text}"

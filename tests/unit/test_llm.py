@@ -488,6 +488,46 @@ def test_get_answer_driver_returns_vertex(monkeypatch, settings_override):
     assert isinstance(get_answer_driver(), VertexAnswerDriver)
 
 
+def test_vertex_driver_invalidates_token_and_retries_on_401(
+    monkeypatch, settings_override
+):
+    """Regression test for a real, live 401 mid-bulk-ingest -- see
+    test_embedding.py's matching test for the full explanation. Here the
+    401 arrives as google.genai.errors.APIError(code=401), not a raw
+    httpx status, since VertexAnswerDriver goes through the SDK."""
+    from google.genai.errors import APIError
+
+    monkeypatch.setattr(
+        llm_module,
+        "settings",
+        settings_override(
+            LLM_REQUEST_DELAY_SECONDS=0.0,
+            VERTEX_PROJECT_ID="my-project",
+            VERTEX_LOCATION="us-central1",
+        ),
+    )
+    fake_response = _fake_gemini_client(text="ok").models.generate_content.return_value
+    fake_client = MagicMock()
+    fake_client.models.generate_content.side_effect = [
+        APIError(code=401, response_json={"error": {"message": "unauthorized"}}),
+        fake_response,
+    ]
+    monkeypatch.setattr("google.genai.Client", lambda **kwargs: fake_client)
+    fake_invalidate = MagicMock()
+    monkeypatch.setattr("drivers.gcloud_auth.invalidate", fake_invalidate)
+    monkeypatch.setattr(
+        "drivers.gcloud_auth.get_credentials", lambda: "fake-credentials"
+    )
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    driver = VertexAnswerDriver(model="gemini-2.5-flash")
+    result = driver.run_tool_calling_turn([{"role": "user", "content": "hey"}])
+
+    assert result.content == "ok"
+    fake_invalidate.assert_called_once()
+    assert fake_client.models.generate_content.call_count == 2
+
+
 def test_get_answer_driver_returns_openrouter_by_default(
     monkeypatch, settings_override
 ):
