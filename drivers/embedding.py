@@ -755,6 +755,15 @@ class VertexEmbeddingDriver(EmbeddingDriver):
     """
 
     _MAX_BATCH_SIZE = 250
+    # Confirmed live on real Hungarian legal text: ~5 tokens/word for this
+    # model's tokenizer (22,276 tokens / 4,484 words) -- a completely
+    # different ratio from the project's general WORDS_PER_TOKEN=0.75
+    # (~1.33 tokens/word), which is calibrated for a different tokenizer
+    # and is the wrong number for this API, not just an under-margined one.
+    _ESTIMATED_TOKENS_PER_WORD = 5.5
+    # The API's real cap is 20,000; kept under it with margin for
+    # estimation error on text that tokenizes even worse than our sample.
+    _MAX_TOKENS_PER_BATCH = 15000
     _TOKEN_REFRESH_MARGIN_SECONDS = 300  # refresh 5 min before the ~1h expiry
 
     def __init__(self, model: str | None = None) -> None:
@@ -825,14 +834,53 @@ class VertexEmbeddingDriver(EmbeddingDriver):
         return self._embed(texts, task_type="RETRIEVAL_DOCUMENT")
 
     def _embed(self, texts: list[str], task_type: str) -> list[list[float]]:
-        """Embed ``texts`` in sub-batches of at most ``_MAX_BATCH_SIZE``."""
-        embeddings: list[list[float]] = []
-        for start in range(0, len(texts), self._MAX_BATCH_SIZE):
-            embeddings.extend(
-                self._embed_one_batch(
-                    texts[start : start + self._MAX_BATCH_SIZE], task_type
+        """Embed ``texts`` in sub-batches of at most ``_MAX_BATCH_SIZE`` AND
+        an estimated ``_MAX_TOKENS_PER_BATCH`` -- confirmed live that the
+        instance-count limit alone isn't enough: this API also rejects a
+        request with ``INVALID_ARGUMENT`` if the combined input token count
+        exceeds 20,000, which a handful of long chunks can reach well
+        before 250 instances do (e.g. 44 real chunks hit 61,864 actual
+        tokens; a separate 20-chunk real-content batch hit 22,276).
+
+        Token count is estimated via ``_ESTIMATED_TOKENS_PER_WORD``, *not*
+        the project's general ``settings.WORDS_PER_TOKEN`` -- confirmed
+        live, twice, that this model's real tokenizer produces roughly
+        **5 tokens per word** on real Hungarian legal text (22,276 actual
+        tokens / 4,484 words), not the ~1.33 ``WORDS_PER_TOKEN=0.75``
+        implies. That setting was calibrated for the local
+        sentence-transformer model's tokenizer on an English-average
+        assumption (see ``ingestion/chunker.py``'s module docstring) and
+        is simply the wrong ratio for this specific API, not a matter of
+        needing a better safety margin on the same number. This API has
+        no local tokenizer to count exactly with (the error message
+        itself points at a separate ``CountTokens`` API call, which would
+        double the request count -- not worth it for an estimate this
+        API already confirmed empirically close).
+        """
+        batches: list[list[str]] = []
+        current: list[str] = []
+        current_tokens = 0.0
+        for text in texts:
+            text_tokens = len(text.split()) * self._ESTIMATED_TOKENS_PER_WORD
+            would_overflow = (
+                current
+                and (
+                    len(current) >= self._MAX_BATCH_SIZE
+                    or current_tokens + text_tokens > self._MAX_TOKENS_PER_BATCH
                 )
             )
+            if would_overflow:
+                batches.append(current)
+                current = []
+                current_tokens = 0.0
+            current.append(text)
+            current_tokens += text_tokens
+        if current:
+            batches.append(current)
+
+        embeddings: list[list[float]] = []
+        for batch in batches:
+            embeddings.extend(self._embed_one_batch(batch, task_type))
         return embeddings
 
     @retry_on_transient_error(max_attempts=3)

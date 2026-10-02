@@ -1031,6 +1031,36 @@ def test_vertex_driver_splits_batches_over_max_batch_size(monkeypatch, settings_
     assert call_sizes == [250, 50]
 
 
+def test_vertex_driver_splits_batches_over_max_tokens_per_batch(
+    monkeypatch, settings_override
+):
+    """Regression test for a real, live 400 INVALID_ARGUMENT: a handful of
+    long chunks can exceed this API's 20,000-token-per-request cap well
+    before 250 instances do (confirmed live: 44 real chunks hit 61,864
+    actual tokens). The instance-count limit alone isn't enough -- must
+    also split by estimated token count."""
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=2)
+    )
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
+    call_sizes: list[int] = []
+
+    def fake_post(*args, **kwargs):
+        instances = kwargs["json"]["instances"]
+        call_sizes.append(len(instances))
+        return _fake_vertex_response(200, [[0.0, 0.0] for _ in instances])
+
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    # 200 words/text * 5.5 tokens/word (_ESTIMATED_TOKENS_PER_WORD) = 1100
+    # tokens/text; _MAX_TOKENS_PER_BATCH=15000 -> 13 texts/batch max.
+    texts = [" ".join(["word"] * 200) for _ in range(20)]
+    result = VertexEmbeddingDriver().embed_batch(texts)
+
+    assert len(result) == 20
+    assert call_sizes == [13, 7]
+
+
 def test_get_embedding_driver_returns_vertex(monkeypatch, settings_override):
     monkeypatch.setattr(
         embedding_module, "settings", settings_override(EMBEDDING_DRIVER="vertex")
