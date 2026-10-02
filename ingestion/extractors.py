@@ -259,6 +259,19 @@ def _docx_text_and_headers(file_path: Path) -> tuple[str, list[int], list[str]]:
     every word from itself onward whenever it's center-aligned (see
     :class:`DocxExtractor`'s docstring for why that's the header signal here).
 
+    Also prepends the document's first *Word* section's running page
+    header text (``document.sections[0].header`` -- unrelated to this
+    function's own "section"/"header" vocabulary above, which tracks
+    center-aligned body titles, not Word's header/footer feature).
+    Confirmed live: a real court decision's case number lived only in
+    this running header, never in any body paragraph -- ``document.paragraphs``
+    structurally excludes header/footer content in `python-docx`, so it
+    was previously invisible to this extractor (and, downstream, to
+    :func:`ingestion.chunker.extract_document_identifiers`) no matter how
+    the body text was scanned. Only the first section's header is read,
+    not the footer -- good enough for this corpus's single-section,
+    repeating-header documents; extend if a real footer-only case turns up.
+
     Args:
         file_path: Path to the source .docx file.
 
@@ -272,6 +285,18 @@ def _docx_text_and_headers(file_path: Path) -> tuple[str, list[int], list[str]]:
     word_header_map: list[str] = []
     section = 1
     current_header = ""
+
+    if document.sections:
+        header_text = " ".join(
+            " ".join(p.text.split())
+            for p in document.sections[0].header.paragraphs
+            if p.text.strip()
+        )
+        if header_text:
+            full_text_parts.append(header_text)
+            num_header_words = len(header_text.split())
+            word_section_map.extend([section] * num_header_words)
+            word_header_map.extend([""] * num_header_words)
 
     for paragraph in document.paragraphs:
         # Collapse embedded line breaks (python-docx renders <w:br/> as "\n"

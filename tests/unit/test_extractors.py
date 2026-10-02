@@ -21,13 +21,24 @@ from ingestion.extractors import (
 )
 
 
-def _write_docx(path: Path, paragraphs: list[tuple[str, bool]]) -> None:
-    """Writes a real .docx file — (text, is_centered) per paragraph."""
+def _write_docx(
+    path: Path, paragraphs: list[tuple[str, bool]], header_text: str | None = None
+) -> None:
+    """Writes a real .docx file — (text, is_centered) per paragraph.
+
+    Args:
+        header_text: If given, set as the first section's running page
+            header text (``document.paragraphs`` structurally excludes
+            this -- it's a separate part of the document, which is why a
+            running case-number header needs its own extraction path).
+    """
     document = Document()
     for text, centered in paragraphs:
         paragraph = document.add_paragraph(text)
         if centered:
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if header_text is not None:
+        document.sections[0].header.paragraphs[0].text = header_text
     document.save(str(path))
 
 
@@ -446,6 +457,56 @@ def test_docx_extractor_extract_with_headers_tracks_most_recent_centered_title(
     assert headers_by_word["ítélete"] == "ítélete"
     assert headers_by_word["one."] == "ítélete"
     assert headers_by_word["two."] == "Indokolás"
+
+
+def test_docx_extractor_prepends_running_page_header_text(tmp_path):
+    """Regression test for a real, live gap: a document's case number can
+    live only in the Word running header (document.sections[0].header),
+    which document.paragraphs structurally excludes -- confirmed on a real
+    corpus file whose case number was never in any body paragraph."""
+    docx_path = tmp_path / "doc.docx"
+    _write_docx(
+        docx_path,
+        [("Body text.", False)],
+        header_text="Some Court 4.P.20.434/2019/38",
+    )
+
+    full_text, word_section_map = DocxExtractor().extract(docx_path)
+
+    assert full_text == "Some Court 4.P.20.434/2019/38 Body text."
+    assert len(word_section_map) == len(full_text.split())
+
+
+def test_docx_extractor_header_words_get_empty_header_path(tmp_path):
+    """Header words aren't a center-aligned body section title, so they
+    must not be attributed to whatever title happens to come later."""
+    docx_path = tmp_path / "doc.docx"
+    _write_docx(
+        docx_path,
+        [("ítélete", True), ("Body text.", False)],
+        header_text="Running header text",
+    )
+
+    full_text, _sections, headers = DocxExtractor().extract_with_headers(docx_path)
+
+    assert headers is not None
+    words = full_text.split()
+    headers_by_word = dict(zip(words, headers, strict=True))
+    assert headers_by_word["Running"] == ""
+    assert headers_by_word["header"] == ""
+    assert headers_by_word["text"] == ""
+    assert headers_by_word["ítélete"] == "ítélete"
+
+
+def test_docx_extractor_extract_without_header_text_unchanged(tmp_path):
+    """No header set -- behavior must match the pre-fix extractor exactly."""
+    docx_path = tmp_path / "doc.docx"
+    _write_docx(docx_path, [("First paragraph.", False)])
+
+    full_text, word_section_map = DocxExtractor().extract(docx_path)
+
+    assert full_text == "First paragraph."
+    assert word_section_map == [1, 1]
 
 
 # --- RtfExtractor ---
