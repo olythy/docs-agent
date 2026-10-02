@@ -12,13 +12,16 @@ from ingestion.chunker import (
     WarnOverflowStrategy,
     WordChunkingStrategy,
     _find_natural_break_point,
+    _identifiers_prefix,
     _package_chunk,
     _split_oversized_text,
     _split_words_into_chunks,
     _strip_header_prefix,
+    _strip_identifiers_prefix,
     chunk_document,
     chunk_pages,
     enrich_chunk_content,
+    extract_document_identifiers,
     get_chunk_overflow_strategy,
     get_chunking_strategy,
     validate_chunk_size_against_model,
@@ -407,6 +410,29 @@ def test_split_strategy_preserves_header_path_across_all_pieces():
         assert driver.count_tokens(chunk.content) <= 10
 
 
+def test_split_strategy_preserves_document_identifiers_across_all_pieces():
+    """Regression: re-splitting an oversized chunk must not duplicate the
+    identifiers prefix into each split piece, nor drop it from any of them."""
+    ids = ("103.K.703.261/2020",)
+    driver = MagicMock()
+    driver.max_sequence_length.return_value = 10
+    driver.count_tokens.side_effect = _word_count
+
+    body = "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10"
+    content = f"{_identifiers_prefix(ids)}\n\n{body}"
+    chunks = [_chunk(content, source_file="doc.docx", document_identifiers=ids)]
+
+    result = SplitOverflowStrategy(overlap_ratio=0.0).apply(chunks, driver)
+    assert len(result) >= 2
+    for chunk in result:
+        assert chunk.content.startswith(f"{_identifiers_prefix(ids)}\n\n")
+        assert chunk.metadata.document_identifiers == ids
+        assert driver.count_tokens(chunk.content) <= 10
+    # Identifiers prefix must appear exactly once per piece, not duplicated.
+    for chunk in result:
+        assert chunk.content.count(ids[0]) == 1
+
+
 def test_split_strategy_uses_settings_overlap_ratio(monkeypatch, settings_override):
     monkeypatch.setattr(
         chunker_module, "settings", settings_override(CHUNK_SPLIT_OVERLAP_RATIO=0.25)
@@ -673,6 +699,53 @@ def test_chunk_document_uses_langchain_strategy_when_configured(
     assert [c.metadata.page_number for c in chunks] == [1, 2]
 
 
+def test_extract_document_identifiers_finds_real_case_numbers_near_start():
+    full_text = (
+        "Debreceni Törvényszék Az ügy száma: 103.K.703.261/2020. "
+        "Az ítélet száma: 103.K.703.261/2020/13. A felperes: Felperes (cím2.) "
+        "Az I. rendű alperes: Alperes (cím1)"
+    )
+    assert extract_document_identifiers(full_text) == (
+        "103.K.703.261/2020",
+        "103.K.703.261/2020/13",
+    )
+
+
+def test_extract_document_identifiers_empty_when_none_near_start():
+    # Regression: a document whose extracted text opens straight into the
+    # judgment body, with no header line at all -- confirmed live that some
+    # real corpus documents never expose their case number in any chunk
+    # (see docs/decisions.md), not just beyond head_chars.
+    full_text = "í t é l e t e t ügyvéd által képviselt felperes ellen indult perben"
+    assert extract_document_identifiers(full_text) == ()
+
+
+def test_extract_document_identifiers_respects_head_chars_cutoff():
+    full_text = "123.A.1/2020. " + "noise " * 50 + "99999"
+    assert extract_document_identifiers(full_text, head_chars=20) == ("123.A.1/2020",)
+
+
+class TestIdentifiersPrefix:
+    """_identifiers_prefix/_strip_identifiers_prefix are a matched pair —
+    see _strip_identifiers_prefix's docstring for why they're kept together,
+    same reasoning as enrich_chunk_content/_strip_header_prefix."""
+
+    IDS = ("103.K.703.261/2020", "103.K.703.261/2020/13")
+
+    def test_identifiers_prefix_joins_with_space(self):
+        assert _identifiers_prefix(self.IDS) == "103.K.703.261/2020 103.K.703.261/2020/13"
+
+    def test_empty_identifiers_leaves_content_unchanged(self):
+        assert _strip_identifiers_prefix("hello world", ()) == "hello world"
+
+    def test_strips_an_embedded_prefix(self):
+        content = f"{_identifiers_prefix(self.IDS)}\n\nhello world"
+        assert _strip_identifiers_prefix(content, self.IDS) == "hello world"
+
+    def test_leaves_content_unchanged_when_prefix_not_present(self):
+        assert _strip_identifiers_prefix("hello world", self.IDS) == "hello world"
+
+
 def test_enrich_chunk_content():
     # 1. Empty header_path leaves content untouched
     assert enrich_chunk_content("hello world", "") == "hello world"
@@ -740,6 +813,32 @@ class TestPackageChunk:
         assert chunk.content == "some text"
         assert chunk.metadata is metadata
 
+    def test_embeds_document_identifiers_from_metadata(self):
+        metadata = ChunkMetadata(
+            source_file="doc.pdf",
+            page_number=1,
+            chunk_index=2,
+            document_identifiers=("103.K.703.261/2020",),
+        )
+        chunk = _package_chunk("some text", metadata)
+
+        assert chunk.content == "103.K.703.261/2020\n\nsome text"
+
+    def test_embeds_identifiers_outside_header_path(self):
+        """Regression: SplitOverflowStrategy.apply() strips identifiers
+        before header (see its docstring reference to this ordering) --
+        _package_chunk must embed them in the matching outer-to-inner order."""
+        metadata = ChunkMetadata(
+            source_file="doc.md",
+            page_number=None,
+            chunk_index=0,
+            header_path="# Main > ## Section",
+            document_identifiers=("103.K.703.261/2020",),
+        )
+        chunk = _package_chunk("some text", metadata)
+
+        assert chunk.content == "103.K.703.261/2020\n\n# Main > ## Section\n\nsome text"
+
 
 def test_chunk_document_with_word_header_map(monkeypatch, settings_override):
     monkeypatch.setattr(
@@ -767,3 +866,26 @@ def test_chunk_document_with_word_header_map(monkeypatch, settings_override):
     # Chunk 1 has words ['text', 'more', 'details'] -> header prepended
     assert chunks[1].content == "# Main > ## Overview\n\ntext more details"
     assert chunks[1].metadata.header_path == "# Main > ## Overview"
+
+
+def test_chunk_document_embeds_identifiers_in_every_chunk(monkeypatch, settings_override):
+    """Regression for the real gap documented in docs/decisions.md: a
+    document's case number used to only live in whichever chunk happened
+    to contain the header line (typically chunk 0) -- chunk_document must
+    now extract it once from full_text and embed it into every chunk."""
+    monkeypatch.setattr(
+        chunker_module,
+        "settings",
+        settings_override(CHUNKING_STRATEGY="word", CHUNK_SIZE=3, CHUNK_OVERLAP=0),
+    )
+    full_text = "103.K.703.261/2020. felperes alperes ellen kisajátítási ügyben"
+    word_page_map = [1] * len(full_text.split())
+
+    chunks = chunk_document(
+        full_text, word_page_map, source_file="doc.docx", driver=MagicMock()
+    )
+
+    assert len(chunks) > 1
+    for chunk in chunks:
+        assert chunk.metadata.document_identifiers == ("103.K.703.261/2020",)
+        assert chunk.content.startswith("103.K.703.261/2020\n\n")

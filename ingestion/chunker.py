@@ -385,16 +385,29 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
         next_index = 0
         for chunk in chunks:
             metadata = chunk.metadata
+            identifiers = metadata.document_identifiers
+            # Undo _package_chunk's embedding in the same order it was applied
+            # (identifiers prefix outermost, header prefix inside it) before
+            # re-splitting, so neither prefix is counted against the token
+            # budget once per split piece or duplicated into each piece.
+            body = _strip_identifiers_prefix(chunk.content, identifiers)
             header_path = metadata.header_path or ""
-            body = _strip_header_prefix(chunk.content, header_path)
+            body = _strip_header_prefix(body, header_path)
 
-            # If header_path is present, budget tokens for the header prefix and
-            # a downstream model prefix ("passage: " ~4 tokens) so the final
-            # piece never exceeds max_seq_length.
+            # Budget tokens for both prefixes plus a downstream model prefix
+            # ("passage: " ~4 tokens) so the final piece never exceeds
+            # max_seq_length.
+            identifiers_prefix = (
+                f"{_identifiers_prefix(identifiers)}\n\n" if identifiers else ""
+            )
             header_prefix = f"{header_path}\n\n" if header_path else ""
-            header_tokens = count_tokens(header_prefix) if header_prefix else 0
+            prefix_tokens = (
+                count_tokens(identifiers_prefix + header_prefix)
+                if (identifiers_prefix or header_prefix)
+                else 0
+            )
             safety_margin = 4 if max_seq_length > 16 else 0
-            budget = max_seq_length - header_tokens - safety_margin
+            budget = max_seq_length - prefix_tokens - safety_margin
             effective_max_tokens = max(1, min(max_seq_length, budget))
 
             for piece in _split_oversized_text(
@@ -601,6 +614,79 @@ def enrich_chunk_content(content: str, header_path: str) -> str:
     return f"{header_path}\n\n{content}"
 
 
+def extract_document_identifiers(full_text: str, head_chars: int = 100) -> tuple[str, ...]:
+    """Pull out identifier-like tokens from the start of a document.
+
+    Reuses :func:`store.extract_identifier_tokens`'s document-type-agnostic
+    token recognition, restricted to the document's first ``head_chars``
+    characters -- where a case number, invoice number, or contract
+    reference conventionally appears -- to avoid also picking up unrelated
+    code-like tokens deeper in the body. Confirmed live over a real sample
+    of the court-decision corpus: at ``head_chars=100`` the vast majority of
+    documents yield exactly their real case/judgment number(s) and nothing
+    else; a plain word-count or sentence-boundary cutoff would be no more
+    reliable, since header styles vary (some documents open with a clean
+    "Az ügy száma: ..." line, others start the party list almost
+    immediately after it) -- 100 was chosen empirically as the cutoff that
+    captures the former without yet reaching the latter in most cases.
+    Two known, accepted imperfections from that same sample: one document
+    still picked up a trailing placeholder token alongside the real
+    identifier (harmless -- the real one is also recognized), and a
+    different class of document (whose chunk 0 opens directly with the
+    judgment text, "Í t é l e t e t", no header line at all) legitimately
+    has no identifier anywhere in its extracted text -- confirmed live that
+    the case number isn't present in *any* chunk, not just a head_chars
+    miss, which points at a separate, not-yet-investigated gap in
+    extraction (likely a DOCX header/footer that the current extractor
+    doesn't read) rather than a tunable cutoff problem. See docs/decisions.md.
+
+    Args:
+        full_text: The whole document's text.
+        head_chars: How many leading characters to search within.
+
+    Returns:
+        Identifier tokens found near the start, in order, deduplicated, or
+        an empty tuple if the document's identifier isn't present in its
+        extracted text at all.
+    """
+    from store import extract_identifier_tokens
+
+    return tuple(extract_identifier_tokens(full_text[:head_chars]))
+
+
+def _identifiers_prefix(identifiers: tuple[str, ...]) -> str:
+    """Build the single-line prefix embedded into every chunk for ``identifiers``."""
+    return " ".join(identifiers)
+
+
+def _strip_identifiers_prefix(content: str, identifiers: tuple[str, ...]) -> str:
+    """Removes a previously-embedded identifiers prefix, if present.
+
+    The inverse of the identifiers half of :func:`_package_chunk` -- kept
+    right next to :func:`_strip_header_prefix`, which does the same job for
+    ``header_path``, since :class:`SplitOverflowStrategy` needs both undone
+    together before re-splitting an already-packaged chunk (see its
+    ``apply()``).
+
+    Args:
+        content: A chunk's content, possibly already carrying an embedded
+            identifiers prefix.
+        identifiers: The same tokens that were passed to
+            :func:`_identifiers_prefix` when this content was built.
+
+    Returns:
+        ``content`` with the embedded identifiers prefix removed, or
+        unchanged if ``identifiers`` is empty or wasn't actually embedded
+        as a prefix.
+    """
+    if not identifiers:
+        return content
+    prefix = f"{_identifiers_prefix(identifiers)}\n\n"
+    if content.startswith(prefix):
+        return content[len(prefix) :]
+    return content
+
+
 def _strip_header_prefix(content: str, header_path: str) -> str:
     """Removes a previously-:func:`enrich_chunk_content`-embedded header, if present.
 
@@ -630,21 +716,42 @@ def _strip_header_prefix(content: str, header_path: str) -> str:
 def _package_chunk(content: str, metadata: ChunkMetadata) -> Chunk:
     """Builds the final, embedding-ready Chunk from raw content and its metadata.
 
-    The single place that knows how a header breadcrumb gets embedded into
-    a chunk's content — :func:`chunk_document` and
-    :meth:`SplitOverflowStrategy.apply` both go through this instead of
-    each calling :func:`enrich_chunk_content` (and, for the latter,
-    reverse-engineering the embedded format) themselves.
+    The single place that knows how a header breadcrumb and the document's
+    identifier tokens get embedded into a chunk's content — :func:`chunk_document`
+    and :meth:`SplitOverflowStrategy.apply` both go through this instead of
+    each calling :func:`enrich_chunk_content`/:func:`_identifiers_prefix`
+    (and, for either, reverse-engineering the embedded format) themselves.
+
+    The identifiers prefix goes *outside* the header prefix (prepended
+    last), matching :func:`_strip_identifiers_prefix`/:func:`_strip_header_prefix`'s
+    expected stripping order in :meth:`SplitOverflowStrategy.apply`.
+
+    Unlike ``header_path`` (handled by :func:`enrich_chunk_content`, which
+    has to guard against already-enriched input because it's also exercised
+    directly, standalone, by markdown content that can legitimately already
+    start with a leaf heading line), the identifiers prefix is embedded
+    unconditionally: ``content`` is always freshly split, not-yet-packaged
+    text at both of this function's call sites, so it never already starts
+    with the prefix for a real reason. Confirmed live that guarding this
+    with a loose ``startswith(prefix)`` check (without the trailing
+    ``"\n\n"``) was an actual bug, not just unneeded caution: a document
+    whose own first chunk happens to literally open with its case number
+    (e.g. ``"103.K.703.261/2020. felperes..."``) matched that loose check
+    by coincidence and silently skipped embedding the real prefix format.
 
     Args:
-        content: Raw chunk text, not yet header-enriched.
+        content: Raw chunk text, not yet header/identifier-enriched.
         metadata: This chunk's :class:`models.ChunkMetadata` — its
-            ``header_path`` (if any) is what gets embedded.
+            ``header_path``/``document_identifiers`` (if any) are what get
+            embedded.
 
     Returns:
         The packaged :class:`models.Chunk`.
     """
     enriched_content = enrich_chunk_content(content, metadata.header_path or "")
+    if metadata.document_identifiers:
+        prefix = _identifiers_prefix(metadata.document_identifiers)
+        enriched_content = f"{prefix}\n\n{enriched_content}"
     return Chunk(content=enriched_content, metadata=metadata)
 
 
@@ -671,6 +778,13 @@ def chunk_document(
     breadcrumb is determined by majority vote, added to ``metadata["header_path"]``,
     and prepended to ``content`` before embedding for hierarchical context.
 
+    Identifier tokens (case numbers, invoice numbers, ...) are extracted
+    once from ``full_text``'s start (see :func:`extract_document_identifiers`)
+    and embedded into *every* chunk's content, not just whichever chunk
+    happens to contain the document's own header line -- so a later
+    identifier-based query can still find the relevant chunk even when it's
+    several chunks past the header (see ``docs/decisions.md``).
+
     Args:
         full_text: The whole document's text.
         word_page_map: Page number per word in ``full_text.split()`` (same
@@ -690,6 +804,7 @@ def chunk_document(
 
     chunks: list[Chunk] = []
     effective_source_path = source_path if source_path is not None else source_file
+    document_identifiers = extract_document_identifiers(full_text)
     for i, (content, start_word) in enumerate(
         get_chunking_strategy().split(full_text, driver)
     ):
@@ -715,6 +830,7 @@ def chunk_document(
             chunk_index=i,
             content_hash=content_hash or None,
             header_path=header_path or None,
+            document_identifiers=document_identifiers,
         )
 
         chunks.append(_package_chunk(content, metadata))

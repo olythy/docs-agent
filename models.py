@@ -41,6 +41,13 @@ class ChunkMetadata:
             document this chunk was produced from.
         header_path: Hierarchical Markdown heading breadcrumb (e.g.
             ``"# Chapter 1 > ## Section 1.1"``), if any.
+        document_identifiers: Code-like identifier tokens (case numbers,
+            invoice numbers, ...) found near the start of the source
+            document (see ``ingestion.chunker.extract_document_identifiers``),
+            embedded into every chunk's content so a later identifier-based
+            query can find them regardless of which chunk actually holds
+            the relevant content -- not just chunk 0, where the document's
+            header line originally appeared.
     """
 
     source_file: str
@@ -50,6 +57,7 @@ class ChunkMetadata:
     sources: tuple[str, ...] = ()
     content_hash: str | None = None
     header_path: str | None = None
+    document_identifiers: tuple[str, ...] = ()
 
     def to_dict(self) -> dict:
         """Convert to the JSON-serializable dict shape stored in Postgres.
@@ -71,6 +79,8 @@ class ChunkMetadata:
             data["content_hash"] = self.content_hash
         if self.header_path is not None:
             data["header_path"] = self.header_path
+        if self.document_identifiers:
+            data["document_identifiers"] = list(self.document_identifiers)
         return data
 
     @classmethod
@@ -84,6 +94,7 @@ class ChunkMetadata:
             sources=tuple(data.get("sources", ())),
             content_hash=data.get("content_hash"),
             header_path=data.get("header_path"),
+            document_identifiers=tuple(data.get("document_identifiers", ())),
         )
 
 
