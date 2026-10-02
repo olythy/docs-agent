@@ -30,6 +30,7 @@ from abc import ABC, abstractmethod
 from functools import lru_cache
 
 from config import settings
+from drivers.gcloud_auth import get_access_token
 from retry_policy import TransientAPIError, retry_on_transient_error
 
 logger = logging.getLogger(__name__)
@@ -739,13 +740,11 @@ class VertexEmbeddingDriver(EmbeddingDriver):
     succeeded on this project's default quota -- billed against GCP credit
     instead of needing its own separate rate-limit workaround.
 
-    Authenticates via the already-authenticated ``gcloud`` CLI session
-    (``gcloud auth print-access-token``) rather than a static API key or a
-    separate Application Default Credentials setup -- there's no
-    ``VERTEX_API_KEY`` setting because Vertex AI doesn't authenticate that
-    way; it's OAuth-token-based. The token is cached in memory and
-    refreshed shortly before its ~1-hour expiry, so most calls don't pay
-    the cost of spawning a ``gcloud`` subprocess.
+    Authenticates via :func:`drivers.gcloud_auth.get_access_token` -- the
+    already-authenticated ``gcloud`` CLI session, shared with
+    :class:`drivers.reranker.VertexRankerDriver` -- rather than a static
+    API key or a separate Application Default Credentials setup. See that
+    module's docstring for why.
 
     Uses the per-instance ``task_type`` field (``RETRIEVAL_QUERY``/
     ``RETRIEVAL_DOCUMENT``) to distinguish query vs. document embedding --
@@ -764,18 +763,15 @@ class VertexEmbeddingDriver(EmbeddingDriver):
     # The API's real cap is 20,000; kept under it with margin for
     # estimation error on text that tokenizes even worse than our sample.
     _MAX_TOKENS_PER_BATCH = 15000
-    _TOKEN_REFRESH_MARGIN_SECONDS = 300  # refresh 5 min before the ~1h expiry
 
     def __init__(self, model: str | None = None) -> None:
-        """Initialise the driver without fetching an access token yet.
+        """Initialise the driver.
 
         Args:
             model: Vertex AI text embedding model id. Defaults to
                 ``settings.EMBEDDING_MODEL``.
         """
         self._model = model or settings.EMBEDDING_MODEL
-        self._cached_token: str | None = None
-        self._token_fetched_at: float = 0.0
 
     @property
     def dimension(self) -> int:
@@ -790,36 +786,6 @@ class VertexEmbeddingDriver(EmbeddingDriver):
             f"projects/{settings.VERTEX_PROJECT_ID}/locations/{settings.VERTEX_LOCATION}/"
             f"publishers/google/models/{self._model}:predict"
         )
-
-    def _get_access_token(self) -> str:
-        """Return a cached OAuth access token, refreshing it if stale.
-
-        Returns:
-            A bearer token string, from the already-authenticated
-            ``gcloud`` CLI session.
-
-        Raises:
-            RuntimeError: If ``gcloud auth print-access-token`` fails (e.g.
-                not logged in).
-        """
-        import subprocess
-        import time
-
-        age = time.monotonic() - self._token_fetched_at
-        if self._cached_token is None or age > (3600 - self._TOKEN_REFRESH_MARGIN_SECONDS):
-            result = subprocess.run(
-                ["gcloud", "auth", "print-access-token"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"gcloud auth print-access-token failed: {result.stderr}"
-                )
-            self._cached_token = result.stdout.strip()
-            self._token_fetched_at = time.monotonic()
-        return self._cached_token
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a list of strings with ``task_type="RETRIEVAL_DOCUMENT"``."""
@@ -907,7 +873,7 @@ class VertexEmbeddingDriver(EmbeddingDriver):
             response = httpx.post(
                 self._endpoint,
                 headers={
-                    "Authorization": f"Bearer {self._get_access_token()}",
+                    "Authorization": f"Bearer {get_access_token()}",
                     "Content-Type": "application/json",
                 },
                 json={

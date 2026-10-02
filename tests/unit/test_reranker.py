@@ -13,10 +13,18 @@ from drivers.reranker import (
     CrossEncoderRerankerDriver,
     JinaRerankerDriver,
     NoopRerankerDriver,
+    VertexRankerDriver,
     get_reranker_driver,
 )
 from models import ChunkMetadata, RetrievedChunk
 from retry_policy import TransientAPIError
+
+
+def _fake_gcloud_token(token="fake-access-token"):
+    result = MagicMock()
+    result.returncode = 0
+    result.stdout = f"{token}\n"
+    return result
 
 
 def _chunk(content, page=1):
@@ -216,3 +224,129 @@ def test_get_reranker_driver_is_cached():
     driver1 = get_reranker_driver()
     driver2 = get_reranker_driver()
     assert driver1 is driver2
+
+
+def _fake_vertex_rank_response(status_code: int, records: list[dict] | None = None):
+    response = MagicMock()
+    response.status_code = status_code
+    if records is not None:
+        response.json.return_value = {"records": records}
+    else:
+        response.text = "error"
+    return response
+
+
+def test_vertex_ranker_uses_given_model_over_settings_default():
+    driver = VertexRankerDriver(model_name="semantic-ranker-default@latest")
+    assert driver._model_name == "semantic-ranker-default@latest"
+
+
+def test_vertex_ranker_builds_endpoint_from_settings(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        reranker_module, "settings", settings_override(VERTEX_PROJECT_ID="my-project")
+    )
+    driver = VertexRankerDriver()
+    assert driver._endpoint == (
+        "https://discoveryengine.googleapis.com/v1/projects/my-project/"
+        "locations/global/rankingConfigs/default_ranking_config:rank"
+    )
+
+
+def test_vertex_ranker_returns_empty_list_without_calling_api(monkeypatch):
+    fake_post = MagicMock()
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    assert VertexRankerDriver().rerank("question", []) == []
+    fake_post.assert_not_called()
+
+
+def test_vertex_ranker_reorders_and_scores_by_relevance(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        reranker_module,
+        "settings",
+        settings_override(
+            VERTEX_PROJECT_ID="my-project",
+            RERANKER_MODEL="semantic-ranker-default@latest",
+        ),
+    )
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
+    chunks = [_chunk("low relevance"), _chunk("high relevance")]
+    fake_post = MagicMock(
+        return_value=_fake_vertex_rank_response(
+            200,
+            [
+                {"id": "0", "score": 0.1},
+                {"id": "1", "score": 0.9},
+            ],
+        )
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    reranked = VertexRankerDriver().rerank("question", chunks)
+
+    assert [c.content for c in reranked] == ["high relevance", "low relevance"]
+    assert reranked[0].score == 0.9
+    assert reranked[1].score == 0.1
+    call = fake_post.call_args
+    assert call.kwargs["json"]["model"] == "semantic-ranker-default@latest"
+    assert call.kwargs["json"]["query"] == "question"
+    assert call.kwargs["json"]["records"] == [
+        {"id": "0", "content": "low relevance"},
+        {"id": "1", "content": "high relevance"},
+    ]
+    assert call.kwargs["headers"]["Authorization"] == "Bearer fake-access-token"
+
+
+def test_vertex_ranker_retries_on_429_then_succeeds(monkeypatch):
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
+    fake_post = MagicMock(
+        side_effect=[
+            _fake_vertex_rank_response(429),
+            _fake_vertex_rank_response(200, [{"id": "0", "score": 0.5}]),
+        ]
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    reranked = VertexRankerDriver().rerank("q", [_chunk("a")])
+
+    assert reranked[0].score == 0.5
+    assert fake_post.call_count == 2
+
+
+def test_vertex_ranker_retries_network_error_then_succeeds(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
+    fake_post = MagicMock(
+        side_effect=[
+            httpx.ConnectError("No route to host"),
+            _fake_vertex_rank_response(200, [{"id": "0", "score": 0.5}]),
+        ]
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    reranked = VertexRankerDriver().rerank("q", [_chunk("a")])
+
+    assert reranked[0].score == 0.5
+    assert fake_post.call_count == 2
+
+
+def test_vertex_ranker_raises_after_exhausting_retries_on_persistent_429(monkeypatch):
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
+    fake_post = MagicMock(return_value=_fake_vertex_rank_response(429))
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    with pytest.raises(TransientAPIError, match="status 429"):
+        VertexRankerDriver().rerank("q", [_chunk("a")])
+
+    assert fake_post.call_count == 3
+
+
+def test_get_reranker_driver_returns_vertex(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        reranker_module, "settings", settings_override(RERANKER_DRIVER="vertex")
+    )
+    assert isinstance(get_reranker_driver(), VertexRankerDriver)

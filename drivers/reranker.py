@@ -14,6 +14,11 @@ The active driver is selected at runtime via ``settings.RERANKER_DRIVER``:
     - ``"cross_encoder"``  → :class:`CrossEncoderRerankerDriver`
     - ``"jina"``           → :class:`JinaRerankerDriver` (Jina AI's hosted
                              Reranker API, no local model/GPU to run)
+    - ``"vertex"``         → :class:`VertexRankerDriver` (Google Cloud's
+                             standalone Discovery Engine Ranking API --
+                             same no-infra motivation as ``jina``, added
+                             after Jina's free-tier cap interrupted a real
+                             eval run)
 
 Usage::
 
@@ -27,6 +32,7 @@ from dataclasses import replace
 from functools import cache
 
 from config import settings
+from drivers.gcloud_auth import get_access_token
 from models import RetrievedChunk
 from retry_policy import TransientAPIError, retry_on_transient_error
 
@@ -220,6 +226,111 @@ class JinaRerankerDriver(RerankerDriver):
         return response.json()["results"]
 
 
+class VertexRankerDriver(RerankerDriver):
+    """Reranker using Google Cloud's standalone Discovery Engine Ranking API.
+
+    Same no-infra motivation and same real trigger as
+    :class:`drivers.embedding.VertexEmbeddingDriver`: confirmed live that a
+    real eval run hit Jina's reranker on the same tokens-per-minute cap
+    that interrupted bulk ingest, while 15 rapid, undelayed requests
+    against this project's default Discovery Engine quota all succeeded.
+
+    Calls ``rankingConfigs/default_ranking_config:rank`` directly -- a
+    standalone ranking endpoint independent of Vertex AI RAG Engine's full
+    managed corpus/vector-store package (confirmed via docs: it also
+    offers standalone embedding and ranking APIs without requiring a RAG
+    corpus). Defaults to ``settings.RERANKER_MODEL``, which should be a
+    Vertex ranking model id (e.g. ``semantic-ranker-default@latest``) when
+    this driver is active.
+
+    Authenticates via :func:`drivers.gcloud_auth.get_access_token`, same
+    as :class:`drivers.embedding.VertexEmbeddingDriver` -- see that
+    module's docstring for why there's no ``VERTEX_API_KEY``.
+    """
+
+    _ENDPOINT_TEMPLATE = (
+        "https://discoveryengine.googleapis.com/v1/projects/{project}/"
+        "locations/global/rankingConfigs/default_ranking_config:rank"
+    )
+
+    def __init__(self, model_name: str | None = None) -> None:
+        """Initialise the driver.
+
+        Args:
+            model_name: Vertex ranking model id. Defaults to ``settings.RERANKER_MODEL``.
+        """
+        self._model_name = model_name or settings.RERANKER_MODEL
+
+    @property
+    def _endpoint(self) -> str:
+        """Build the global rank endpoint from settings."""
+        return self._ENDPOINT_TEMPLATE.format(project=settings.VERTEX_PROJECT_ID)
+
+    def rerank(
+        self, question: str, chunks: list[RetrievedChunk]
+    ) -> list[RetrievedChunk]:
+        """Score every (question, chunk.content) pair via the rank API.
+
+        Args:
+            question: The user's query text.
+            chunks: Candidate chunks.
+
+        Returns:
+            The same chunks, each with ``score`` replaced by the API's
+            relevance ``score``, sorted descending (the API already
+            returns results in that order). Returns ``[]`` unchanged for
+            an empty candidate list, avoiding a pointless API call.
+        """
+        if not chunks:
+            return []
+
+        results = self._rerank_one_batch(question, [c.content for c in chunks])
+        by_id = {int(r["id"]): r["score"] for r in results}
+        reranked = [replace(c, score=by_id[i]) for i, c in enumerate(chunks)]
+        reranked.sort(key=lambda c: c.score, reverse=True)
+        return reranked
+
+    @retry_on_transient_error(max_attempts=3)
+    def _rerank_one_batch(self, question: str, documents: list[str]) -> list[dict]:
+        """Call the rank endpoint once for the whole candidate list.
+
+        Raises:
+            TransientAPIError: On a 429/5xx response or a network-level
+                failure, triggering a retry with exponential backoff (up
+                to 3 attempts) -- same policy as
+                :meth:`JinaRerankerDriver._rerank_one_batch`.
+        """
+        import httpx
+
+        try:
+            response = httpx.post(
+                self._endpoint,
+                headers={
+                    "Authorization": f"Bearer {get_access_token()}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self._model_name,
+                    "query": question,
+                    "records": [
+                        {"id": str(i), "content": doc}
+                        for i, doc in enumerate(documents)
+                    ],
+                },
+                timeout=60.0,
+            )
+        except httpx.TransportError as exc:
+            raise TransientAPIError(f"Vertex AI rank network error: {exc}") from exc
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise TransientAPIError(
+                f"Vertex AI rank request status {response.status_code}: {response.text}"
+            )
+        response.raise_for_status()
+
+        return response.json()["records"]
+
+
 @cache
 def get_reranker_driver(driver_name: str | None = None) -> RerankerDriver:
     """Factory function: return the active reranker driver.
@@ -255,8 +366,10 @@ def get_reranker_driver(driver_name: str | None = None) -> RerankerDriver:
         return CrossEncoderRerankerDriver()
     if driver_name == "jina":
         return JinaRerankerDriver()
+    if driver_name == "vertex":
+        return VertexRankerDriver()
 
     raise ValueError(
         f"Unknown RERANKER_DRIVER: '{driver_name}'. "
-        "Valid options are: 'none', 'cross_encoder', 'jina'."
+        "Valid options are: 'none', 'cross_encoder', 'jina', 'vertex'."
     )

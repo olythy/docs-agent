@@ -224,16 +224,25 @@ class Settings:
                               ``make eval-rerank``), not recommended for
                               production. ``jina`` offloads reranking to
                               Jina AI's hosted Reranker API instead of the
-                              local cross-encoder -- see JINA scaling note
-                              below. Only applies when
-                              RETRIEVAL_STRATEGY=hybrid. See
-                              ``drivers/reranker.py``.
+                              local cross-encoder. ``vertex`` offloads it
+                              to Google Cloud's standalone Discovery Engine
+                              Ranking API instead -- added after Jina's
+                              free-tier tokens-per-minute cap interrupted a
+                              real eval run; billed against GCP credit
+                              instead, same VERTEX_PROJECT_ID as
+                              EMBEDDING_DRIVER=vertex, no separate API key.
+                              Only applies when RETRIEVAL_STRATEGY=hybrid.
+                              See ``drivers/reranker.py``.
         RERANKER_MODEL        Model name/id for the active reranker driver
-                              (the local cross-encoder's HuggingFace id, or
-                              a Jina reranker model id when
-                              RERANKER_DRIVER=jina).
+                              (the local cross-encoder's HuggingFace id, a
+                              Jina reranker model id when
+                              RERANKER_DRIVER=jina, or a Vertex ranking
+                              model id, e.g. ``semantic-ranker-default@latest``,
+                              when RERANKER_DRIVER=vertex).
         RERANKER_API_KEY      API key for the reranker driver (only when
-                              RERANKER_DRIVER=jina).
+                              RERANKER_DRIVER=jina -- vertex uses the same
+                              gcloud-based auth as EMBEDDING_DRIVER=vertex,
+                              no separate key).
         RERANKER_MIN_SCORE    Minimum logit relevance score required from the
                               cross-encoder reranker (default: -2.0). When
                               RERANKER_DRIVER=cross_encoder, candidates scoring
