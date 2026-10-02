@@ -163,11 +163,20 @@ class Settings:
 
     LLM (answer generation):
         LLM_DRIVER            Driver to use: ``openrouter`` (default), ``openai``,
-                              or ``gemini`` (Google's native AI Studio API
+                              ``gemini`` (Google's native AI Studio API
                               directly, not via OpenRouter -- for a free-tier
                               API key with its own rate limit, see
-                              LLM_REQUEST_DELAY_SECONDS below).
-        LLM_API_KEY           REQUIRED for answer generation. API key for the
+                              LLM_REQUEST_DELAY_SECONDS below), or ``vertex``
+                              (the same Gemini models served via Vertex AI
+                              instead -- added after AI Studio's free-tier
+                              quota kept being the throughput ceiling for a
+                              real eval run; billed against GCP credit, same
+                              VERTEX_PROJECT_ID/VERTEX_LOCATION as the other
+                              Vertex drivers, no separate LLM_API_KEY needed).
+        LLM_API_KEY           REQUIRED for answer generation, except for
+                              ``vertex`` (authenticates via the already-
+                              logged-in ``gcloud`` CLI session instead, same
+                              as every other Vertex driver). API key for the
                               active LLM driver -- for ``gemini``, a native
                               Google AI Studio key (aistudio.google.com/apikey),
                               a different kind of key than the OpenRouter one
@@ -178,7 +187,8 @@ class Settings:
         LLM_MODEL             Model identifier. Defaults to
                               ``google/gemini-3.1-flash-lite`` on OpenRouter.
                               Set to a native Gemini model id (e.g.
-                              ``gemini-2.5-flash``) when ``LLM_DRIVER=gemini``.
+                              ``gemini-2.5-flash``) when ``LLM_DRIVER`` is
+                              ``gemini`` or ``vertex``.
         LLM_REQUEST_DELAY_SECONDS
                               Seconds to sleep before each chat-completion
                               request (default: 0.0, i.e. no throttling). Only

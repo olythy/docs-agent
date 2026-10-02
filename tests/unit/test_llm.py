@@ -14,6 +14,7 @@ from drivers.llm import (
     GeminiAnswerDriver,
     OpenAIAnswerDriver,
     OpenRouterAnswerDriver,
+    VertexAnswerDriver,
     _build_prompt,
     _OpenAICompatibleAnswerDriver,
     get_answer_driver,
@@ -408,6 +409,83 @@ def test_gemini_driver_retries_network_error_then_succeeds(
 def test_get_answer_driver_returns_gemini(monkeypatch, settings_override):
     monkeypatch.setattr(llm_module, "settings", settings_override(LLM_DRIVER="gemini"))
     assert isinstance(get_answer_driver(), GeminiAnswerDriver)
+
+
+def test_vertex_driver_get_client_uses_vertexai_mode(monkeypatch, settings_override):
+    """VertexAnswerDriver only overrides _get_client() -- confirms it builds
+    the google-genai client in Vertex AI mode (project/location/credentials)
+    instead of GeminiAnswerDriver's api_key mode."""
+    monkeypatch.setattr(
+        llm_module,
+        "settings",
+        settings_override(
+            VERTEX_PROJECT_ID="my-project", VERTEX_LOCATION="us-central1"
+        ),
+    )
+    fake_client = MagicMock()
+    fake_constructor = MagicMock(return_value=fake_client)
+    monkeypatch.setattr("google.genai.Client", fake_constructor)
+    monkeypatch.setattr(
+        "drivers.gcloud_auth.get_credentials", lambda: "fake-credentials"
+    )
+
+    driver = VertexAnswerDriver(model="gemini-2.5-flash")
+    client = driver._get_client()
+
+    assert client is fake_client
+    fake_constructor.assert_called_once_with(
+        vertexai=True,
+        project="my-project",
+        location="us-central1",
+        credentials="fake-credentials",
+    )
+
+
+def test_vertex_driver_get_client_caches_across_calls(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        llm_module,
+        "settings",
+        settings_override(
+            VERTEX_PROJECT_ID="my-project", VERTEX_LOCATION="us-central1"
+        ),
+    )
+    fake_constructor = MagicMock(return_value=MagicMock())
+    monkeypatch.setattr("google.genai.Client", fake_constructor)
+    monkeypatch.setattr(
+        "drivers.gcloud_auth.get_credentials", lambda: "fake-credentials"
+    )
+
+    driver = VertexAnswerDriver(model="gemini-2.5-flash")
+    driver._get_client()
+    driver._get_client()
+
+    fake_constructor.assert_called_once()
+
+
+def test_vertex_driver_answer_sends_prompt_and_returns_text(
+    monkeypatch, settings_override
+):
+    """Reuses GeminiAnswerDriver.answer() unchanged -- only _get_client()
+    differs, so this mainly confirms the inherited method still works
+    through the overridden client construction."""
+    monkeypatch.setattr(
+        llm_module, "settings", settings_override(LLM_REQUEST_DELAY_SECONDS=0.0)
+    )
+    fake_client = _fake_gemini_client(text="the answer")
+    monkeypatch.setattr("google.genai.Client", lambda **kwargs: fake_client)
+    monkeypatch.setattr(
+        "drivers.gcloud_auth.get_credentials", lambda: "fake-credentials"
+    )
+
+    driver = VertexAnswerDriver(model="gemini-2.5-flash")
+    result = driver.answer("What is X?", [_chunk("X is Y")])
+
+    assert result == "the answer"
+
+
+def test_get_answer_driver_returns_vertex(monkeypatch, settings_override):
+    monkeypatch.setattr(llm_module, "settings", settings_override(LLM_DRIVER="vertex"))
+    assert isinstance(get_answer_driver(), VertexAnswerDriver)
 
 
 def test_get_answer_driver_returns_openrouter_by_default(

@@ -9,6 +9,11 @@ The active driver is selected via ``settings.LLM_DRIVER``:
     - ``"gemini"``     → :class:`GeminiAnswerDriver` (Google's native AI Studio
                          API directly, not via OpenRouter — free-tier friendly,
                          rate-limited via ``LLM_REQUEST_DELAY_SECONDS``)
+    - ``"vertex"``     → :class:`VertexAnswerDriver` (the same Gemini models,
+                         served via Vertex AI instead of AI Studio — added
+                         after AI Studio's free-tier quota kept being the
+                         throughput ceiling; billed against GCP credit,
+                         same VERTEX_PROJECT_ID as the other Vertex drivers)
 
 ``OpenAIAnswerDriver``/``OpenRouterAnswerDriver`` share an OpenAI-SDK-specific
 base class (``_OpenAICompatibleAnswerDriver``) — OpenRouter exposes an
@@ -671,6 +676,45 @@ class GeminiAnswerDriver(AnswerDriver):
         return response.text or ""
 
 
+class VertexAnswerDriver(GeminiAnswerDriver):
+    """Answer driver using Gemini via Vertex AI instead of AI Studio.
+
+    Same no-infra, same-trigger motivation as
+    :class:`drivers.embedding.VertexEmbeddingDriver`/
+    :class:`drivers.reranker.VertexRankerDriver`: AI Studio's free-tier
+    Gemini quota (``LLM_DRIVER=gemini``) kept being the throughput
+    ceiling, while this GCP project's Vertex AI quota -- backed by GCP
+    credit rather than a separate free-tier allowance -- has consistently
+    tolerated rapid, undelayed requests for every other Vertex driver
+    added today.
+
+    Overrides only :meth:`_get_client` -- every other method
+    (:meth:`answer`, :meth:`run_tool_calling_turn`, :meth:`_generate`'s
+    retry/throttling/error handling) is identical between AI Studio and
+    Vertex AI in the ``google-genai`` SDK; the backend is purely a client-
+    construction detail. Authenticates via
+    :func:`drivers.gcloud_auth.get_credentials` -- confirmed live that the
+    SDK's ``vertexai=True`` mode accepts a credentials object built from
+    the already-authenticated ``gcloud`` CLI session, without needing a
+    separate ``gcloud auth application-default login``.
+    """
+
+    def _get_client(self) -> "genai.Client":
+        """Lazily create and cache a Vertex-AI-mode ``google-genai`` client."""
+        if self._client is None:
+            from google import genai
+
+            from drivers.gcloud_auth import get_credentials
+
+            self._client = genai.Client(
+                vertexai=True,
+                project=settings.VERTEX_PROJECT_ID,
+                location=settings.VERTEX_LOCATION,
+                credentials=get_credentials(),
+            )
+        return self._client
+
+
 @lru_cache(maxsize=1)
 def get_answer_driver() -> AnswerDriver:
     """Factory function: return the active LLM driver from settings.
@@ -693,8 +737,10 @@ def get_answer_driver() -> AnswerDriver:
         return OpenAIAnswerDriver()
     if driver_name == "gemini":
         return GeminiAnswerDriver()
+    if driver_name == "vertex":
+        return VertexAnswerDriver()
 
     raise ValueError(
         f"Unknown LLM_DRIVER: '{driver_name}'. "
-        "Valid options are: 'openrouter', 'openai', 'gemini'."
+        "Valid options are: 'openrouter', 'openai', 'gemini', 'vertex'."
     )
