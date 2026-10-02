@@ -2,6 +2,18 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-02 — Added VertexEmbeddingDriver after Jina's token-per-minute cap kept interrupting bulk ingest (pending commit)
+
+Even with `EMBEDDING_REQUEST_DELAY_SECONDS=1.5` throttling (see the entry below), a real bulk `add_directory()` ingest over the full ~10,491-document corpus kept occasionally hitting Jina's 100K-tokens/minute cap, because a flat per-document delay can't account for how much chunk count/token load varies document to document -- a burst of several large documents in a row can still exceed the budget even when the average document wouldn't. This also meant the ingest and any concurrent eval/retrieval testing competed for the same shared Jina quota, making it hard to test anything while a bulk ingest was running.
+
+**Considered and rejected**: raising the delay further (e.g. to 2.5s) -- would reduce 429s but slow down every small document too, wasteful for the common case to guard against the uncommon one (a token-count-aware adaptive delay would be the "right" fix, but added complexity not justified yet).
+
+**Fix**: added `VertexEmbeddingDriver` (Google Cloud's Vertex AI text embedding API) as another `EMBEDDING_DRIVER` option, billed against GCP credit instead of sharing Jina's free-tier cap. Confirmed live before writing any code: 20 rapid, undelayed requests against this project's default Vertex AI quota all succeeded (`HTTP 200`), vs. Jina's cap triggering within a single small document's worth of calls. Also confirmed `outputDimensionality=384` truncation works (same truncation pattern as every other remote driver) and that relative similarity scoring is sane on real Hungarian legal text (0.78 relevant vs. 0.59 irrelevant cosine similarity).
+
+Authenticates differently from every other driver here: Vertex AI uses OAuth access tokens, not a static API key, so there's no `VERTEX_API_KEY` setting -- `VertexEmbeddingDriver` shells out to the already-authenticated `gcloud auth print-access-token` and caches the token in memory (refreshed 5 minutes before its ~1-hour expiry) rather than requiring a separate Application Default Credentials setup, which would need its own interactive browser login.
+
+**Not yet decided**: whether to actually resume the paused bulk ingest with `EMBEDDING_DRIVER=vertex` instead of `jina` -- both now exist as real, working options.
+
 ## 2026-10-02 — JinaEmbeddingDriver needed EMBEDDING_REQUEST_DELAY_SECONDS throttling too (pending commit)
 
 First real bulk ingest with `EMBEDDING_DRIVER=jina` (a fresh re-ingest, now with the `document_identifiers` header-enrichment fix) hit Jina's token-per-minute limit almost immediately: `429 RATE_TOKEN_LIMIT_EXCEEDED, "109,535/100,000 tokens per minute"`. The 3-attempt retry (`retry_on_transient_error`, 2s/4s backoff, ~14s total) correctly caught and retried each 429, but that's nowhere near enough time for a per-minute token bucket to clear, and a plain per-document `add_directory()` loop keeps firing new embedding calls continuously -- the cap is cumulative across many small calls within the same minute, not about any single call's batch size (each document here was only 5 chunks).

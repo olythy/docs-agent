@@ -17,6 +17,7 @@ from drivers.embedding import (
     LocalSentenceTransformerDriver,
     OpenAIEmbeddingDriver,
     OpenRouterEmbeddingDriver,
+    VertexEmbeddingDriver,
     get_embedding_driver,
 )
 from retry_policy import TransientAPIError
@@ -834,3 +835,204 @@ def test_get_embedding_driver_returns_jina(monkeypatch, settings_override):
         embedding_module, "settings", settings_override(EMBEDDING_DRIVER="jina")
     )
     assert isinstance(get_embedding_driver(), JinaEmbeddingDriver)
+
+
+def _fake_vertex_response(status_code: int, embeddings: list[list[float]] | None = None):
+    response = MagicMock()
+    response.status_code = status_code
+    if embeddings is not None:
+        response.json.return_value = {
+            "predictions": [{"embeddings": {"values": vec}} for vec in embeddings]
+        }
+    else:
+        response.text = "error"
+    return response
+
+
+def _fake_gcloud_token(token="fake-access-token"):
+    result = MagicMock()
+    result.returncode = 0
+    result.stdout = f"{token}\n"
+    return result
+
+
+def test_vertex_driver_dimension_reads_from_settings(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    assert VertexEmbeddingDriver().dimension == 384
+
+
+def test_vertex_driver_uses_given_model_over_settings_default():
+    driver = VertexEmbeddingDriver(model="text-embedding-005")
+    assert driver._model == "text-embedding-005"
+
+
+def test_vertex_driver_builds_regional_endpoint(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module,
+        "settings",
+        settings_override(VERTEX_PROJECT_ID="my-project", VERTEX_LOCATION="us-central1"),
+    )
+    driver = VertexEmbeddingDriver(model="text-embedding-005")
+    assert driver._endpoint == (
+        "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/"
+        "locations/us-central1/publishers/google/models/text-embedding-005:predict"
+    )
+
+
+def test_vertex_driver_embed_documents_sends_retrieval_document_task(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    monkeypatch.setattr(
+        "subprocess.run", MagicMock(return_value=_fake_gcloud_token())
+    )
+    fake_post = MagicMock(
+        return_value=_fake_vertex_response(200, [[0.1, 0.2], [0.3, 0.4]])
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    result = VertexEmbeddingDriver().embed_documents(["first chunk", "second chunk"])
+
+    assert result == [[0.1, 0.2], [0.3, 0.4]]
+    call = fake_post.call_args
+    instances = call.kwargs["json"]["instances"]
+    assert instances[0] == {"content": "first chunk", "task_type": "RETRIEVAL_DOCUMENT"}
+    assert instances[1] == {"content": "second chunk", "task_type": "RETRIEVAL_DOCUMENT"}
+    assert call.kwargs["json"]["parameters"]["outputDimensionality"] == 384
+    assert call.kwargs["headers"]["Authorization"] == "Bearer fake-access-token"
+
+
+def test_vertex_driver_embed_query_sends_retrieval_query_task(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
+    fake_post = MagicMock(return_value=_fake_vertex_response(200, [[0.1, 0.2]]))
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    result = VertexEmbeddingDriver().embed_query("a question")
+
+    assert result == [0.1, 0.2]
+    instances = fake_post.call_args.kwargs["json"]["instances"]
+    assert instances == [{"content": "a question", "task_type": "RETRIEVAL_QUERY"}]
+
+
+def test_vertex_driver_caches_access_token_across_calls(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    fake_gcloud = MagicMock(return_value=_fake_gcloud_token())
+    monkeypatch.setattr("subprocess.run", fake_gcloud)
+    monkeypatch.setattr(
+        "httpx.post", MagicMock(return_value=_fake_vertex_response(200, [[0.1]]))
+    )
+
+    driver = VertexEmbeddingDriver()
+    driver.embed_query("q1")
+    driver.embed_query("q2")
+
+    fake_gcloud.assert_called_once()
+
+
+def test_vertex_driver_raises_if_gcloud_token_fetch_fails(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    result = MagicMock(returncode=1, stderr="not logged in")
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=result))
+
+    with pytest.raises(RuntimeError, match="gcloud auth print-access-token failed"):
+        VertexEmbeddingDriver().embed_query("q")
+
+
+def test_vertex_driver_retries_on_429_then_succeeds(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
+    fake_post = MagicMock(
+        side_effect=[
+            _fake_vertex_response(429),
+            _fake_vertex_response(200, [[0.1, 0.2]]),
+        ]
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    result = VertexEmbeddingDriver().embed_batch(["text"])
+
+    assert result == [[0.1, 0.2]]
+    assert fake_post.call_count == 2
+
+
+def test_vertex_driver_retries_network_error_then_succeeds(monkeypatch, settings_override):
+    import httpx
+
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
+    fake_post = MagicMock(
+        side_effect=[
+            httpx.ConnectError("No route to host"),
+            _fake_vertex_response(200, [[0.1, 0.2]]),
+        ]
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    result = VertexEmbeddingDriver().embed_batch(["text"])
+
+    assert result == [[0.1, 0.2]]
+    assert fake_post.call_count == 2
+
+
+def test_vertex_driver_raises_after_exhausting_retries_on_persistent_429(
+    monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
+    )
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
+    fake_post = MagicMock(return_value=_fake_vertex_response(429))
+    monkeypatch.setattr("httpx.post", fake_post)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    with pytest.raises(TransientAPIError, match="status 429"):
+        VertexEmbeddingDriver().embed_batch(["text"])
+
+    assert fake_post.call_count == 3
+
+
+def test_vertex_driver_splits_batches_over_max_batch_size(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=2)
+    )
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
+    call_sizes: list[int] = []
+
+    def fake_post(*args, **kwargs):
+        instances = kwargs["json"]["instances"]
+        call_sizes.append(len(instances))
+        return _fake_vertex_response(200, [[0.0, 0.0] for _ in instances])
+
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    texts = [f"chunk {i}" for i in range(300)]
+    result = VertexEmbeddingDriver().embed_batch(texts)
+
+    assert len(result) == 300
+    assert call_sizes == [250, 50]
+
+
+def test_get_embedding_driver_returns_vertex(monkeypatch, settings_override):
+    monkeypatch.setattr(
+        embedding_module, "settings", settings_override(EMBEDDING_DRIVER="vertex")
+    )
+    assert isinstance(get_embedding_driver(), VertexEmbeddingDriver)

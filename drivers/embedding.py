@@ -729,6 +729,163 @@ class JinaEmbeddingDriver(EmbeddingDriver):
         return [item["embedding"] for item in ordered]
 
 
+class VertexEmbeddingDriver(EmbeddingDriver):
+    """Embedding driver using Google Cloud's Vertex AI text embedding API.
+
+    Same no-infra motivation as :class:`JinaEmbeddingDriver`, added right
+    after it: confirmed live that a real bulk ingest kept hitting Jina's
+    free-tier tokens-per-minute cap even with ``EMBEDDING_REQUEST_DELAY_SECONDS``
+    throttling, while 20 rapid, undelayed Vertex AI requests in a row all
+    succeeded on this project's default quota -- billed against GCP credit
+    instead of needing its own separate rate-limit workaround.
+
+    Authenticates via the already-authenticated ``gcloud`` CLI session
+    (``gcloud auth print-access-token``) rather than a static API key or a
+    separate Application Default Credentials setup -- there's no
+    ``VERTEX_API_KEY`` setting because Vertex AI doesn't authenticate that
+    way; it's OAuth-token-based. The token is cached in memory and
+    refreshed shortly before its ~1-hour expiry, so most calls don't pay
+    the cost of spawning a ``gcloud`` subprocess.
+
+    Uses the per-instance ``task_type`` field (``RETRIEVAL_QUERY``/
+    ``RETRIEVAL_DOCUMENT``) to distinguish query vs. document embedding --
+    the same asymmetric-embedding concept as :class:`JinaEmbeddingDriver`'s
+    ``task`` parameter, just shaped per-instance instead of per-request
+    since that's how this API expects it.
+    """
+
+    _MAX_BATCH_SIZE = 250
+    _TOKEN_REFRESH_MARGIN_SECONDS = 300  # refresh 5 min before the ~1h expiry
+
+    def __init__(self, model: str | None = None) -> None:
+        """Initialise the driver without fetching an access token yet.
+
+        Args:
+            model: Vertex AI text embedding model id. Defaults to
+                ``settings.EMBEDDING_MODEL``.
+        """
+        self._model = model or settings.EMBEDDING_MODEL
+        self._cached_token: str | None = None
+        self._token_fetched_at: float = 0.0
+
+    @property
+    def dimension(self) -> int:
+        """Return the embedding dimension from settings."""
+        return settings.EMBEDDING_DIMENSION
+
+    @property
+    def _endpoint(self) -> str:
+        """Build the regional predict endpoint from settings."""
+        return (
+            f"https://{settings.VERTEX_LOCATION}-aiplatform.googleapis.com/v1/"
+            f"projects/{settings.VERTEX_PROJECT_ID}/locations/{settings.VERTEX_LOCATION}/"
+            f"publishers/google/models/{self._model}:predict"
+        )
+
+    def _get_access_token(self) -> str:
+        """Return a cached OAuth access token, refreshing it if stale.
+
+        Returns:
+            A bearer token string, from the already-authenticated
+            ``gcloud`` CLI session.
+
+        Raises:
+            RuntimeError: If ``gcloud auth print-access-token`` fails (e.g.
+                not logged in).
+        """
+        import subprocess
+        import time
+
+        age = time.monotonic() - self._token_fetched_at
+        if self._cached_token is None or age > (3600 - self._TOKEN_REFRESH_MARGIN_SECONDS):
+            result = subprocess.run(
+                ["gcloud", "auth", "print-access-token"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"gcloud auth print-access-token failed: {result.stderr}"
+                )
+            self._cached_token = result.stdout.strip()
+            self._token_fetched_at = time.monotonic()
+        return self._cached_token
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Embed a list of strings with ``task_type="RETRIEVAL_DOCUMENT"``."""
+        return self._embed(texts, task_type="RETRIEVAL_DOCUMENT")
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed a search query with ``task_type="RETRIEVAL_QUERY"``."""
+        return self._embed([text], task_type="RETRIEVAL_QUERY")[0]
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed document chunks with ``task_type="RETRIEVAL_DOCUMENT"``, batched."""
+        return self._embed(texts, task_type="RETRIEVAL_DOCUMENT")
+
+    def _embed(self, texts: list[str], task_type: str) -> list[list[float]]:
+        """Embed ``texts`` in sub-batches of at most ``_MAX_BATCH_SIZE``."""
+        embeddings: list[list[float]] = []
+        for start in range(0, len(texts), self._MAX_BATCH_SIZE):
+            embeddings.extend(
+                self._embed_one_batch(
+                    texts[start : start + self._MAX_BATCH_SIZE], task_type
+                )
+            )
+        return embeddings
+
+    @retry_on_transient_error(max_attempts=3)
+    def _embed_one_batch(self, texts: list[str], task_type: str) -> list[list[float]]:
+        """Embed at most ``_MAX_BATCH_SIZE`` strings in one Vertex AI predict call.
+
+        Sleeps ``EMBEDDING_REQUEST_DELAY_SECONDS`` before every attempt,
+        same as :class:`JinaEmbeddingDriver`, though confirmed live that
+        this project's default quota doesn't need it the way Jina's did.
+
+        Raises:
+            TransientAPIError: On a 429/5xx response or a network-level
+                failure, triggering a retry with exponential backoff (up
+                to 3 attempts).
+        """
+        import time
+
+        import httpx
+
+        if settings.EMBEDDING_REQUEST_DELAY_SECONDS > 0:
+            time.sleep(settings.EMBEDDING_REQUEST_DELAY_SECONDS)
+
+        try:
+            response = httpx.post(
+                self._endpoint,
+                headers={
+                    "Authorization": f"Bearer {self._get_access_token()}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "instances": [
+                        {"content": text, "task_type": task_type} for text in texts
+                    ],
+                    "parameters": {
+                        "outputDimensionality": self.dimension,
+                        "autoTruncate": True,
+                    },
+                },
+                timeout=60.0,
+            )
+        except httpx.TransportError as exc:
+            raise TransientAPIError(f"Vertex AI embeddings network error: {exc}") from exc
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise TransientAPIError(
+                f"Vertex AI embeddings request status {response.status_code}: {response.text}"
+            )
+        response.raise_for_status()
+
+        predictions = response.json()["predictions"]
+        return [p["embeddings"]["values"] for p in predictions]
+
+
 @lru_cache(maxsize=1)
 def get_embedding_driver() -> EmbeddingDriver:
     """Factory function: return the active embedding driver from settings.
@@ -755,8 +912,10 @@ def get_embedding_driver() -> EmbeddingDriver:
         return GeminiEmbeddingDriver()
     if driver_name == "jina":
         return JinaEmbeddingDriver()
+    if driver_name == "vertex":
+        return VertexEmbeddingDriver()
 
     raise ValueError(
         f"Unknown EMBEDDING_DRIVER: '{driver_name}'. "
-        "Valid options are: 'local', 'openai', 'openrouter', 'gemini', 'jina'."
+        "Valid options are: 'local', 'openai', 'openrouter', 'gemini', 'jina', 'vertex'."
     )

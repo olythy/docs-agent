@@ -64,7 +64,15 @@ class Settings:
                               chosen as a no-infra way to offload the CPU-bound
                               cost of the local model during bulk ingestion,
                               confirmed live to dominate ~90%+ of per-document
-                              ingest time; see docs/decisions.md).
+                              ingest time; see docs/decisions.md), or
+                              ``vertex`` (Google Cloud's Vertex AI text
+                              embedding API -- same no-infra motivation as
+                              ``jina``, added after confirming live that
+                              Jina's free-tier tokens-per-minute cap kept
+                              interrupting a bulk ingest while Vertex AI's
+                              default quota handled the same load without
+                              throttling; billed against GCP credit instead
+                              of a separate Jina API key).
         EMBEDDING_MODEL       Model name/id for the active driver (default:
                               ``intfloat/multilingual-e5-small`` for local).
                               Set to an OpenRouter embedding model id when
@@ -92,12 +100,16 @@ class Settings:
                               embedding and answer generation are separate concerns).
         EMBEDDING_REQUEST_DELAY_SECONDS
                               Seconds to sleep before each embedding request
-                              (default: 0.0, i.e. no throttling). Only meaningful
-                              for ``EMBEDDING_DRIVER=gemini`` on a free-tier API
-                              key, which has its own requests-per-minute limit --
-                              check the actual current limit on your own AI
-                              Studio quota page rather than assuming a number
-                              here, since free-tier limits change over time.
+                              (default: 0.0, i.e. no throttling). Meaningful for
+                              ``EMBEDDING_DRIVER=gemini`` on a free-tier API key, or
+                              ``EMBEDDING_DRIVER=jina`` (confirmed live: a bulk
+                              ingest can hit Jina's tokens-per-minute limit without
+                              this) -- check the actual current limit on your
+                              provider's own quota page rather than assuming a
+                              number here, since free-tier limits change over time.
+        VERTEX_PROJECT_ID     GCP project id (only when EMBEDDING_DRIVER=vertex).
+        VERTEX_LOCATION       GCP region for the Vertex AI endpoint (default:
+                              ``us-central1``; only when EMBEDDING_DRIVER=vertex).
 
     Chunking:
         CHUNK_SIZE            Target word count per chunk (default: 250).
@@ -283,6 +295,8 @@ class Settings:
     EMBEDDING_REQUEST_DELAY_SECONDS: float = float(
         os.getenv("EMBEDDING_REQUEST_DELAY_SECONDS", "0.0")
     )
+    VERTEX_PROJECT_ID: str = os.getenv("VERTEX_PROJECT_ID", "")
+    VERTEX_LOCATION: str = os.getenv("VERTEX_LOCATION", "us-central1")
 
     # --- Chunking ---
     CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "250"))
