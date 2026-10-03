@@ -168,6 +168,18 @@ class Settings:
                               during batch directory ingestion (default:
                               ``.pdf,.md,.markdown,.docx,.rtf``). Can be overridden at runtime
                               via ``allowed_extensions`` argument.
+        GENERATE_DOCUMENT_SUMMARY
+                              Whether ``add_document()`` generates a short,
+                              LLM-written, fact-focused summary per document
+                              (see ``ingestion.summarize.generate_document_summary``)
+                              and embeds it into every chunk (default:
+                              ``True``). Costs one extra LLM_DRIVER call per
+                              document at ingest time -- set ``False`` to
+                              skip it (e.g. for a quick/cheap test ingest).
+        DOCUMENT_SUMMARY_MAX_CHARS
+                              How many leading characters of a document's
+                              text to send to the LLM for summary generation
+                              (default: 6000).
 
     LLM (answer generation):
         LLM_DRIVER            Driver to use: ``openrouter`` (default), ``openai``,
@@ -290,6 +302,39 @@ class Settings:
                               but wider by default so fusion/reranking has
                               something to actually reorder (default: 20).
                               See ``query/retrieval.py``.
+        HUB_SCORE_NEIGHBOR_SAMPLE_SIZE
+                              How many nearest neighbors (in the whole
+                              corpus, by cosine similarity)
+                              ``store.VectorStore.compute_hub_scores()``
+                              averages per chunk to get its ``hub_score``
+                              (default: 20). Superseded a rejected,
+                              harder approach (a fixed-threshold
+                              cross-document "boilerplate" exclusion flag
+                              — see docs/decisions.md for why it was
+                              rejected): this score is a continuous
+                              genericness measure, used only to re-rank
+                              (:func:`query.retrieval._csls_rerank`), never
+                              to exclude a chunk outright.
+        LISTWISE_RERANK_ENABLED
+                              Whether ``HybridRetrievalStrategy`` runs a
+                              final listwise LLM disambiguation pass (see
+                              ``query.listwise_rerank.listwise_rerank``)
+                              right before the ``top_k`` cut (default:
+                              ``False``). Costs one extra LLM_DRIVER call
+                              per query -- confirmed live to be the single
+                              most effective fix for a known-hard
+                              near-duplicate case (19 superficially
+                              similar real competing documents), since a
+                              per-pair cross-encoder can't notice that
+                              several candidates share the same formulaic
+                              framing, but an LLM reading all of them side
+                              by side can.
+        LISTWISE_RERANK_MAX_CANDIDATES
+                              How many distinct candidate documents (by
+                              current rank) are offered to the listwise
+                              reranker (default: 20) -- keeps the prompt a
+                              bounded size regardless of candidate pool
+                              width.
 
     Database (REQUIRED):
         DATABASE_URL          PostgreSQL connection URL with pgvector enabled.
@@ -371,6 +416,12 @@ class Settings:
     INGEST_EXTENSIONS: str = os.getenv(
         "INGEST_EXTENSIONS", ".pdf,.md,.markdown,.docx,.rtf"
     )
+    GENERATE_DOCUMENT_SUMMARY: bool = (
+        os.getenv("GENERATE_DOCUMENT_SUMMARY", "true").lower() == "true"
+    )
+    DOCUMENT_SUMMARY_MAX_CHARS: int = int(
+        os.getenv("DOCUMENT_SUMMARY_MAX_CHARS", "6000")
+    )
 
     @property
     def parsed_ingest_extensions(self) -> frozenset[str]:
@@ -404,6 +455,15 @@ class Settings:
     RERANKER_API_KEY: str = os.getenv("RERANKER_API_KEY", "")
     RETRIEVAL_CANDIDATE_POOL_SIZE: int = int(
         os.getenv("RETRIEVAL_CANDIDATE_POOL_SIZE", "20")
+    )
+    HUB_SCORE_NEIGHBOR_SAMPLE_SIZE: int = int(
+        os.getenv("HUB_SCORE_NEIGHBOR_SAMPLE_SIZE", "20")
+    )
+    LISTWISE_RERANK_ENABLED: bool = (
+        os.getenv("LISTWISE_RERANK_ENABLED", "false").lower() == "true"
+    )
+    LISTWISE_RERANK_MAX_CANDIDATES: int = int(
+        os.getenv("LISTWISE_RERANK_MAX_CANDIDATES", "20")
     )
 
     # --- Database ---

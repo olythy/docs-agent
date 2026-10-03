@@ -60,6 +60,28 @@ class ChunkMetadata:
             against a date, so it only needs to be a filterable/
             query-time field, and embedding it would push near-duplicate
             boilerplate documents' vectors even closer together.
+        hub_score: This chunk's average cosine similarity to its nearest
+            neighbors in the *whole corpus*, independent of any specific
+            query -- set by ``store.VectorStore.compute_hub_scores()`` (a
+            post-ingest batch pass), ``None`` until that's run. A high
+            score means the chunk's embedding sits in a "generic"/central
+            region of the embedding space (many other chunks look similar
+            to it); used to penalize generic chunks at query time (see
+            ``query.retrieval._csls_rerank``) without ever excluding them
+            outright -- see ``docs/decisions.md`` for why a hard exclusion
+            threshold was tried first and rejected.
+        document_summary: A short, LLM-generated, fact-focused summary of
+            the whole source document (see
+            ``ingestion.summarize.generate_document_summary``), extracted
+            once per document and embedded into *every* chunk's content
+            (same "embed into every chunk" mechanism as
+            ``document_identifiers``, since the point is to give the
+            embedding a distinguishing signal regardless of which chunk a
+            later query happens to match). Confirmed live (see
+            docs/decisions.md): must ask for the document's own
+            case-specific facts explicitly, not a generic topic
+            restatement -- a generic summary makes near-duplicate
+            documents' embeddings *more* alike, not less.
     """
 
     source_file: str
@@ -71,6 +93,8 @@ class ChunkMetadata:
     header_path: str | None = None
     document_identifiers: tuple[str, ...] = ()
     document_date: str | None = None
+    hub_score: float | None = None
+    document_summary: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to the JSON-serializable dict shape stored in Postgres.
@@ -96,6 +120,10 @@ class ChunkMetadata:
             data["document_identifiers"] = list(self.document_identifiers)
         if self.document_date is not None:
             data["document_date"] = self.document_date
+        if self.hub_score is not None:
+            data["hub_score"] = self.hub_score
+        if self.document_summary is not None:
+            data["document_summary"] = self.document_summary
         return data
 
     @classmethod
@@ -111,6 +139,8 @@ class ChunkMetadata:
             header_path=data.get("header_path"),
             document_identifiers=tuple(data.get("document_identifiers", ())),
             document_date=data.get("document_date"),
+            hub_score=data.get("hub_score"),
+            document_summary=data.get("document_summary"),
         )
 
 

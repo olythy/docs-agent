@@ -22,6 +22,7 @@ from pathlib import Path
 
 from config import settings
 from drivers.embedding import get_embedding_driver
+from drivers.llm import get_answer_driver
 from ingestion.chunker import chunk_document, get_chunk_overflow_strategy
 from ingestion.extractors import (
     SUPPORTED_EXTENSIONS,
@@ -29,6 +30,7 @@ from ingestion.extractors import (
     normalize_extensions,
 )
 from ingestion.hash import compute_file_hash
+from ingestion.summarize import generate_document_summary
 from logger import LogAction, get_logger
 from store import VectorStore
 
@@ -117,8 +119,9 @@ def add_document(
     """Ingest a document into the RAG knowledge base.
 
     This is the main tool exposed to the agent. It runs the full pipeline:
-    extract → chunk → embed → store. The document's format is detected from
-    its extension (see :func:`ingestion.extractors.get_extractor`).
+    extract → summarize (if GENERATE_DOCUMENT_SUMMARY) → chunk → embed →
+    store. The document's format is detected from its extension (see
+    :func:`ingestion.extractors.get_extractor`).
 
     Performs content-addressable integrity and deduplication checks via SHA-256
     hash:
@@ -218,6 +221,16 @@ def add_document(
                 doc_path, mode=settings.PDF_EXTRACTION_MODE
             )
             word_header_map = None
+
+        document_summary = None
+        if settings.GENERATE_DOCUMENT_SUMMARY:
+            logger.info("[ingest] Generating document summary ...")
+            document_summary = generate_document_summary(
+                full_text,
+                get_answer_driver(),
+                max_chars=settings.DOCUMENT_SUMMARY_MAX_CHARS,
+            )
+
         chunks = chunk_document(
             full_text,
             word_page_map,
@@ -226,6 +239,7 @@ def add_document(
             word_header_map=word_header_map,
             source_path=effective_source_path,
             content_hash=content_hash,
+            document_summary=document_summary,
         )
         logger.info(
             "[ingest] Created %d chunk(s) via CHUNKING_STRATEGY='%s'.",

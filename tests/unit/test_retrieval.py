@@ -19,6 +19,7 @@ from query.retrieval import (
     HybridRetrievalStrategy,
     VectorRetrievalStrategy,
     _apply_top_k_with_guarantees,
+    _csls_rerank,
     _passes_relevance_gate,
     get_retrieval_strategy,
     retrieve_chunks,
@@ -175,6 +176,39 @@ def test_apply_top_k_with_guarantees_fills_remaining_budget_with_non_guaranteed(
     result = _apply_top_k_with_guarantees(chunks, {99}, top_k=2)
 
     assert [c.id for c in result] == [99, 1]
+
+
+def _chunk_with_hub(chunk_id, score, hub_score):
+    from dataclasses import replace as _replace
+
+    base = _chunk(chunk_id, score=score)
+    return _replace(base, metadata=_replace(base.metadata, hub_score=hub_score))
+
+
+def test_csls_rerank_promotes_less_generic_chunk_above_higher_raw_score():
+    """Regression for the real near-duplicate-dilution case (docs/decisions.md):
+    a chunk with a lower raw score but a *much* lower hub_score (i.e. it's
+    less generic/central in the embedding space) must be promoted above a
+    chunk with a higher raw score but a very high (generic) hub_score."""
+    chunks = [
+        _chunk_with_hub(1, score=0.87, hub_score=0.98),  # generic, high raw score
+        _chunk_with_hub(2, score=0.84, hub_score=0.90),  # less generic
+    ]
+
+    result = _csls_rerank(chunks)
+
+    assert [c.id for c in result] == [2, 1]
+
+
+def test_csls_rerank_falls_back_to_raw_score_without_hub_score():
+    """A chunk with no hub_score yet (compute_hub_scores() hasn't run, or
+    it's a brand new chunk) must fall back to its raw score, not crash or
+    get pushed to the bottom."""
+    chunks = [_chunk(1, score=0.5), _chunk(2, score=0.9)]
+
+    result = _csls_rerank(chunks)
+
+    assert [c.id for c in result] == [2, 1]
 
 
 def test_hybrid_strategy_guarantees_identifier_match_survives_top_k_truncation(
@@ -421,3 +455,51 @@ def test_retrieve_chunks_forwards_metadata_filter(monkeypatch):
 
     assert len(results) == 1
     assert fake_store.search.call_args.kwargs.get("metadata_filter") == filter_dict
+
+
+def test_hybrid_strategy_skips_listwise_rerank_when_disabled(monkeypatch):
+    """Default (LISTWISE_RERANK_ENABLED=False): must not call the answer
+    driver at all -- it's an opt-in, extra-LLM-call feature."""
+    fake_store = MagicMock()
+    fake_store.search_fulltext.return_value = []
+    monkeypatch.setattr(
+        retrieval_module, "get_reranker_driver", lambda *a, **k: _NoopFakeReranker()
+    )
+    fake_get_answer_driver = MagicMock()
+    monkeypatch.setattr(retrieval_module, "get_answer_driver", fake_get_answer_driver)
+
+    strategy = HybridRetrievalStrategy()
+    strategy.select_chunks(
+        "question", [_chunk(1, score=0.9)], fake_store, top_k=4, min_score=0.25
+    )
+
+    fake_get_answer_driver.assert_not_called()
+
+
+def test_hybrid_strategy_applies_listwise_rerank_when_enabled(
+    monkeypatch, settings_override
+):
+    """LISTWISE_RERANK_ENABLED=True: the final order must reflect
+    listwise_rerank()'s reordering, applied right before the top_k cut."""
+    monkeypatch.setattr(
+        retrieval_module,
+        "settings",
+        settings_override(LISTWISE_RERANK_ENABLED=True, LISTWISE_RERANK_MAX_CANDIDATES=20),
+    )
+    fake_store = MagicMock()
+    fake_store.search_fulltext.return_value = []
+    monkeypatch.setattr(
+        retrieval_module, "get_reranker_driver", lambda *a, **k: _NoopFakeReranker()
+    )
+    monkeypatch.setattr(retrieval_module, "get_answer_driver", lambda: MagicMock())
+    fake_listwise_rerank = MagicMock(side_effect=lambda q, chunks, driver, **kw: chunks[::-1])
+    monkeypatch.setattr(retrieval_module, "listwise_rerank", fake_listwise_rerank)
+
+    vector_results = [_chunk(1, score=0.9, source="a.pdf"), _chunk(2, score=0.8, source="b.pdf")]
+    strategy = HybridRetrievalStrategy()
+    result = strategy.select_chunks(
+        "question", vector_results, fake_store, top_k=4, min_score=0.25
+    )
+
+    fake_listwise_rerank.assert_called_once()
+    assert [c.id for c in result] == [2, 1]

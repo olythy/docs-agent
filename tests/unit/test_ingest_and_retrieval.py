@@ -47,6 +47,10 @@ def _mock_ingest_pipeline(monkeypatch, *, already_present: bool):
     fake_extractor.extract.return_value = ("full text here", [1, 1, 1])
     monkeypatch.setattr("ingestion.ingest.get_extractor", lambda p: fake_extractor)
     monkeypatch.setattr("ingestion.ingest.get_embedding_driver", lambda: MagicMock())
+    monkeypatch.setattr("ingestion.ingest.get_answer_driver", lambda: MagicMock())
+    monkeypatch.setattr(
+        "ingestion.ingest.generate_document_summary", lambda *a, **kw: ""
+    )
     monkeypatch.setattr(
         "ingestion.ingest.chunk_document",
         lambda *a, **kw: [
@@ -125,6 +129,63 @@ def test_add_document_proceeds_when_not_already_present(tmp_path, monkeypatch):
     add_document(doc_path)
 
     fake_store.save.assert_called_once()
+
+
+def test_add_document_generates_and_passes_through_document_summary(
+    tmp_path, monkeypatch, settings_override
+):
+    """GENERATE_DOCUMENT_SUMMARY=True (the default) must generate a summary
+    and pass it into chunk_document()."""
+    monkeypatch.setattr(
+        "ingestion.ingest.settings", settings_override(GENERATE_DOCUMENT_SUMMARY=True)
+    )
+    doc_path = tmp_path / "notes.md"
+    doc_path.write_text("hello")
+    _mock_ingest_pipeline(monkeypatch, already_present=False)
+
+    fake_summary = MagicMock(return_value="Tárgy: X. Eredmény: Y.")
+    monkeypatch.setattr("ingestion.ingest.generate_document_summary", fake_summary)
+    captured_chunk_document_kwargs = {}
+    monkeypatch.setattr(
+        "ingestion.ingest.chunk_document",
+        lambda *a, **kw: (
+            captured_chunk_document_kwargs.update(kw),
+            [
+                Chunk(
+                    content="x",
+                    metadata=ChunkMetadata(
+                        source_file="x", page_number=None, chunk_index=0
+                    ),
+                )
+            ],
+        )[1],
+    )
+
+    add_document(doc_path)
+
+    fake_summary.assert_called_once()
+    assert (
+        captured_chunk_document_kwargs["document_summary"] == "Tárgy: X. Eredmény: Y."
+    )
+
+
+def test_add_document_skips_document_summary_when_disabled(
+    tmp_path, monkeypatch, settings_override
+):
+    monkeypatch.setattr(
+        "ingestion.ingest.settings",
+        settings_override(GENERATE_DOCUMENT_SUMMARY=False),
+    )
+    doc_path = tmp_path / "notes.md"
+    doc_path.write_text("hello")
+    _mock_ingest_pipeline(monkeypatch, already_present=False)
+
+    fake_summary = MagicMock()
+    monkeypatch.setattr("ingestion.ingest.generate_document_summary", fake_summary)
+
+    add_document(doc_path)
+
+    fake_summary.assert_not_called()
 
 
 def test_add_directory_raises_on_missing_dir(tmp_path):

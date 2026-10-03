@@ -313,7 +313,7 @@ def test_search_with_metadata_filter(monkeypatch):
     sql_executed = cursor.execute.call_args[0][0]
     args_executed = cursor.execute.call_args[0][1]
 
-    assert "WHERE metadata @> %s::jsonb" in sql_executed
+    assert "metadata @> %s::jsonb" in sql_executed
     assert '{"source_file": "doc.md"}' in args_executed
 
 
@@ -481,3 +481,63 @@ def test_assert_dimension_matches_caches_successful_check(monkeypatch):
     # Another instance also benefits from the cache
     VectorStore().assert_dimension_matches(384)
     assert get_dim_mock.call_count == 1
+
+
+def test_compute_hub_scores_averages_neighbor_similarity(monkeypatch, settings_override):
+    """Each chunk's hub_score must be the average cosine similarity to its
+    nearest HUB_SCORE_NEIGHBOR_SAMPLE_SIZE neighbors in the whole corpus."""
+    monkeypatch.setattr(
+        store, "settings", settings_override(HUB_SCORE_NEIGHBOR_SAMPLE_SIZE=5)
+    )
+    cursor = MagicMock()
+    cursor.fetchall.side_effect = [
+        [(1, "[1,0]"), (2, "[1,0]")],  # the full scan
+        [(0.9,), (0.8,)],  # chunk 1's neighbor scores -- avg 0.85
+        [(0.6,), (0.4,)],  # chunk 2's neighbor scores -- avg 0.5
+    ]
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    updated_count = VectorStore().compute_hub_scores()
+
+    assert updated_count == 2
+    update_calls = [
+        call for call in cursor.execute.call_args_list if "UPDATE" in call[0][0]
+    ]
+    assert len(update_calls) == 2
+    assert "hub_score" in update_calls[0][0][0]
+    assert update_calls[0][0][1][1] == 1
+    assert float(update_calls[0][0][1][0]) == pytest.approx(0.85)
+    assert update_calls[1][0][1][1] == 2
+    assert float(update_calls[1][0][1][0]) == pytest.approx(0.5)
+    conn.commit.assert_called_once()
+
+
+def test_compute_hub_scores_commits_in_batches_and_reports_progress(
+    monkeypatch, settings_override
+):
+    """Same real-interruption regression as the rejected boilerplate-flag
+    mechanism it replaced: must commit (and report progress) every
+    commit_every chunks, not just once at the end."""
+    monkeypatch.setattr(
+        store, "settings", settings_override(HUB_SCORE_NEIGHBOR_SAMPLE_SIZE=5)
+    )
+    cursor = MagicMock()
+    cursor.fetchall.side_effect = [
+        [(1, "[1,0]"), (2, "[1,0]"), (3, "[1,0]")],  # the full scan
+        [(0.9,)],
+        [(0.8,)],
+        [(0.7,)],
+    ]
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+    progress_calls: list[tuple[int, int]] = []
+
+    updated_count = VectorStore().compute_hub_scores(
+        on_progress=lambda processed, total: progress_calls.append((processed, total)),
+        commit_every=2,
+    )
+
+    assert updated_count == 3
+    assert progress_calls == [(2, 3), (3, 3)]
+    assert conn.commit.call_count == 2

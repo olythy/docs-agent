@@ -16,6 +16,7 @@ from ingestion.chunker import (
     _package_chunk,
     _split_oversized_text,
     _split_words_into_chunks,
+    _strip_document_summary_prefix,
     _strip_header_prefix,
     _strip_identifiers_prefix,
     chunk_document,
@@ -432,6 +433,30 @@ def test_split_strategy_preserves_document_identifiers_across_all_pieces():
     # Identifiers prefix must appear exactly once per piece, not duplicated.
     for chunk in result:
         assert chunk.content.count(ids[0]) == 1
+
+
+def test_split_strategy_preserves_document_summary_across_all_pieces():
+    """Same regression as document_identifiers, for the outermost
+    document_summary layer: re-splitting an oversized chunk must not
+    duplicate it into each split piece, nor drop it from any of them."""
+    summary = "Tárgy: X. Eredmény: Y."
+    driver = MagicMock()
+    driver.max_sequence_length.return_value = 10
+    driver.count_tokens.side_effect = _word_count
+
+    body = "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10"
+    content = f"{summary}\n\n{body}"
+    chunks = [_chunk(content, source_file="doc.docx", document_summary=summary)]
+
+    result = SplitOverflowStrategy(overlap_ratio=0.0).apply(chunks, driver)
+    assert len(result) >= 2
+    for chunk in result:
+        assert chunk.content.startswith(f"{summary}\n\n")
+        assert chunk.metadata.document_summary == summary
+        assert driver.count_tokens(chunk.content) <= 10
+    # Summary prefix must appear exactly once per piece, not duplicated.
+    for chunk in result:
+        assert chunk.content.count(summary) == 1
 
 
 def test_split_strategy_uses_settings_overlap_ratio(monkeypatch, settings_override):
@@ -872,6 +897,54 @@ class TestPackageChunk:
 
         assert chunk.content == "103.K.703.261/2020\n\n# Main > ## Section\n\nsome text"
 
+    def test_embeds_document_summary_outside_identifiers_and_header(self):
+        """document_summary is the outermost layer -- prepended last of all,
+        matching _strip_document_summary_prefix's expected position in
+        SplitOverflowStrategy.apply()."""
+        metadata = ChunkMetadata(
+            source_file="doc.md",
+            page_number=None,
+            chunk_index=0,
+            header_path="# Main > ## Section",
+            document_identifiers=("103.K.703.261/2020",),
+            document_summary="Tárgy: X. Eredmény: Y.",
+        )
+        chunk = _package_chunk("some text", metadata)
+
+        assert chunk.content == (
+            "Tárgy: X. Eredmény: Y.\n\n"
+            "103.K.703.261/2020\n\n"
+            "# Main > ## Section\n\n"
+            "some text"
+        )
+
+    def test_leaves_content_unchanged_when_no_document_summary(self):
+        metadata = ChunkMetadata(source_file="doc.pdf", page_number=1, chunk_index=0)
+        chunk = _package_chunk("some text", metadata)
+
+        assert chunk.content == "some text"
+
+
+class TestStripDocumentSummaryPrefix:
+    """_strip_document_summary_prefix is _package_chunk's inverse for the
+    document_summary layer -- see its docstring for why it's kept
+    alongside the identifiers/header strip functions."""
+
+    SUMMARY = "Tárgy: X. Eredmény: Y."
+
+    def test_empty_summary_leaves_content_untouched(self):
+        assert _strip_document_summary_prefix("hello world", None) == "hello world"
+        assert _strip_document_summary_prefix("hello world", "") == "hello world"
+
+    def test_strips_an_embedded_prefix(self):
+        content = f"{self.SUMMARY}\n\nhello world"
+        assert _strip_document_summary_prefix(content, self.SUMMARY) == "hello world"
+
+    def test_leaves_content_unchanged_when_prefix_not_present(self):
+        assert _strip_document_summary_prefix("hello world", self.SUMMARY) == (
+            "hello world"
+        )
+
 
 def test_chunk_document_with_word_header_map(monkeypatch, settings_override):
     monkeypatch.setattr(
@@ -951,3 +1024,52 @@ def test_chunk_document_attaches_document_date_but_never_embeds_it(
     # contains it -- unlike document_identifiers, nothing prepends it to
     # every chunk's content.
     assert sum("május" in chunk.content for chunk in chunks) == 1
+
+
+def test_chunk_document_passes_through_document_summary_to_every_chunk(
+    monkeypatch, settings_override
+):
+    """document_summary is the caller's responsibility to generate (it needs
+    an LLM call, which chunk_document() never makes itself) -- but once
+    given, it must be attached to every chunk's metadata and embedded into
+    every chunk's content, same as document_identifiers."""
+    monkeypatch.setattr(
+        chunker_module,
+        "settings",
+        settings_override(CHUNKING_STRATEGY="word", CHUNK_SIZE=3, CHUNK_OVERLAP=0),
+    )
+    full_text = "felperes alperes ellen kisajátítási ügyben kelt eljárás folyt"
+    word_page_map = [1] * len(full_text.split())
+    summary = "Tárgy: X. Eredmény: Y."
+
+    chunks = chunk_document(
+        full_text,
+        word_page_map,
+        source_file="doc.docx",
+        driver=MagicMock(),
+        document_summary=summary,
+    )
+
+    assert len(chunks) > 1
+    for chunk in chunks:
+        assert chunk.metadata.document_summary == summary
+        assert chunk.content.startswith(f"{summary}\n\n")
+
+
+def test_chunk_document_defaults_document_summary_to_none(monkeypatch, settings_override):
+    """Omitting document_summary (e.g. GENERATE_DOCUMENT_SUMMARY=False) must
+    not embed anything or break chunk_document()."""
+    monkeypatch.setattr(
+        chunker_module,
+        "settings",
+        settings_override(CHUNKING_STRATEGY="word", CHUNK_SIZE=3, CHUNK_OVERLAP=0),
+    )
+    full_text = "felperes alperes ellen kisajátítási ügyben"
+    word_page_map = [1] * len(full_text.split())
+
+    chunks = chunk_document(
+        full_text, word_page_map, source_file="doc.docx", driver=MagicMock()
+    )
+
+    for chunk in chunks:
+        assert chunk.metadata.document_summary is None

@@ -387,24 +387,31 @@ class SplitOverflowStrategy(ChunkOverflowStrategy):
         for chunk in chunks:
             metadata = chunk.metadata
             identifiers = metadata.document_identifiers
-            # Undo _package_chunk's embedding in the same order it was applied
-            # (identifiers prefix outermost, header prefix inside it) before
-            # re-splitting, so neither prefix is counted against the token
-            # budget once per split piece or duplicated into each piece.
-            body = _strip_identifiers_prefix(chunk.content, identifiers)
+            # Undo _package_chunk's embedding in the reverse of the order it
+            # was applied (summary outermost, then identifiers, then
+            # header) before re-splitting, so none of the three prefixes is
+            # counted against the token budget once per split piece or
+            # duplicated into each piece.
+            body = _strip_document_summary_prefix(
+                chunk.content, metadata.document_summary
+            )
+            body = _strip_identifiers_prefix(body, identifiers)
             header_path = metadata.header_path or ""
             body = _strip_header_prefix(body, header_path)
 
-            # Budget tokens for both prefixes plus a downstream model prefix
-            # ("passage: " ~4 tokens) so the final piece never exceeds
-            # max_seq_length.
+            # Budget tokens for all three prefixes plus a downstream model
+            # prefix ("passage: " ~4 tokens) so the final piece never
+            # exceeds max_seq_length.
+            summary_prefix = (
+                f"{metadata.document_summary}\n\n" if metadata.document_summary else ""
+            )
             identifiers_prefix = (
                 f"{_identifiers_prefix(identifiers)}\n\n" if identifiers else ""
             )
             header_prefix = f"{header_path}\n\n" if header_path else ""
             prefix_tokens = (
-                count_tokens(identifiers_prefix + header_prefix)
-                if (identifiers_prefix or header_prefix)
+                count_tokens(summary_prefix + identifiers_prefix + header_prefix)
+                if (summary_prefix or identifiers_prefix or header_prefix)
                 else 0
             )
             safety_margin = 4 if max_seq_length > 16 else 0
@@ -754,6 +761,34 @@ def _strip_identifiers_prefix(content: str, identifiers: tuple[str, ...]) -> str
     return content
 
 
+def _strip_document_summary_prefix(content: str, document_summary: str | None) -> str:
+    """Removes a previously-embedded document_summary prefix, if present.
+
+    The outermost layer of :func:`_package_chunk`'s enrichment (summary,
+    then identifiers, then header) -- kept right next to the other two
+    strip functions since :class:`SplitOverflowStrategy` needs all three
+    undone together, in the reverse of their embedding order, before
+    re-splitting an already-packaged chunk.
+
+    Args:
+        content: A chunk's content, possibly already carrying an embedded
+            document_summary prefix.
+        document_summary: The same summary that was passed to
+            :func:`_package_chunk` when this content was built.
+
+    Returns:
+        ``content`` with the embedded summary prefix removed, or unchanged
+        if ``document_summary`` is empty or wasn't actually embedded as a
+        prefix.
+    """
+    if not document_summary:
+        return content
+    prefix = f"{document_summary}\n\n"
+    if content.startswith(prefix):
+        return content[len(prefix) :]
+    return content
+
+
 def _strip_header_prefix(content: str, header_path: str) -> str:
     """Removes a previously-:func:`enrich_chunk_content`-embedded header, if present.
 
@@ -790,8 +825,11 @@ def _package_chunk(content: str, metadata: ChunkMetadata) -> Chunk:
     (and, for either, reverse-engineering the embedded format) themselves.
 
     The identifiers prefix goes *outside* the header prefix (prepended
-    last), matching :func:`_strip_identifiers_prefix`/:func:`_strip_header_prefix`'s
-    expected stripping order in :meth:`SplitOverflowStrategy.apply`.
+    last), and the document_summary prefix goes outside *that* (prepended
+    very last of all), matching
+    :func:`_strip_document_summary_prefix`/:func:`_strip_identifiers_prefix`/
+    :func:`_strip_header_prefix`'s expected stripping order (reverse of
+    embedding order) in :meth:`SplitOverflowStrategy.apply`.
 
     Unlike ``header_path`` (handled by :func:`enrich_chunk_content`, which
     has to guard against already-enriched input because it's also exercised
@@ -819,6 +857,8 @@ def _package_chunk(content: str, metadata: ChunkMetadata) -> Chunk:
     if metadata.document_identifiers:
         prefix = _identifiers_prefix(metadata.document_identifiers)
         enriched_content = f"{prefix}\n\n{enriched_content}"
+    if metadata.document_summary:
+        enriched_content = f"{metadata.document_summary}\n\n{enriched_content}"
     return Chunk(content=enriched_content, metadata=metadata)
 
 
@@ -830,6 +870,7 @@ def chunk_document(
     word_header_map: list[str] | None = None,
     source_path: str | None = None,
     content_hash: str | None = None,
+    document_summary: str | None = None,
 ) -> list[Chunk]:
     """Split a whole document's text into Chunks, using the active CHUNKING_STRATEGY.
 
@@ -858,6 +899,16 @@ def chunk_document(
     embedded into ``content`` itself (see ``docs/decisions.md``'s
     2026-10-03 entry for why).
 
+    ``document_summary``, if given, is embedded into every chunk's content
+    the same way identifiers are (unlike ``document_date``) -- it's
+    deliberately written to carry a distinguishing signal for the
+    embedding, not a filterable fact (see
+    ``ingestion.summarize.generate_document_summary``). Computing it
+    requires an LLM call, so -- unlike identifiers/date, which this
+    function extracts itself via pure functions -- it's the caller's
+    (``ingestion.ingest.add_document``'s) job to generate it and pass it
+    in; this function has no I/O of its own.
+
     Args:
         full_text: The whole document's text.
         word_page_map: Page number per word in ``full_text.split()`` (same
@@ -869,6 +920,9 @@ def chunk_document(
         source_path: Optional logical path identity of the source document
             (e.g. ``"finance/2024/report.pdf"``). Defaults to ``source_file``.
         content_hash: Optional hexadecimal SHA-256 digest of the source document.
+        document_summary: Optional LLM-generated, fact-focused document
+            summary (see ``ingestion.summarize.generate_document_summary``),
+            embedded into every chunk's content.
 
     Returns:
         A flat list of :class:`Chunk`, in document order.
@@ -906,6 +960,7 @@ def chunk_document(
             header_path=header_path or None,
             document_identifiers=document_identifiers,
             document_date=document_date,
+            document_summary=document_summary,
         )
 
         chunks.append(_package_chunk(content, metadata))

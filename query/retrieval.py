@@ -41,6 +41,7 @@ from drivers.reranker import CrossEncoderRerankerDriver, get_reranker_driver
 from logger import LogAction, get_logger
 from models import RetrievedChunk
 from query.hybrid import reciprocal_rank_fusion
+from query.listwise_rerank import listwise_rerank
 from store import VectorStore, extract_identifier_tokens
 
 # Progress logging, not print(): retrieve_chunks() is called from
@@ -173,6 +174,45 @@ def _apply_top_k_with_guarantees(
     return guaranteed + rest[: max(0, top_k - len(guaranteed))]
 
 
+def _csls_rerank(vector_results: list[RetrievedChunk]) -> list[RetrievedChunk]:
+    """Re-sort ``vector_results`` by a CSLS-adjusted score (2*raw - hub_score).
+
+    CSLS (Cross-domain Similarity Local Scaling) corrects for embedding-space
+    "hubness": some chunks sit in a generic/central region of the embedding
+    space and score deceptively high against almost any query, regardless of
+    actual relevance -- confirmed live (see docs/decisions.md) on a real
+    near-duplicate-dilution case, where a known-correct document's chunk had
+    a *lower* hub_score (0.9600, i.e. less generic) than ~18 incorrect
+    competitors (0.97-0.98), and this re-ranking alone (no exclusion) moved
+    it from rank 16 to rank 6 of 19.
+
+    Only changes *order*, never drops a chunk -- this is the reason CSLS
+    replaced an earlier, rejected approach (a fixed-threshold "boilerplate"
+    exclusion flag, see docs/decisions.md) that outright removed chunks and
+    over-flagged 40% of a real corpus. A chunk without a ``hub_score`` yet
+    (``compute_hub_scores()`` hasn't run, or it's a brand new chunk) falls
+    back to its raw score unchanged, so this is always safe to call even on
+    a partially-scored corpus.
+
+    Args:
+        vector_results: :meth:`store.VectorStore.search`'s output, in its
+            own raw-cosine-similarity order.
+
+    Returns:
+        The same chunks, re-sorted by CSLS-adjusted score (descending).
+        Only the *order* changes -- each chunk's own ``.score`` is left as
+        the raw cosine similarity, since RRF fusion only uses rank
+        position, never compares raw scores across legs (see
+        :func:`query.hybrid.reciprocal_rank_fusion`).
+    """
+
+    def adjusted_score(chunk: RetrievedChunk) -> float:
+        hub_score = chunk.metadata.hub_score
+        return 2 * chunk.score - hub_score if hub_score is not None else chunk.score
+
+    return sorted(vector_results, key=adjusted_score, reverse=True)
+
+
 class HybridRetrievalStrategy(RetrievalStrategy):
     """Vector + keyword search, fused with RRF, then optionally reranked."""
 
@@ -203,6 +243,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         which is exactly why that gate runs on the raw vector results
         instead, before this strategy ever sees them.
         """
+        vector_results = _csls_rerank(vector_results)
         candidate_k = len(vector_results)
         logger.info(
             "[query] Keyword-searching the same candidate pool (%d) ...", candidate_k
@@ -280,11 +321,34 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                     threshold,
                 )
                 return []
+            valid_chunks = self._maybe_listwise_rerank(question, valid_chunks)
             return _apply_top_k_with_guarantees(
                 valid_chunks, identifier_chunk_ids, top_k
             )
 
+        reranked = self._maybe_listwise_rerank(question, reranked)
         return _apply_top_k_with_guarantees(reranked, identifier_chunk_ids, top_k)
+
+    def _maybe_listwise_rerank(
+        self, question: str, chunks: list[RetrievedChunk]
+    ) -> list[RetrievedChunk]:
+        """Apply the final listwise LLM disambiguation pass, if enabled.
+
+        Runs right before the ``top_k`` cut, on the already cross-encoder-
+        reranked/threshold-filtered candidates -- see
+        :func:`query.listwise_rerank.listwise_rerank` for the mechanism
+        and why it catches a disambiguation case a per-pair cross-encoder
+        can't. Costs one extra LLM call per query, which is why it's
+        opt-in (``settings.LISTWISE_RERANK_ENABLED``, default ``False``).
+        """
+        if not settings.LISTWISE_RERANK_ENABLED:
+            return chunks
+        return listwise_rerank(
+            question,
+            chunks,
+            get_answer_driver(),
+            max_candidates=settings.LISTWISE_RERANK_MAX_CANDIDATES,
+        )
 
 
 def get_retrieval_strategy() -> RetrievalStrategy:

@@ -11,9 +11,11 @@ Key exports:
 """
 
 import json
+from collections.abc import Callable
 from contextlib import contextmanager
 from typing import ClassVar, Self
 
+from config import settings
 from db import get_connection
 from logger import get_logger
 from models import Chunk, ChunkMetadata, RetrievedChunk
@@ -598,6 +600,106 @@ class VectorStore:
                 )
             )
         return results
+
+    def compute_hub_scores(
+        self,
+        on_progress: Callable[[int, int], None] | None = None,
+        commit_every: int = 200,
+    ) -> int:
+        """Compute and store each chunk's "hubness" (genericness) score.
+
+        A post-ingest batch pass, not run during chunking (which has no
+        visibility into the rest of the corpus). For every chunk, queries
+        its ``settings.HUB_SCORE_NEIGHBOR_SAMPLE_SIZE`` nearest neighbors in
+        the *whole corpus* by cosine similarity (reusing the same HNSW
+        index :meth:`search` does) and stores the average similarity to
+        them as ``metadata.hub_score`` -- a continuous measure of how
+        "generic"/central this chunk's embedding is, independent of any
+        specific query.
+
+        Supersedes an earlier, rejected approach (see docs/decisions.md):
+        a binary "boilerplate" flag that *excluded* chunks above a fixed
+        cross-document similarity threshold. That flagged 40% of a real
+        corpus, including most of a known-correct answer's own chunks,
+        because genuinely distinct (but formulaically phrased) legal
+        reasoning scored just as "similar to many other chunks" as actual
+        copy-pasted boilerplate -- a hard threshold can't tell those
+        apart. A continuous penalty applied at *query* time (CSLS-style,
+        see :func:`query.retrieval._csls_rerank`) never excludes anything
+        outright, so it can't repeat that failure mode; confirmed live on
+        the same real test case that CSLS re-ranking alone (no exclusion)
+        moved a known-correct document from rank 16 to rank 6 of 19 real
+        near-duplicate competitors.
+
+        Idempotent -- re-running it recomputes every chunk's score fresh,
+        reflecting whatever's in the corpus at the time.
+
+        Issues one nearest-neighbor query per chunk, so this is O(n) round
+        trips, not O(n²) -- confirmed live to still take a while on a real
+        corpus (tens of minutes for ~11,000 chunks), so progress is
+        committed every ``commit_every`` chunks rather than in one
+        transaction at the end.
+
+        Args:
+            on_progress: Optional callback invoked after each committed
+                batch with ``(processed_count, total_count)`` -- the CLI
+                wrapper uses this to print progress; tests can pass
+                ``None`` (the default) and ignore it.
+            commit_every: How many chunks to process between commits
+                (default: 200).
+
+        Returns:
+            The number of chunks whose hub_score was updated.
+        """
+        sample_size = settings.HUB_SCORE_NEIGHBOR_SAMPLE_SIZE
+
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, embedding::text FROM document_chunks;")
+                chunks = cur.fetchall()
+
+            total_updated = 0
+            with conn.cursor() as cur:
+                batch: list[tuple[int, float]] = []
+                for processed, (chunk_id, embedding_text) in enumerate(
+                    chunks, start=1
+                ):
+                    cur.execute(
+                        """
+                        SELECT 1 - (embedding <=> %s::vector) AS score
+                        FROM document_chunks
+                        WHERE id != %s
+                        ORDER BY embedding <=> %s::vector
+                        LIMIT %s;
+                        """,
+                        (embedding_text, chunk_id, embedding_text, sample_size),
+                    )
+                    neighbor_scores = [r[0] for r in cur.fetchall()]
+                    hub_score = (
+                        sum(neighbor_scores) / len(neighbor_scores)
+                        if neighbor_scores
+                        else 0.0
+                    )
+                    batch.append((chunk_id, hub_score))
+
+                    if processed % commit_every == 0 or processed == len(chunks):
+                        for cid, score in batch:
+                            cur.execute(
+                                """
+                                UPDATE document_chunks
+                                SET metadata = jsonb_set(
+                                    metadata, '{hub_score}', %s::jsonb
+                                )
+                                WHERE id = %s;
+                                """,
+                                (json.dumps(score), cid),
+                            )
+                        total_updated += len(batch)
+                        conn.commit()
+                        if on_progress:
+                            on_progress(processed, len(chunks))
+                        batch = []
+        return total_updated
 
     def search_fulltext(
         self,
