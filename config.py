@@ -78,9 +78,17 @@ class Settings:
                               Set to an OpenRouter embedding model id when
                               ``EMBEDDING_DRIVER=openrouter``, a Gemini model
                               id (e.g. ``gemini-embedding-001``) when
-                              ``EMBEDDING_DRIVER=gemini``, or a Jina model id
+                              ``EMBEDDING_DRIVER=gemini``, a Jina model id
                               (e.g. ``jina-embeddings-v3``) when
-                              ``EMBEDDING_DRIVER=jina``.
+                              ``EMBEDDING_DRIVER=jina``, or a Vertex AI model
+                              id when ``EMBEDDING_DRIVER=vertex`` --
+                              ``text-multilingual-embedding-002`` for
+                              non-English content, *not*
+                              ``text-embedding-005`` (Vertex's default RAG
+                              embedding model, confirmed live to be English-
+                              only despite being "the default" -- see
+                              docs/decisions.md's 2026-10-03 entry and the
+                              model-selection rule in AGENTS.md).
         EMBEDDING_DIMENSION   Output vector dimension (must match the model; 384 for
                               e5-small; OpenRouter's ``dimensions`` request
                               parameter, the native Gemini API's

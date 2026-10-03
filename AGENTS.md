@@ -9,6 +9,14 @@
 - Centralized configuration via `Settings` class with sensible defaults and `.env` overrides.
 - Use strict typing, type annotations, and Ruff for linting/formatting.
 
+### Model selection: verify language/domain fit before adopting, not just "it's the default"
+
+Before adopting *any* AI model (embedding, reranker, LLM) for a specific driver, verify via the provider's own current documentation that its documented capabilities actually match this project's real content — don't assume a provider's "default" or "recommended for RAG" choice is adequate without checking the fine print, and don't assume a benchmark number from one language transfers to another.
+
+Confirmed costly on 2026-10-03: `EMBEDDING_DRIVER=vertex` adopted `text-embedding-005` because it's Vertex AI's default/recommended embedding model for RAG corpora — but Google's own docs state every text embedding model is *evaluated* on English text, and `text-multilingual-embedding-002` is the model actually recommended for multilingual use. This went undiagnosed through a full day of live measurement on this project's all-Hungarian legal corpus, during which a real brute-force similarity check (the *correct* document scoring *lower* than several wrong ones) was reasonably read as a fundamental "embeddings can't distinguish near-duplicate legal documents" limitation — a live A/B re-test with the multilingual model on the same two cases instead put the correct document(s) at rank #1 (and #1+#2, for a two-document question), cleanly separated from the rest. The real cause was never retrieval architecture; it was running an English-only model against Hungarian text.
+
+**How to apply:** when choosing or changing `EMBEDDING_MODEL`/`RERANKER_MODEL`/`LLM_MODEL` for any driver, check the provider's current docs for that *specific* model's language/domain support before trusting it — via the Context7 MCP convention (see the global instructions), not assumption. For embedding/reranker changes specifically, run a small, cheap A/B similarity check against a few already-known test cases (see `docs/decisions.md`'s entries for examples of this pattern) *before* committing to a model switch that requires a full corpus re-ingestion.
+
 ### Design philosophy: SRP over DDD, flat layout over `src/`
 
 Decided 2026-09-17 after explicit discussion — don't reintroduce these without discussing again.
