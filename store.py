@@ -607,21 +607,31 @@ class VectorStore:
     ) -> list[RetrievedChunk]:
         """Return chunks matching any word of ``query_text`` via full-text search.
 
-        Uses ``websearch_to_tsquery('simple', ...)`` against the
-        ``content_tsv`` generated column (``migrations/0002_add_fulltext_
-        search.py``), ranked by ``ts_rank``. This is the keyword half of
+        Uses ``websearch_to_tsquery('hungarian', ...)`` against the
+        ``content_tsv`` generated column (originally ``simple`` in
+        ``migrations/0002_add_fulltext_search.py``, switched to Postgres's
+        built-in ``hungarian`` snowball-stemmer config by
+        ``migrations/0003_hungarian_fulltext_search_config.py`` — confirmed
+        live to measurably improve keyword-search rank on this
+        all-Hungarian legal corpus, see docs/decisions.md's 2026-10-03
+        entry), ranked by ``ts_rank``. This is the keyword half of
         hybrid search; see :func:`query.hybrid.reciprocal_rank_fusion` for
-        how it's combined with :meth:`search`'s vector results.
+        how it's combined with :meth:`search`'s vector results. The
+        tsquery-side config must always match ``content_tsv``'s own
+        config — a query built with a different config would tokenize
+        into different (e.g. unstemmed) lexemes than what's actually
+        stored, breaking matches silently rather than erroring.
 
         ``query_text``'s words are joined with `` or `` before being
         passed to ``websearch_to_tsquery`` — confirmed empirically to be
         necessary, not optional: feeding a raw natural-language question
         straight in ANDs together every one of its words (a `` or ``-free
-        input is plain-AND syntax, not OR), and the ``simple`` config has
-        no stopword list (that's *why* it was chosen — see the migration's
-        docstring — a Hungarian/English stopword list would only cover one
-        language well). So a question like "Milyen technológiai stacket
-        használ ...?" ANDed literally requires "milyen" and "használ" to
+        input is plain-AND syntax, not OR). ``prepare_fulltext_query()``'s
+        own bilingual stopword list still does useful work even with the
+        ``hungarian`` config's built-in Hungarian stopword list, since it
+        also drops common *English* stopwords that config has no notion
+        of. So a question like "Milyen technológiai stacket használ
+        ...?" ANDed literally requires "milyen" and "használ" to
         also appear verbatim in the matching chunk — which they never will
         for an English-language chunk — and the search would silently
         return nothing for almost every real question. OR-joining instead
@@ -662,9 +672,9 @@ class VectorStore:
                 id,
                 content,
                 metadata,
-                ts_rank(content_tsv, websearch_to_tsquery('simple', %s)) AS score
+                ts_rank(content_tsv, websearch_to_tsquery('hungarian', %s)) AS score
             FROM document_chunks
-            WHERE content_tsv @@ websearch_to_tsquery('simple', %s)
+            WHERE content_tsv @@ websearch_to_tsquery('hungarian', %s)
             {where_filter}
             ORDER BY score DESC
             LIMIT %s;

@@ -18,6 +18,7 @@ from models import ChunkMetadata, RetrievedChunk
 from query.retrieval import (
     HybridRetrievalStrategy,
     VectorRetrievalStrategy,
+    _apply_top_k_with_guarantees,
     _passes_relevance_gate,
     get_retrieval_strategy,
     retrieve_chunks,
@@ -141,6 +142,39 @@ def test_hybrid_strategy_rescues_identifier_match_missed_by_vector_and_fulltext(
     fake_store.search_by_identifier.assert_called_once_with(
         ["4.P.20.409/2023/4"], top_k=1
     )
+
+
+def test_apply_top_k_with_guarantees_caps_guaranteed_chunks_at_top_k():
+    """Regression for the identifier-rescue flooding bug (docs/decisions.md):
+    embedding a document's identifier into every one of its chunks means a
+    single cited case number can make search_by_identifier() match an
+    entire document's ~20+ chunks, all "guaranteed." Letting every one
+    through used to flood the LLM's context with repetitive content from
+    one document -- the guaranteed set must be capped at top_k like
+    everything else, keeping the highest-reranked ones first."""
+    # 6 guaranteed chunks (ids 1-6, already in descending-score order) and
+    # 2 non-guaranteed chunks (ids 7-8) scoring higher than some guaranteed
+    # ones -- but guarantee still wins priority within the top_k budget.
+    guaranteed_chunks = [_chunk(i, score=1.0 - i * 0.01) for i in range(1, 7)]
+    rest_chunks = [_chunk(7, score=0.99), _chunk(8, score=0.5)]
+    chunks = guaranteed_chunks + rest_chunks
+    guaranteed_ids = {c.id for c in guaranteed_chunks}
+
+    result = _apply_top_k_with_guarantees(chunks, guaranteed_ids, top_k=4)
+
+    assert len(result) == 4
+    assert [c.id for c in result] == [1, 2, 3, 4]
+
+
+def test_apply_top_k_with_guarantees_fills_remaining_budget_with_non_guaranteed():
+    """When there are fewer guaranteed chunks than top_k, the remaining
+    budget is still filled from the highest-scoring non-guaranteed chunks,
+    same as before this fix."""
+    chunks = [_chunk(99, score=1.0), _chunk(1, score=0.9), _chunk(2, score=0.8)]
+
+    result = _apply_top_k_with_guarantees(chunks, {99}, top_k=2)
+
+    assert [c.id for c in result] == [99, 1]
 
 
 def test_hybrid_strategy_guarantees_identifier_match_survives_top_k_truncation(

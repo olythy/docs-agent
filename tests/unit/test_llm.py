@@ -43,11 +43,30 @@ def test_build_prompt_includes_numbered_sources_and_question():
     system_prompt, user_message = _build_prompt("What happened?", chunks)
 
     assert "based strictly on" in system_prompt
-    assert "[1] Source: a.pdf, page 1" in user_message
-    assert "[2] Source: b.pdf, page 2" in user_message
+    assert "Source: a.pdf, page 1" in user_message
+    assert "Source: b.pdf, page 2" in user_message
     assert "first chunk" in user_message
     assert "second chunk" in user_message
     assert "Question: What happened?" in user_message
+
+
+def test_build_prompt_places_best_ranked_chunk_last_before_the_question():
+    """"Lost in the middle" mitigation (see docs/decisions.md): the
+    highest-ranked chunk (first in context_chunks) must end up physically
+    last in the context block, right before "Question:", not first."""
+    chunks = [
+        _chunk("best match", source_file="best.pdf", page_number=1),
+        _chunk("middling match", source_file="mid.pdf", page_number=1),
+        _chunk("weakest match", source_file="weak.pdf", page_number=1),
+    ]
+    _, user_message = _build_prompt("What happened?", chunks)
+
+    weakest_pos = user_message.index("weakest match")
+    middling_pos = user_message.index("middling match")
+    best_pos = user_message.index("best match")
+    question_pos = user_message.index("Question:")
+
+    assert weakest_pos < middling_pos < best_pos < question_pos
 
 
 def test_build_prompt_forbids_outside_knowledge_and_requires_partial_answer_honesty():

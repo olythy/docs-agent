@@ -277,14 +277,28 @@ def _build_prompt(
 
     Args:
         question: The user's question.
-        context_chunks: Retrieved chunks.
+        context_chunks: Retrieved chunks, already ranked best-first (see
+            ``query.retrieval.retrieve_chunks``).
 
     Returns:
         A tuple of ``(system_prompt, user_message)``.
     """
-    # Build a numbered context block so the model can cite sources
+    # Build a numbered context block so the model can cite sources.
+    #
+    # Placed worst-to-best, not in ``context_chunks``' own best-first
+    # order -- LLMs attend most to the very start and very end of a long
+    # context and lose track of the middle ("lost in the middle";
+    # confirmed as a real pattern worth applying here, see
+    # docs/decisions.md). The single highest-ranked chunk is reversed into
+    # the *last* position, immediately before "Question:", so the model
+    # reads it right as it's about to answer, instead of it being the
+    # first thing read and then potentially drowned out by everything
+    # that follows. Citation correctness doesn't depend on the numbering
+    # matching retrieval rank -- see corpus/commands/eval.py's
+    # _resolve_cited_source_files, which verifies citations by extracting
+    # identifiers from the answer text itself, not by these [i] labels.
     context_parts = []
-    for i, chunk in enumerate(context_chunks, start=1):
+    for i, chunk in enumerate(reversed(context_chunks), start=1):
         source = chunk.metadata.source_file or "unknown"
         page = (
             chunk.metadata.page_number

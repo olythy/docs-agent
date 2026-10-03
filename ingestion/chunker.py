@@ -29,6 +29,7 @@ Key exports:
 """
 
 import dataclasses
+import re
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -654,6 +655,72 @@ def extract_document_identifiers(full_text: str, head_chars: int = 100) -> tuple
     return tuple(extract_identifier_tokens(full_text[:head_chars]))
 
 
+_HUNGARIAN_MONTHS = {
+    "január": 1,
+    "február": 2,
+    "március": 3,
+    "április": 4,
+    "május": 5,
+    "június": 6,
+    "július": 7,
+    "augusztus": 8,
+    "szeptember": 9,
+    "október": 10,
+    "november": 11,
+    "december": 12,
+}
+
+_DATE_NAMED_MONTH_RE = re.compile(
+    r"(\d{4})\.\s*(" + "|".join(_HUNGARIAN_MONTHS) + r")\s*(\d{1,2})\.?",
+    re.IGNORECASE,
+)
+_DATE_NUMERIC_RE = re.compile(r"(\d{4})\.(\d{1,2})\.(\d{1,2})\.?")
+
+
+def extract_document_date(full_text: str, tail_chars: int = 500) -> str | None:
+    """Find the document's own date of issue near its end, if present.
+
+    Confirmed live on a 20-document random sample of the court-decision
+    corpus: the "kelt" date (e.g. "Budapest, 2022. május 12.") appears near
+    the signature block at the *end* of the document in roughly 90% of
+    cases, in one of two written formats -- a named Hungarian month
+    ("2022. május 12.") or an all-numeric one ("2022.05.12."). Unlike
+    :func:`extract_document_identifiers`, this is intentionally scanned
+    from the *tail*, not the head, of the document.
+
+    Both formats are tried, named-month first since it's the less
+    ambiguous of the two (a numeric date can coincidentally match
+    unrelated digit sequences near the end of a document, such as a
+    trailing page/paragraph number).
+
+    Args:
+        full_text: The whole document's text.
+        tail_chars: How many trailing characters to search within.
+
+    Returns:
+        The date as an ISO-8601 string (``"YYYY-MM-DD"``), or ``None`` if
+        neither format is found in the tail, or the numeric format's
+        month/day are out of range (a false-positive guard, not a real
+        validity check).
+    """
+    tail = full_text[-tail_chars:]
+
+    named_match = _DATE_NAMED_MONTH_RE.search(tail)
+    if named_match:
+        year, month_name, day = named_match.groups()
+        month = _HUNGARIAN_MONTHS[month_name.lower()]
+        return f"{year}-{month:02d}-{int(day):02d}"
+
+    numeric_match = _DATE_NUMERIC_RE.search(tail)
+    if numeric_match:
+        year, month_str, day_str = numeric_match.groups()
+        month, day = int(month_str), int(day_str)
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{year}-{month:02d}-{day:02d}"
+
+    return None
+
+
 def _identifiers_prefix(identifiers: tuple[str, ...]) -> str:
     """Build the single-line prefix embedded into every chunk for ``identifiers``."""
     return " ".join(identifiers)
@@ -785,6 +852,12 @@ def chunk_document(
     identifier-based query can still find the relevant chunk even when it's
     several chunks past the header (see ``docs/decisions.md``).
 
+    The document's own date of issue (see :func:`extract_document_date`) is
+    likewise extracted once from ``full_text`` and attached to every
+    chunk's ``metadata.document_date`` -- but, unlike identifiers, never
+    embedded into ``content`` itself (see ``docs/decisions.md``'s
+    2026-10-03 entry for why).
+
     Args:
         full_text: The whole document's text.
         word_page_map: Page number per word in ``full_text.split()`` (same
@@ -805,6 +878,7 @@ def chunk_document(
     chunks: list[Chunk] = []
     effective_source_path = source_path if source_path is not None else source_file
     document_identifiers = extract_document_identifiers(full_text)
+    document_date = extract_document_date(full_text)
     for i, (content, start_word) in enumerate(
         get_chunking_strategy().split(full_text, driver)
     ):
@@ -831,6 +905,7 @@ def chunk_document(
             content_hash=content_hash or None,
             header_path=header_path or None,
             document_identifiers=document_identifiers,
+            document_date=document_date,
         )
 
         chunks.append(_package_chunk(content, metadata))

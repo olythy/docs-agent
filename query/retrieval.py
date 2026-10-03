@@ -133,7 +133,7 @@ class VectorRetrievalStrategy(RetrievalStrategy):
 def _apply_top_k_with_guarantees(
     chunks: list[RetrievedChunk], guaranteed_ids: set[int], top_k: int
 ) -> list[RetrievedChunk]:
-    """Truncate ``chunks`` to ``top_k``, but never drop a guaranteed chunk.
+    """Truncate ``chunks`` to ``top_k``, giving guaranteed chunks priority.
 
     Confirmed live (see docs/decisions.md) that an exact identifier match
     (a case number, ...) surviving the ``RERANKER_MIN_SCORE`` filter still
@@ -143,18 +143,32 @@ def _apply_top_k_with_guarantees(
     is definitionally correct because its identifier matches." Being in
     the candidate pool only helps if it also survives this final cut.
 
+    Guaranteed chunks are capped at ``top_k`` too, not let through
+    unbounded -- confirmed live (see docs/decisions.md) that embedding a
+    document's identifier into *every* one of its chunks (not just
+    chunk 0) means a single cited case number can now make
+    ``search_by_identifier()`` match an entire document's ~20+ chunks,
+    all of them "guaranteed." Letting every one of those through, as this
+    function originally did, floods the LLM's context with repetitive
+    content from one document and was confirmed live to make the model
+    decline to answer even when retrieval had found the exact right (and
+    only) document. Within the guaranteed set, the highest-reranked
+    chunks are kept (``chunks`` is already in descending score order), so
+    this still prefers the parts of that document the cross-encoder itself
+    rated most relevant -- just no longer *all* of them regardless of count.
+
     Args:
         chunks: Already reranked and score-filtered, in descending score order.
-        guaranteed_ids: ``RetrievedChunk.id`` values that must be kept
-            regardless of rank (e.g. from :meth:`store.VectorStore.search_by_identifier`).
+        guaranteed_ids: ``RetrievedChunk.id`` values to prioritize over
+            plain ranking (e.g. from :meth:`store.VectorStore.search_by_identifier`).
         top_k: Maximum number of chunks to return.
 
     Returns:
-        Every guaranteed chunk present in ``chunks``, plus the highest-
-        scoring remaining chunks up to ``top_k`` total (more than ``top_k``
-        only if there are more guaranteed chunks than ``top_k`` itself).
+        At most ``top_k`` chunks: every guaranteed chunk present in
+        ``chunks`` (highest-scoring first, capped at ``top_k``), plus the
+        highest-scoring remaining chunks filling whatever budget is left.
     """
-    guaranteed = [c for c in chunks if c.id in guaranteed_ids]
+    guaranteed = [c for c in chunks if c.id in guaranteed_ids][:top_k]
     rest = [c for c in chunks if c.id not in guaranteed_ids]
     return guaranteed + rest[: max(0, top_k - len(guaranteed))]
 

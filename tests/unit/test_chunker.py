@@ -21,6 +21,7 @@ from ingestion.chunker import (
     chunk_document,
     chunk_pages,
     enrich_chunk_content,
+    extract_document_date,
     extract_document_identifiers,
     get_chunk_overflow_strategy,
     get_chunking_strategy,
@@ -725,6 +726,38 @@ def test_extract_document_identifiers_respects_head_chars_cutoff():
     assert extract_document_identifiers(full_text, head_chars=20) == ("123.A.1/2020",)
 
 
+def test_extract_document_date_finds_named_month_near_end():
+    full_text = "ítélet szövege " * 20 + "Budapest, 2022. május 12."
+    assert extract_document_date(full_text) == "2022-05-12"
+
+
+def test_extract_document_date_finds_numeric_format_near_end():
+    full_text = "ítélet szövege " * 20 + "Budapest, 2022.05.12."
+    assert extract_document_date(full_text) == "2022-05-12"
+
+
+def test_extract_document_date_prefers_named_month_over_numeric():
+    # A named-month date and an unrelated numeric-looking date both appear
+    # in the tail -- named month wins since it's the less ambiguous format.
+    full_text = "Iktatószám: 2021.01.02. " + "x " * 10 + "Budapest, 2022. május 12."
+    assert extract_document_date(full_text) == "2022-05-12"
+
+
+def test_extract_document_date_rejects_out_of_range_numeric_month_or_day():
+    full_text = "szöveg " * 20 + "2022.13.45."
+    assert extract_document_date(full_text) is None
+
+
+def test_extract_document_date_none_when_not_found():
+    full_text = "ítélet szövege minden konkrét dátum nélkül " * 10
+    assert extract_document_date(full_text) is None
+
+
+def test_extract_document_date_only_searches_the_tail():
+    full_text = "Budapest, 2020. január 1. " + "noise " * 200 + "vége."
+    assert extract_document_date(full_text, tail_chars=50) is None
+
+
 class TestIdentifiersPrefix:
     """_identifiers_prefix/_strip_identifiers_prefix are a matched pair —
     see _strip_identifiers_prefix's docstring for why they're kept together,
@@ -889,3 +922,32 @@ def test_chunk_document_embeds_identifiers_in_every_chunk(monkeypatch, settings_
     for chunk in chunks:
         assert chunk.metadata.document_identifiers == ("103.K.703.261/2020",)
         assert chunk.content.startswith("103.K.703.261/2020\n\n")
+
+
+def test_chunk_document_attaches_document_date_but_never_embeds_it(
+    monkeypatch, settings_override
+):
+    """document_date must land in every chunk's metadata (for SQL filtering/
+    query-time use), but -- unlike document_identifiers -- never inside the
+    embedded content itself (see docs/decisions.md's 2026-10-03 entry)."""
+    monkeypatch.setattr(
+        chunker_module,
+        "settings",
+        settings_override(CHUNKING_STRATEGY="word", CHUNK_SIZE=3, CHUNK_OVERLAP=0),
+    )
+    full_text = (
+        "felperes alperes ellen kisajátítási ügyben kelt " + "Budapest, 2022. május 12."
+    )
+    word_page_map = [1] * len(full_text.split())
+
+    chunks = chunk_document(
+        full_text, word_page_map, source_file="doc.docx", driver=MagicMock()
+    )
+
+    assert len(chunks) > 1
+    for chunk in chunks:
+        assert chunk.metadata.document_date == "2022-05-12"
+    # The date text itself only appears in whichever chunk naturally
+    # contains it -- unlike document_identifiers, nothing prepends it to
+    # every chunk's content.
+    assert sum("május" in chunk.content for chunk in chunks) == 1

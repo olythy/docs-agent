@@ -48,6 +48,18 @@ class ChunkMetadata:
             query can find them regardless of which chunk actually holds
             the relevant content -- not just chunk 0, where the document's
             header line originally appeared.
+        document_date: The source document's own date of issue (e.g. a
+            Hungarian court decision's "kelt" date), normalized to
+            ISO-8601 (``"YYYY-MM-DD"``), or ``None`` if the extractor
+            couldn't find one (see
+            ``ingestion.chunker.extract_document_date`` -- confirmed live
+            this misses on roughly 10% of real corpus documents).
+            Deliberately *not* embedded into chunk content -- see
+            ``docs/decisions.md``'s 2026-10-03 entry for why: unlike
+            ``document_identifiers``, nothing does a literal text match
+            against a date, so it only needs to be a filterable/
+            query-time field, and embedding it would push near-duplicate
+            boilerplate documents' vectors even closer together.
     """
 
     source_file: str
@@ -58,6 +70,7 @@ class ChunkMetadata:
     content_hash: str | None = None
     header_path: str | None = None
     document_identifiers: tuple[str, ...] = ()
+    document_date: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to the JSON-serializable dict shape stored in Postgres.
@@ -81,6 +94,8 @@ class ChunkMetadata:
             data["header_path"] = self.header_path
         if self.document_identifiers:
             data["document_identifiers"] = list(self.document_identifiers)
+        if self.document_date is not None:
+            data["document_date"] = self.document_date
         return data
 
     @classmethod
@@ -95,6 +110,7 @@ class ChunkMetadata:
             content_hash=data.get("content_hash"),
             header_path=data.get("header_path"),
             document_identifiers=tuple(data.get("document_identifiers", ())),
+            document_date=data.get("document_date"),
         )
 
 
