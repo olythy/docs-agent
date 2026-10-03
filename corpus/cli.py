@@ -18,6 +18,7 @@ Usage::
     uv run python corpus/cli.py generate-questions <persona_id> [--count N]
     uv run python corpus/cli.py eval
     uv run python corpus/cli.py compute-hub-scores
+    uv run python corpus/cli.py coverage
 """
 
 import sys
@@ -29,13 +30,20 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from corpus.commands import compute_hub_scores, download, eval, generate_questions
+from corpus.commands import (
+    compute_hub_scores,
+    coverage,
+    download,
+    eval,
+    generate_questions,
+)
 
 app = typer.Typer(help=__doc__)
 app.add_typer(download.app)
 app.add_typer(generate_questions.app)
 app.add_typer(eval.app)
 app.add_typer(compute_hub_scores.app)
+app.add_typer(coverage.app)
 
 if __name__ == "__main__":
     app()

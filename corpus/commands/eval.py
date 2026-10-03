@@ -359,6 +359,49 @@ def get_grading_strategy(name: str) -> GradingStrategy:
     )
 
 
+#: How many documents deep to look when diagnosing a retrieval miss --
+#: wide enough to distinguish "just outside the production top_k" (a
+#: ranking problem) from "nowhere near" (a real recall gap), without
+#: being so wide every miss looks reachable.
+DIAGNOSTIC_POOL_SIZE = 50
+
+
+def _citation_ranks(
+    question_text: str, citations: list[dict], strategy
+) -> dict[str, int | None]:
+    """Find each citation's 1-based document rank in a wide candidate pool.
+
+    Confirmed valuable live (see docs/decisions.md's q0030 investigation):
+    a binary retrieval_hit/miss alone meant re-deriving this by hand, one
+    question at a time, to tell "ranked 9th, a tuning problem" apart from
+    "not in the corpus/pool at all, a different problem." Reuses the real
+    production retrieval path (:func:`query.retrieval.retrieve_chunks`)
+    at a wider ``top_k`` than production uses, purely for this diagnostic
+    -- not a separate, hand-rolled ranking.
+
+    Args:
+        question_text: The golden question's text.
+        citations: The golden question's ``citations`` list.
+        strategy: The same ``RetrievalStrategy`` instance ``evaluate_one()``
+            used for the real (production-top_k) retrieval call.
+
+    Returns:
+        ``{source_file: rank}`` for each cited source_file, 1-based by
+        first distinct-document occurrence, or ``None`` if it doesn't
+        appear even within ``DIAGNOSTIC_POOL_SIZE`` documents.
+    """
+    from query.retrieval import retrieve_chunks
+
+    wide_pool = retrieve_chunks(
+        question_text, strategy=strategy, top_k=DIAGNOSTIC_POOL_SIZE
+    )
+    doc_rank: dict[str, int] = {}
+    for chunk in wide_pool:
+        doc_rank.setdefault(chunk.metadata.source_file, len(doc_rank) + 1)
+
+    return {c["source_file"]: doc_rank.get(c["source_file"]) for c in citations}
+
+
 def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) -> dict:
     """Run one golden question through the real pipeline and grade it under
     every grading strategy its persona configures.
@@ -394,7 +437,7 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
 
     answer = query_knowledge_base(question["question"], strategy=strategy)
 
-    result: dict = {"persona_id": question["persona_id"]}
+    result: dict = {"persona_id": question["persona_id"], "question_id": question["id"]}
 
     if question["persona_id"] == "adversarial":
         result["is_decline"] = looks_like_a_decline(answer)
@@ -406,6 +449,14 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
         name: get_grading_strategy(name).grade(question, answer, retrieved_source_files)
         for name in grading_strategy_names
     }
+
+    # Diagnostic only, not part of grading: find out *where* (if anywhere)
+    # a missed citation actually landed, so a miss doesn't require manual
+    # re-investigation to tell "ranking problem" apart from "recall gap."
+    if any(not g["retrieval_hit"] for g in result["grades"].values()):
+        result["citation_ranks"] = _citation_ranks(
+            question["question"], question.get("citations", []), strategy
+        )
     return result
 
 
@@ -469,6 +520,33 @@ def print_report(results: list[dict]) -> None:
             f"{persona_id:<22}{strategy_name:<17}{len(bucket):>4}  {fmt(retrieval):>10}  "
             f"{fmt(answer):>8}  {fmt(citation):>9}  {'-':>8}{flag}"
         )
+
+    _print_retrieval_miss_diagnostics(graded)
+
+
+def _print_retrieval_miss_diagnostics(graded: list[dict]) -> None:
+    """Print each retrieval miss's actual document rank, if diagnosed.
+
+    Only questions ``evaluate_one()`` flagged as a miss under at least one
+    grading strategy carry a ``citation_ranks`` entry at all -- see its
+    docstring for why this is a diagnostic, run at
+    ``DIAGNOSTIC_POOL_SIZE``, not the production retrieval call itself.
+    Tells apart, at a glance:
+        - a rank number: the correct document IS in a wide pool, just not
+          reaching the production top_k -- a ranking/tuning problem.
+        - "not found": the correct document doesn't surface even at
+          DIAGNOSTIC_POOL_SIZE -- a deeper recall problem (or it's simply
+          not in the corpus yet, e.g. during a partial/in-progress ingest).
+    """
+    misses = [r for r in graded if "citation_ranks" in r]
+    if not misses:
+        return
+
+    print(f"\nRetrieval misses (diagnostic, pool={DIAGNOSTIC_POOL_SIZE}):")
+    for r in misses:
+        for source_file, rank in r["citation_ranks"].items():
+            where = f"rank {rank}" if rank is not None else "not found"
+            print(f"  {r['question_id']} ({r['persona_id']}): {source_file} -- {where}")
 
 
 @app.command()

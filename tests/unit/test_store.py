@@ -257,6 +257,17 @@ def test_has_chunks_from_source_returns_true_when_found(monkeypatch):
     assert args_executed == ("sample.pdf", "sample.pdf")
 
 
+def test_get_all_source_files_returns_distinct_set(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [("a.pdf",), ("b.docx",), ("a.pdf",)]
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    result = VectorStore().get_all_source_files()
+
+    assert result == {"a.pdf", "b.docx"}
+
+
 def test_has_chunks_from_source_returns_false_when_missing(monkeypatch):
     cursor = MagicMock()
     cursor.fetchone.return_value = None

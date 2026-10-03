@@ -881,6 +881,21 @@ class VectorStore:
             cur.execute(sql, (source, source))
             return cur.fetchone() is not None
 
+    def get_all_source_files(self) -> set[str]:
+        """Return every distinct ``source_file`` currently in document_chunks.
+
+        Used by ``corpus.commands.coverage`` to check, during a growing or
+        partial ingest, which golden questions' cited documents are
+        already ingested -- cheap enough to run before a full `eval` pass
+        on a corpus that isn't fully loaded yet.
+
+        Returns:
+            The set of distinct source_file values across all chunks.
+        """
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT metadata->>'source_file' FROM document_chunks;")
+            return {row[0] for row in cur.fetchall()}
+
     def get_embedding_dimension(self) -> int | None:
         """Read the declared dimension of the document_chunks.embedding column.
 
