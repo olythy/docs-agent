@@ -480,16 +480,15 @@ An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast appro
 - **Linting:** `ruff` for formatting and lint rules; `pyright` (basic mode) for static type checking — see `docs/decisions.md` for why pyright over mypy/ty.
 - **Tests:** `pytest`
 
-## Roadmap (per PLAN.md)
+## Roadmap
 
-- [x] Step 1 — Project setup, venv, packages, `config.py`
-- [x] Step 2 — pgvector table + migration runner
-- [x] Step 3 — PDF text extraction (`pdfplumber`)
-- [x] Step 4 — Chunking + embedding + storage (`add_document` logic)
-- [x] Step 5 — Query: embedding + top-k retrieval + answer generation
-- [x] Hybrid search (vector + keyword, RRF-fused), optional cross-encoder reranking, and a retrieval-quality eval script — see "Retrieval" above (beyond the original steps, added after a structured code review)
-- [x] Step 6 — Function-calling agent (`add_document` vs `query_knowledge_base`) — see `agent.py`
-- [x] Step 7 *(stretch)* — Wrap tools as an MCP server — see `mcp_server.py` and "MCP Server" below (stdio transport only; a network-reachable version via FastAPI/Docker is a possible future step, not built)
+A snapshot of major completed phases, newest first. Each phase's specific decisions/numbers live in `docs/decisions.md`; this list is just "what's done," not "why."
+
+- [x] **Retrieval-quality hardening on the Hungarian legal corpus** — embedding model switched to one actually evaluated on non-English text; `hungarian` full-text search config; `document_date` extraction; a fix for an identifier-match flooding bug; "lost in the middle" prompt reordering; CSLS hub-score re-ranking and an optional `document_summary` chunk enrichment + listwise LLM rerank for near-duplicate documents.
+- [x] **Golden-set measurement infrastructure** — `corpus/cli.py eval` (persona-bucketed accuracy + citation correctness, dual grading strategies — exact-match vs. independent-fact-verification — per persona), `coverage` (how much of the golden set is answerable against the current, possibly-partial corpus), and per-question retrieval-miss rank diagnostics.
+- [x] **Real-estate-law evaluation corpus** — `corpus/` sub-app: downloading real Hungarian court decisions, drafting+verifying golden questions per user persona (`corpus/data/personas.json`), and the `Typer`-based `corpus/cli.py`.
+- [x] **Hybrid search + reranking** — vector + keyword search fused with RRF, optional cross-encoder/hosted reranking, added after a structured code review of the original vector-only retrieval.
+- [x] **Core agent + RAG pipeline** — PDF/Markdown/DOCX/RTF extraction, chunking + embedding + pgvector storage (`add_document`), retrieval + grounded answer generation (`query_knowledge_base`), a function-calling agent choosing between the two tools, and both wrapped as an MCP server (`mcp_server.py`, stdio transport).
 
 ## Further Reading
 

@@ -60,7 +60,7 @@ Decided 2026-09-17 after explicit discussion — don't reintroduce these without
 - Each script must include a module-level docstring explaining how to run it and what it does.
 
 ### README.md
-- The **Roadmap** section must be kept in sync with `PLAN.md` after each completed step.
+- The **Roadmap** section lists major completed phases, newest first — update it when a phase wraps up, not after every small step. It's a "what's done" list; point to `docs/decisions.md` for the "why" behind any item, same as the rest of this README. (There is no `PLAN.md` — it was a local, never-committed, pre-pivot planning scratchpad and has been deleted; don't reintroduce a reference to it.)
 - The **Architecture** section must reflect the actual directory structure at all times.
 
 ### `docs/decisions.md`

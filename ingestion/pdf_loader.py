@@ -30,11 +30,11 @@ _UNMAPPED_GLYPH_PATTERN = re.compile(r"\(cid:\d+\)")
 
 #: A line-to-line vertical gap larger than this multiple of a page's median
 #: line spacing is treated as a paragraph break in PDF_EXTRACTION_MODE="blocks".
-#: Empirically tuned against two real documents (see PLAN.md "Ismert
-#: korlátok") — not perfect on every document, since pdfplumber's coordinate
-#: system is per-page, so a paragraph break that happens to fall exactly at
-#: a page boundary can never be detected this way (nothing to compare the
-#: gap against on the other side of the boundary).
+#: Empirically tuned against two real documents — not perfect on every
+#: document, since pdfplumber's coordinate system is per-page, so a
+#: paragraph break that happens to fall exactly at a page boundary can
+#: never be detected this way (nothing to compare the gap against on the
+#: other side of the boundary).
 PARAGRAPH_GAP_MULTIPLIER = 1.8
 
 
