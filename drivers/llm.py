@@ -576,6 +576,17 @@ class GeminiAnswerDriver(AnswerDriver):
             config_kwargs["tools"] = tools
         if system_instruction is not None:
             config_kwargs["system_instruction"] = system_instruction
+        # Confirmed live, a real finish_reason=MAX_TOKENS on a "thinking"
+        # model (gemini-2.5-flash): max_output_tokens is a *shared* budget
+        # across hidden reasoning and the visible answer -- a real case saw
+        # 981 thinking tokens leave only 39 for the actual answer, truncating
+        # it mid-sentence with no citation at all. Defaults to 0 (thinking
+        # disabled) since this grounded-answer task needs the full budget
+        # for the visible answer, not deep reasoning over already-retrieved
+        # context. See docs/decisions.md.
+        config_kwargs["thinking_config"] = types.ThinkingConfig(
+            thinking_budget=settings.LLM_THINKING_BUDGET
+        )
 
         try:
             return client.models.generate_content(

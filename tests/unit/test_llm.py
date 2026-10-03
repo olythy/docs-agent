@@ -233,6 +233,27 @@ def test_gemini_driver_answer_sends_prompt_and_returns_text(
     assert call.kwargs["config"].max_output_tokens == 1024
 
 
+def test_gemini_driver_disables_thinking_by_default(monkeypatch, settings_override):
+    """Regression test for a real, live MAX_TOKENS truncation: a "thinking"
+    model (gemini-2.5-flash) shares max_output_tokens between hidden
+    reasoning and the visible answer -- a real case spent 981 tokens
+    thinking and left only 39 for the answer, truncating it mid-sentence
+    with no citation at all. LLM_THINKING_BUDGET defaults to 0 (disabled)
+    so the full budget goes to the visible answer."""
+    monkeypatch.setattr(
+        llm_module,
+        "settings",
+        settings_override(LLM_REQUEST_DELAY_SECONDS=0.0, LLM_THINKING_BUDGET=0),
+    )
+    fake_client = _fake_gemini_client(text="the answer")
+    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+
+    GeminiAnswerDriver(model="gemini-2.5-flash").answer("What is X?", [_chunk("X is Y")])
+
+    call = fake_client.models.generate_content.call_args
+    assert call.kwargs["config"].thinking_config.thinking_budget == 0
+
+
 def test_gemini_driver_answer_returns_empty_string_when_text_is_none(
     monkeypatch, settings_override
 ):

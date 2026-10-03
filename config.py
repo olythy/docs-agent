@@ -198,6 +198,20 @@ class Settings:
                               current limit on your own AI Studio quota page
                               rather than assuming a number here, since
                               free-tier limits change over time.
+        LLM_THINKING_BUDGET   Gemini's thinking-token budget for
+                              ``LLM_DRIVER`` ``gemini``/``vertex`` (default:
+                              0, i.e. thinking disabled). Confirmed live on a
+                              "thinking" model (gemini-2.5-flash) that
+                              ``max_output_tokens`` is a *shared* budget
+                              across hidden reasoning and the visible answer
+                              -- a real case spent 981 tokens thinking and
+                              left only 39 for the answer, truncating it
+                              mid-sentence with no citation at all. 0 gives
+                              the full budget to the visible answer, which
+                              this grounded-answer task needs more than deep
+                              reasoning over already-retrieved context; set
+                              higher (or -1 for automatic) only if a future
+                              use case genuinely needs multi-step reasoning.
 
     Retrieval:
         RETRIEVAL_TOP_K       Number of chunks to retrieve per query (default: 4).
@@ -368,6 +382,7 @@ class Settings:
     LLM_REQUEST_DELAY_SECONDS: float = float(
         os.getenv("LLM_REQUEST_DELAY_SECONDS", "0.0")
     )
+    LLM_THINKING_BUDGET: int = int(os.getenv("LLM_THINKING_BUDGET", "0"))
 
     # --- Retrieval ---
     RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "4"))
