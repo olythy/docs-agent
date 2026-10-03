@@ -195,7 +195,7 @@
   {
     "id": "q0013",
     "persona_id": "precedent_seeker",
-    "question": "Milyen ügyekben hozott a bíróság felperes általi keresetet elutasító ítéletet a megadott korpuszban szereplő határozatok alapján?",
+    "question": "Milyen ügyekben utasította el a bíróság a felperes keresetét egy társasági közgyűlési határozat érvénytelenítése iránti, illetve egy végrendelet érvénytelenségének megállapítása iránti perben, és mik voltak a pontos ügyszámok?",
     "expected_answer": "A korpuszban szereplő határozatok alapján a Budapesti II. és III. Kerületi Bíróság az 19.P.22760/2022/62/II. számú ügyben a közgyűlési határozatok érvénytelenítése iránti keresetet, míg a Budapest Környéki Törvényszék az 1.P.20.435/2021/14. számú ügyben a végrendelet érvénytelenségének megállapítása iránt indított keresetet egyaránt elutasította.",
     "citations": [
       {
@@ -291,7 +291,7 @@
   {
     "id": "q0017",
     "persona_id": "precedent_seeker",
-    "question": "Milyen ügyekben mondta ki a bíróság a házastársi vagyonközösség megosztását vagy az ingatlan-nyilvántartási bejegyzés törlését, és mik voltak ezeknek az ügyeknek a pontos ügyszámai a megadott korpuszban?",
+    "question": "Milyen ügyekben mondta ki a bíróság a házastársi vagyonközösség megosztását, illetve az ingatlan-nyilvántartási bejegyzés törlését, és mik voltak ezeknek az ügyeknek a pontos ügyszámai?",
     "expected_answer": "A korpuszban szereplő egyik ügy a Budapest Környéki Törvényszék előtt indult (20.P.20.395/2020/30. számú közbenső ítélet), amelyben a bíróság megállapította a felperes és az alperes házassági életközösségének fennállását 2009. június 10. és 2019. október 1. között házastársi vagyonközösség megosztása iránt. A másik ügy a Fővárosi Ítélőtábla elé került (3.Pf.20.166/2022/4. számú végzés), amely ingatlan-nyilvántartási bejegyzés törlése iránt indult perben a Fővárosi Törvényszék 37.P.20.980/2021/25. számú ítéletével szemben hozott határozatot.",
     "citations": [
       {
@@ -617,7 +617,7 @@
   {
     "id": "q0031",
     "persona_id": "synthesizer",
-    "question": "Milyen típusú közigazgatási határozatokat vizsgált felül a Budapest Környéki Törvényszék 2022-ben az alábbi esetekben, és milyen eredménnyel zárultak ezek a felülvizsgálatok?",
+    "question": "Milyen típusú közigazgatási határozatokat vizsgált felül a Budapest Környéki Törvényszék 2022-ben egy kisajátítási és egy ingatlan-nyilvántartási ügyben, és milyen eredménnyel zárultak ezek a felülvizsgálatok?",
     "expected_answer": "A Budapest Környéki Törvényszék 2022-ben kétféle közigazgatási határozatot vizsgált felül a megadott esetekben:\n1. Kisajátítási ügyben hozott határozat megtámadása (104.K.701.843/2022/39): A bíróság az alperes határozatát megváltoztatta, a kisajátítási kártalanítás összegét 291.000 forintban határozta meg.\n2. Ingatlan-nyilvántartási ügyben hozott határozat megtámadása (14.K.701.047/2022/15): A bíróság a felperes keresetét elutasította.",
     "citations": [
       {

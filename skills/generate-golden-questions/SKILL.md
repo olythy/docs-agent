@@ -98,6 +98,8 @@ outcome, sub-topic, or legal principle you're about to write into
 `expected_answer` — the detail that makes *this* document the right one,
 not just *a* plausible one? If not, rewrite the question to include it.
 
+**Never phrase a question as if the reader can already see the document(s) you were given.** You see the source chunks/sample while drafting; a real user asking the deployed system never does. Confirmed live: a drafted `precedent_seeker` question read "...Törvényszék 2022-ben *az alábbi esetekben*..." — "the following cases" — a phrase that only makes sense if the reader is looking at the same document list you were, which no real user is. The same leak shows up as "a megadott korpuszban/dokumentumokban" ("in the given corpus/documents") or "a fentebb említett ügyekben" ("in the above-mentioned cases"). Any such phrase makes the question under-specified for retrieval (it points at "whatever I was shown," not at a findable fact) and unrealistic as a user query. Before finalizing, check the question for "alábbi", "megadott", "fenti"/"fentebb", "ezen/ezek az esetek" or any other wording that implicitly points back at your own drafting context, and rewrite using only self-contained facts (court, year, topic, outcome, etc.) that *name* what you mean instead of pointing at it.
+
 For the `adversarial` persona specifically: you will *not* be given real
 content to ground it in — instead, invent a case number/court combination
 that is clearly fabricated (e.g. an implausible year or collegium code), or
