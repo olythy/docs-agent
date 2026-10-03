@@ -2,6 +2,14 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-03 — kept `EMBEDDING_DIMENSION=384`; 768 measured no better (no code change)
+
+The same second-opinion review that caught the English-only embedding model also mentioned, in passing and unverified, that truncating to 384 dimensions might be costing discriminative power between near-duplicate documents. Tested live rather than assumed: the same golden-question targets ranked with `text-multilingual-embedding-002` at 384 vs. 768 dimensions. 9 targets landed on identical ranks (typically #1) at both sizes; the only difference came from q0018, where *both* targets got *worse* at 768 (rank 6→10 and 1→5).
+
+Reading: Google's `outputDimensionality` truncation is Matryoshka-style (trained to front-load information), so 384 doesn't measurably lose separation on this corpus. With a sample this small, the q0018 regression is a single question and shouldn't be read as "768 is worse" either -- just as no evidence that it's better. Staying at 384 also avoids a schema migration and keeps the HNSW index and storage at half the size.
+
+**Decision**: keep `EMBEDDING_DIMENSION=384`. Don't revisit dimension as a lever for the near-duplicate-boilerplate problem unless a larger sample says otherwise -- the remaining levers are document-level aggregation, boilerplate suppression, Hungarian-stemmed full-text search, and structured metadata.
+
 ## 2026-10-03 — golden questions must not leak drafting-time context ("az alábbi esetekben", "a megadott korpuszban")
 
 A second-opinion review of q0031 flagged that its question text read "...Törvényszék 2022-ben *az alábbi esetekben*..." ("...in the following cases...") -- a phrase that only makes sense if the reader can see the same document list the drafting LLM was given, which no real user of the deployed system ever can. A grep across all 38 golden questions for this and related leaks ("alábbi", "megadott", "fenti"/"fentebb") found two more: q0013 and q0017 both ended with "...a megadott korpuszban" ("...in the given corpus").
