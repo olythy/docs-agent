@@ -33,23 +33,30 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 ├── models.py                # Core data shapes: ChunkMetadata, Chunk, RetrievedChunk
 ├── db.py                   # Postgres connection factory — nothing else
 ├── store.py                # VectorStore: all document_chunks persistence (save/search)
+├── logger.py                # Structured JSONL telemetry/event logging
 ├── retry_policy.py          # Shared retry-with-backoff decorator (TransientAPIError, retry_on_transient_error)
 ├── drivers/
-│   ├── embedding.py         # EmbeddingDriver strategy: local (sentence-transformers) vs openai
-│   ├── llm.py                # AnswerDriver strategy: openrouter vs openai
-│   └── reranker.py           # RerankerDriver strategy: none vs cross_encoder
+│   ├── embedding.py         # EmbeddingDriver strategy: local/openai/openrouter/gemini/jina/vertex
+│   ├── llm.py                # AnswerDriver strategy: openrouter/openai/gemini/vertex
+│   ├── reranker.py           # RerankerDriver strategy: none/cross_encoder/jina/vertex
+│   └── gcloud_auth.py        # Shared gcloud OAuth token cache, used by every vertex-backed driver
 ├── ingestion/
 │   ├── extractors.py         # Extractor strategy: PDF/Markdown/DOCX/RTF, chosen by file extension
 │   ├── pdf_loader.py         # PDF text extraction (pdfplumber), flat/blocks modes
 │   ├── chunker.py            # Chunking strategies (word/langchain) + overflow correction
+│   ├── hash.py                # SHA-256 content hashing for ingest dedup/versioning
+│   ├── summarize.py          # generate_document_summary: one LLM call per document, embedded into every chunk
 │   └── ingest.py             # add_document and add_directory orchestration
 ├── query/
 │   ├── retrieval.py          # query_knowledge_base: hybrid retrieval + answer generation
-│   └── hybrid.py             # reciprocal_rank_fusion: pure RRF fusion logic
+│   ├── hybrid.py             # reciprocal_rank_fusion: pure RRF fusion logic
+│   ├── listwise_rerank.py    # Optional final LLM disambiguation pass over near-duplicate candidates
+│   └── decline_detection.py  # Shared "did the model honestly decline" heuristic (eval + scripts/eval_cli.py)
 ├── migrations/              # Python migrations (Laravel-artisan-style runner)
 │   ├── base.py                # Migration ABC: up()/down() run raw SQL, no ORM
 │   ├── 0001_create_document_chunks_table.py
-│   └── 0002_add_fulltext_search.py
+│   ├── 0002_add_fulltext_search.py
+│   └── 0003_hungarian_fulltext_search_config.py
 ├── scripts/
 │   ├── dev_cli.py            # Development & infrastructure CLI: docker, setup, doctor, lint (uv run python scripts/dev_cli.py)
 │   ├── db_cli.py             # Database CLI: migrations, flush, make-migration (uv run python scripts/db_cli.py)
@@ -70,7 +77,9 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── commands/
 │   │   ├── download.py        # `download` command (thin wrapper around download_court_decisions.py)
 │   │   ├── generate_questions.py  # `generate-questions` command (draft + two-tier-verify golden questions)
-│   │   └── eval.py            # `eval` command (not built yet)
+│   │   ├── eval.py            # `eval` command: persona-bucketed golden-set accuracy + citation correctness
+│   │   └── compute_hub_scores.py  # `compute-hub-scores` command (CSLS hub_score batch pass)
+│   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/
 │       ├── personas.json    # 5 user-profile definitions driving golden-question style
