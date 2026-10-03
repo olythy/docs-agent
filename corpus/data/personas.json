@@ -6,7 +6,8 @@
     "question_style": "Egy adott ügyre (ügyszám és/vagy bíróság) hivatkozó, egyértelmű, egy dokumentumon belül megválaszolható kérdés.",
     "document_scope": "single",
     "requires_regional_diversity": false,
-    "citation_expectation": "Pontosan egy forrásdokumentum (bíróság + ügyszám) és az azt alátámasztó szövegrészlet."
+    "citation_expectation": "Pontosan egy forrásdokumentum (bíróság + ügyszám) és az azt alátámasztó szövegrészlet.",
+    "grading_strategies": ["exact_match"]
   },
   {
     "id": "precedent_seeker",
@@ -15,7 +16,8 @@
     "question_style": "\"Milyen ügyekben mondta ki a bíróság, hogy X elv érvényes Y esetben?\" -- a jelenlegi korpuszban ténylegesen meglévő ügyekre szűkítve, nem országos gyakorlatra hivatkozva.",
     "document_scope": "multi",
     "requires_regional_diversity": false,
-    "citation_expectation": "Egy vagy több, ténylegesen a korpuszban szereplő ügy, jogi elv szerint összekötve -- nem regionális, hanem tartalmi/jogi mintázat alapján."
+    "citation_expectation": "Egy vagy több, ténylegesen a korpuszban szereplő ügy, jogi elv szerint összekötve -- nem regionális, hanem tartalmi/jogi mintázat alapján.",
+    "grading_strategies": ["exact_match", "independent_fact"]
   },
   {
     "id": "synthesizer",
@@ -24,7 +26,8 @@
     "question_style": "\"Hogyan változott X jogi álláspont [időszak] alatt?\" -- a rendelkezésre álló ügyek időrendjére/tartalmára épül, nem régiók összevetésére.",
     "document_scope": "multi",
     "requires_regional_diversity": false,
-    "citation_expectation": "Több forrásdokumentum, időrendi vagy tematikus összefüggésben."
+    "citation_expectation": "Több forrásdokumentum, időrendi vagy tematikus összefüggésben.",
+    "grading_strategies": ["exact_match", "independent_fact"]
   },
   {
     "id": "practical_procedural",
@@ -33,7 +36,8 @@
     "question_style": "\"Milyen bizonyítékot fogadott el a bíróság [ügytípus] ügyben?\" -- dokumentum-függő, gyakorlati fókuszú kérdés.",
     "document_scope": "single",
     "requires_regional_diversity": false,
-    "citation_expectation": "Egy forrásdokumentum, az eljárási/gyakorlati részletet tartalmazó szövegrésszel."
+    "citation_expectation": "Egy forrásdokumentum, az eljárási/gyakorlati részletet tartalmazó szövegrésszel.",
+    "grading_strategies": ["exact_match"]
   },
   {
     "id": "adversarial",
@@ -42,6 +46,7 @@
     "question_style": "Nem létező ügyszámra, bíróságra, vagy a korpuszból hiányzó tényre hivatkozó kérdés, illetve olyan kérdés, aminek a válasza nincs benne az ingestelt dokumentumokban.",
     "document_scope": "none",
     "requires_regional_diversity": false,
-    "citation_expectation": "Nincs helyes citáció -- az elvárt válasz explicit elutasítás/bizonytalanság jelzése, nem egy kitalált forrás."
+    "citation_expectation": "Nincs helyes citáció -- az elvárt válasz explicit elutasítás/bizonytalanság jelzése, nem egy kitalált forrás.",
+    "grading_strategies": ["exact_match"]
   }
 ]

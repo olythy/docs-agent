@@ -32,6 +32,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from corpus.verification import (
+    extract_json,
+    fetch_full_content,
+    verify_citation_exists,
+)
+
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 PERSONAS_PATH = DATA_DIR / "personas.json"
 QUESTIONS_PATH = DATA_DIR / "questions.json"
@@ -130,19 +136,6 @@ def sample_chunks_for_persona(persona: dict, count: int = 1) -> list[dict]:
     return samples
 
 
-def _extract_json(text: str) -> dict:
-    """Parse the first JSON object found in an LLM response.
-
-    Models sometimes wrap JSON in ```` ```json ... ``` ```` fences despite
-    being asked not to -- strip those before parsing rather than failing.
-    """
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = stripped.split("\n", 1)[1] if "\n" in stripped else stripped
-        stripped = stripped.rsplit("```", 1)[0]
-    return json.loads(stripped)
-
-
 def draft_question(persona: dict, samples: list[dict]) -> dict:
     """Ask LLM_DRIVER to draft one question, following SKILL.md Part 1.
 
@@ -170,54 +163,7 @@ def draft_question(persona: dict, samples: list[dict]) -> dict:
 
     driver = get_answer_driver()
     response = driver.run_tool_calling_turn([{"role": "user", "content": prompt}])
-    return _extract_json(response.content or "")
-
-
-def verify_citation_exists(citation: dict) -> bool:
-    """Tier 1: does this (court, case_number, source_file) match a real ingested document?
-
-    Deterministic DB lookup -- no LLM involved. Matches purely on
-    ``source_file``, the one field guaranteed to be exact (court/case_number
-    are reconstructed/free text for prompt readability, not authoritative).
-
-    Args:
-        citation: A ``{"court", "case_number", "source_file"}`` dict.
-
-    Returns:
-        True if a chunk with this source_file exists in document_chunks.
-    """
-    from db import get_connection
-
-    conn = get_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT 1 FROM document_chunks WHERE metadata->>'source_file' = %s LIMIT 1;",
-                (citation["source_file"],),
-            )
-            return cur.fetchone() is not None
-    finally:
-        conn.close()
-
-
-def _fetch_full_content(source_file: str) -> str:
-    """Concatenate every chunk for one source_file, in chunk_index order."""
-    from db import get_connection
-
-    conn = get_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT content FROM document_chunks
-                WHERE metadata->>'source_file' = %s
-                ORDER BY (metadata->>'chunk_index')::int;
-                """,
-                (source_file,),
-            )
-            return "\n\n".join(row[0] for row in cur.fetchall())
-    finally:
-        conn.close()
+    return extract_json(response.content or "")
 
 
 def verify_content_support(drafted: dict) -> tuple[str, str]:
@@ -242,7 +188,7 @@ def verify_content_support(drafted: dict) -> tuple[str, str]:
         return "SUPPORTED", "Adversarial question: no citation to verify by design."
 
     full_contents = {
-        c["source_file"]: _fetch_full_content(c["source_file"])
+        c["source_file"]: fetch_full_content(c["source_file"])
         for c in drafted["citations"]
     }
 
@@ -258,7 +204,7 @@ def verify_content_support(drafted: dict) -> tuple[str, str]:
 
     driver = get_answer_driver()
     response = driver.run_tool_calling_turn([{"role": "user", "content": prompt}])
-    result = _extract_json(response.content or "")
+    result = extract_json(response.content or "")
     return result["verdict"], result["reason"]
 
 

@@ -16,16 +16,24 @@ can't tell you which one to tune:
     - decline_correct_rate: for the adversarial persona only -- did the
       system honestly decline instead of fabricating an answer?
 
-Grading (answer_accuracy/citation_accuracy) is a *separate* LLM_DRIVER call
-from whatever generated the answer -- same "never grade your own work"
-principle as corpus/commands/generate_questions.py's tier-2 verification.
-Only questions with verification_status="verified" and reviewed=true are
-evaluated -- an unverified or needs-review golden question isn't a
-trustworthy yardstick yet.
+Grading is a *separate* LLM_DRIVER call from whatever generated the answer
+-- same "never grade your own work" principle as
+corpus/commands/generate_questions.py's tier-2 verification. Only questions
+with verification_status="verified" are evaluated -- an unverified or
+needs-review golden question isn't a trustworthy yardstick yet.
+
+*How* a question is graded is itself a Strategy choice, not a single fixed
+rule -- see GradingStrategy's docstring and corpus/data/personas.json's
+grading_strategies field for why: a question like "which cases involve X
+type of ruling" accepts ANY real, correctly-matching document, not just
+the one a human happened to sample when drafting it, which the original
+fixed source_file-matching logic (ExactMatchGradingStrategy) couldn't
+account for -- confirmed live, see docs/decisions.md's 2026-10-03 entry.
 """
 
 import json
 import sys
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Annotated
 
@@ -35,10 +43,23 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from corpus.verification import (
+    extract_json,
+    fetch_full_content,
+    verify_citation_exists,
+)
+
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+PERSONAS_PATH = DATA_DIR / "personas.json"
 QUESTIONS_PATH = DATA_DIR / "questions.json"
 
 app = typer.Typer()
+
+
+def load_personas() -> dict[str, dict]:
+    """Load corpus/data/personas.json, keyed by persona id."""
+    personas = json.loads(PERSONAS_PATH.read_text())
+    return {p["id"]: p for p in personas}
 
 
 def load_verified_questions(persona_filter: str | None = None) -> list[dict]:
@@ -64,19 +85,6 @@ def load_verified_questions(persona_filter: str | None = None) -> list[dict]:
     if persona_filter:
         questions = [q for q in questions if q["persona_id"] == persona_filter]
     return questions
-
-
-def _extract_json(text: str) -> dict:
-    """Parse the first JSON object found in an LLM response.
-
-    Models sometimes wrap JSON in ```` ```json ... ``` ```` fences despite
-    being asked not to -- strip those before parsing rather than failing.
-    """
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = stripped.split("\n", 1)[1] if "\n" in stripped else stripped
-        stripped = stripped.rsplit("```", 1)[0]
-    return json.loads(stripped)
 
 
 def check_retrieval_hit(question: dict, retrieved_source_files: set[str]) -> bool:
@@ -129,19 +137,243 @@ def grade_answer(question: dict, generated_answer: str) -> dict:
 
     driver = get_answer_driver()
     response = driver.run_tool_calling_turn([{"role": "user", "content": prompt}])
-    return _extract_json(response.content or "")
+    return extract_json(response.content or "")
 
 
-def evaluate_one(question: dict, strategy_name: str) -> dict:
-    """Run one golden question through the real pipeline and grade the result.
+def _resolve_cited_source_files(generated_answer: str) -> list[str]:
+    """Find which real source_files the generated answer actually cites.
+
+    Extracts identifier-like tokens (case numbers, ...) directly from the
+    answer's own text and looks each one up against real document
+    content -- deterministic, no LLM involved. The same mechanism
+    query.retrieval's identifier-rescue already uses at query time
+    (extract_identifier_tokens/search_by_identifier), reused here to
+    verify what the answer itself claims instead of what a question asks.
+
+    Args:
+        generated_answer: What query_knowledge_base() actually returned.
+
+    Returns:
+        Distinct source_file values the answer's stated identifiers
+        actually resolve to, in the order first encountered. Empty if the
+        answer states no identifier, or none of them exist.
+    """
+    from store import VectorStore, extract_identifier_tokens
+
+    tokens = extract_identifier_tokens(generated_answer)
+    if not tokens:
+        return []
+
+    matches = VectorStore().search_by_identifier(tokens, top_k=10)
+    seen: list[str] = []
+    for m in matches:
+        if m.metadata.source_file not in seen:
+            seen.append(m.metadata.source_file)
+    return seen
+
+
+def _verify_answer_claim_support(
+    question_text: str, generated_answer: str, cited_source_files: list[str]
+) -> tuple[str, str]:
+    """Does the real content of what the answer cites actually satisfy
+    the question's own criteria, and does the answer describe it accurately?
+
+    A *separate* LLM_DRIVER call from whichever call produced the answer
+    -- same "never grade your own work" principle as grade_answer() and
+    corpus/commands/generate_questions.py's tier-2 verification. Unlike
+    grade_answer(), this never compares against a golden expected_answer/
+    citations -- the question accepts any real, correctly-matching
+    document (see GradingStrategy's docstring), so there's nothing fixed
+    to compare against; only the question's own stated criteria matter.
+
+    Args:
+        question_text: The golden question's own question text (its
+            stated criteria -- topic, outcome type, legal principle --
+            is what the cited content must actually satisfy).
+        generated_answer: What query_knowledge_base() actually returned.
+        cited_source_files: What :func:`_resolve_cited_source_files` found.
+
+    Returns:
+        A ``(verdict, reason)`` tuple, verdict one of
+        "SUPPORTED"/"NOT_SUPPORTED"/"UNCLEAR".
+    """
+    from drivers.llm import get_answer_driver
+
+    full_contents = {f: fetch_full_content(f) for f in cited_source_files}
+
+    prompt = (
+        "You are verifying a RAG system's answer against real source "
+        "documents, for a Hungarian real-estate-law question-answering "
+        "evaluation. This question asks about a *category or pattern* of "
+        "case (e.g. \"which cases involve X type of ruling\"), so the "
+        "system is allowed to cite ANY real, correctly-matching document "
+        "-- not necessarily one specific document a human happened to "
+        "sample when a golden reference answer for this question was "
+        "originally drafted. Judge two things:\n\n"
+        "1. Does the cited document's real content genuinely satisfy the "
+        "question's own stated criteria (topic, outcome type, legal "
+        "principle)?\n"
+        "2. Does the system's answer accurately describe that content -- "
+        "no fabricated facts, no contradiction with the real document?\n\n"
+        f"Question: {question_text}\n\n"
+        f"System's answer:\n{generated_answer}\n\n"
+        f"Real content of the document(s) the answer cites:\n"
+        f"{json.dumps(full_contents, ensure_ascii=False)}\n\n"
+        "Output exactly this JSON shape, no surrounding prose: "
+        '{"verdict": "SUPPORTED | NOT_SUPPORTED | UNCLEAR", "reason": "..."}'
+    )
+
+    driver = get_answer_driver()
+    response = driver.run_tool_calling_turn([{"role": "user", "content": prompt}])
+    result = extract_json(response.content or "")
+    return result["verdict"], result["reason"]
+
+
+class GradingStrategy(ABC):
+    """Strategy for judging whether a generated answer is correct, given a
+    golden question -- selected per persona via corpus/data/personas.json's
+    ``grading_strategies`` list (see :func:`get_grading_strategy`).
+
+    Different personas make fundamentally different claims about what
+    counts as "correct":
+        - ``"exact_match"`` (:class:`ExactMatchGradingStrategy`): the
+          question has exactly one correct answer, pinned to the specific
+          document(s) sampled when it was drafted (e.g. ``fact_finder``).
+          Compares the generated answer and its stated citation(s)
+          directly against ``expected_answer``/``citations``.
+        - ``"independent_fact"`` (:class:`IndependentFactGradingStrategy`):
+          the question accepts ANY real document that satisfies the
+          question's own stated criteria, not just the one originally
+          sampled (e.g. ``precedent_seeker``, whose own
+          ``citation_expectation`` already says "one or more... based on
+          content/legal pattern, not region"). Verifies whatever the
+          system's own answer actually claims/cites, independent of the
+          golden ``citations`` -- confirmed live (see docs/decisions.md's
+          2026-10-03 entry) that comparing against one originally-sampled
+          document produces false negatives: a retrieved-and-cited
+          *different*, equally real and on-topic document scores as
+          "wrong" under ``exact_match`` alone.
+
+    A persona can configure more than one strategy at once (run and
+    reported separately per strategy) -- useful during a transition
+    between two strategies, to compare them directly without re-running
+    anything twice.
+    """
+
+    @abstractmethod
+    def grade(
+        self, question: dict, generated_answer: str, retrieved_source_files: set[str]
+    ) -> dict:
+        """Grade one already-generated answer.
+
+        Args:
+            question: The golden questions.json entry.
+            generated_answer: What query_knowledge_base() actually returned.
+            retrieved_source_files: The source_file values of the chunks
+                actually retrieved for this question.
+
+        Returns:
+            A dict with ``retrieval_hit``/``answer_correct``/``citation_correct``
+            (bool) and ``reason`` (str) -- same shape regardless of strategy,
+            so callers (print_report()) don't need to know which one ran.
+        """
+
+
+class ExactMatchGradingStrategy(GradingStrategy):
+    """Current/original behavior -- see GradingStrategy's docstring."""
+
+    def grade(
+        self, question: dict, generated_answer: str, retrieved_source_files: set[str]
+    ) -> dict:
+        retrieval_hit = check_retrieval_hit(question, retrieved_source_files)
+        grade = grade_answer(question, generated_answer)
+        return {
+            "retrieval_hit": retrieval_hit,
+            "answer_correct": bool(grade.get("answer_correct")),
+            "citation_correct": bool(grade.get("citation_correct")),
+            "reason": grade.get("reason", ""),
+        }
+
+
+class IndependentFactGradingStrategy(GradingStrategy):
+    """For category/pattern questions -- see GradingStrategy's docstring."""
+
+    def grade(
+        self, question: dict, generated_answer: str, retrieved_source_files: set[str]
+    ) -> dict:
+        cited_source_files = _resolve_cited_source_files(generated_answer)
+        if not cited_source_files:
+            return {
+                "retrieval_hit": False,
+                "answer_correct": False,
+                "citation_correct": False,
+                "reason": "No real, existing citation found in the generated answer.",
+            }
+
+        missing = [f for f in cited_source_files if not verify_citation_exists({"source_file": f})]
+        if missing:
+            # Shouldn't happen in practice -- search_by_identifier() only
+            # returns rows that already exist -- but checked explicitly
+            # rather than assumed, since this is the one thing standing
+            # between "the answer cites something real" and trusting it.
+            return {
+                "retrieval_hit": False,
+                "answer_correct": False,
+                "citation_correct": False,
+                "reason": f"Resolved citation(s) not found in document_chunks: {missing}",
+            }
+
+        verdict, reason = _verify_answer_claim_support(
+            question["question"], generated_answer, cited_source_files
+        )
+        correct = verdict == "SUPPORTED"
+        retrieval_hit = any(f in retrieved_source_files for f in cited_source_files)
+        return {
+            "retrieval_hit": retrieval_hit,
+            "answer_correct": correct,
+            "citation_correct": correct,
+            "reason": reason,
+        }
+
+
+def get_grading_strategy(name: str) -> GradingStrategy:
+    """Factory function: return the named grading strategy.
+
+    Args:
+        name: One of "exact_match"/"independent_fact" (see
+            corpus/data/personas.json's grading_strategies field).
+
+    Returns:
+        A :class:`GradingStrategy` instance ready to call.
+
+    Raises:
+        ValueError: If ``name`` is unknown.
+    """
+    if name == "exact_match":
+        return ExactMatchGradingStrategy()
+    if name == "independent_fact":
+        return IndependentFactGradingStrategy()
+    raise ValueError(
+        f"Unknown grading strategy: '{name}'. "
+        "Valid options are: 'exact_match', 'independent_fact'."
+    )
+
+
+def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) -> dict:
+    """Run one golden question through the real pipeline and grade it under
+    every grading strategy its persona configures.
 
     Args:
         question: A verified questions.json entry.
         strategy_name: "vector" or "hybrid" -- which RetrievalStrategy to use.
+        personas: Loaded personas.json, keyed by id (see load_personas()).
 
     Returns:
-        A dict with this question's raw results (retrieval_hit,
-        answer_correct, citation_correct, is_decline -- whichever apply).
+        A dict with ``persona_id`` and either ``is_decline`` (adversarial
+        only -- no citation to grade by any strategy, it's a pure
+        decline/no-decline check) or a ``grades`` sub-dict of
+        ``{strategy_name: grade_dict}``, one entry per strategy the
+        persona configures in ``grading_strategies``.
     """
     from query.decline_detection import looks_like_a_decline
     from query.retrieval import (
@@ -168,10 +400,12 @@ def evaluate_one(question: dict, strategy_name: str) -> dict:
         result["is_decline"] = looks_like_a_decline(answer)
         return result
 
-    result["retrieval_hit"] = check_retrieval_hit(question, retrieved_source_files)
-    grade = grade_answer(question, answer)
-    result["answer_correct"] = bool(grade.get("answer_correct"))
-    result["citation_correct"] = bool(grade.get("citation_correct"))
+    persona = personas[question["persona_id"]]
+    grading_strategy_names = persona.get("grading_strategies", ["exact_match"])
+    result["grades"] = {
+        name: get_grading_strategy(name).grade(question, answer, retrieved_source_files)
+        for name in grading_strategy_names
+    }
     return result
 
 
@@ -184,30 +418,56 @@ def _rate(results: list[dict], key: str) -> float | None:
 
 
 def print_report(results: list[dict]) -> None:
-    """Print a persona-bucketed accuracy/citation-correctness report."""
-    personas = sorted({r["persona_id"] for r in results})
+    """Print a persona+strategy-bucketed accuracy/citation-correctness report.
 
-    header = f"{'persona':<22}{'n':>4}  {'retrieval':>10}  {'answer':>8}  {'citation':>9}  {'decline':>8}"
+    One row per ``(persona_id, grading_strategy)`` pair found in
+    ``results`` -- a persona configured with more than one
+    ``grading_strategies`` entry (see personas.json) gets one row per
+    strategy, so comparing two strategies against the same run is
+    directly visible without re-running anything. Adversarial has no
+    grading strategy at all (it's a pure decline/no-decline check, not a
+    citation-correctness one) and gets its own single row instead.
+    """
+
+    def fmt(rate: float | None) -> str:
+        return "-" if rate is None else f"{rate:.0%}"
+
+    header = (
+        f"{'persona':<22}{'strategy':<17}{'n':>4}  {'retrieval':>10}  "
+        f"{'answer':>8}  {'citation':>9}  {'decline':>8}"
+    )
     print(header)
     print("-" * len(header))
 
-    for persona_id in personas:
-        bucket = [r for r in results if r["persona_id"] == persona_id]
+    adversarial_bucket = [r for r in results if "is_decline" in r]
+    if adversarial_bucket:
+        decline = _rate(adversarial_bucket, "is_decline")
+        print(
+            f"{'adversarial':<22}{'-':<17}{len(adversarial_bucket):>4}  {'-':>10}  "
+            f"{'-':>8}  {'-':>9}  {fmt(decline):>8}"
+        )
+
+    graded = [r for r in results if "grades" in r]
+    persona_strategy_pairs = sorted(
+        {(r["persona_id"], name) for r in graded for name in r["grades"]}
+    )
+    for persona_id, strategy_name in persona_strategy_pairs:
+        bucket = [
+            r["grades"][strategy_name]
+            for r in graded
+            if r["persona_id"] == persona_id and strategy_name in r["grades"]
+        ]
         retrieval = _rate(bucket, "retrieval_hit")
         answer = _rate(bucket, "answer_correct")
         citation = _rate(bucket, "citation_correct")
-        decline = _rate(bucket, "is_decline")
-
-        def fmt(rate: float | None) -> str:
-            return "-" if rate is None else f"{rate:.0%}"
 
         flag = ""
         if answer is not None and answer < 0.95:
             flag = "  <-- below 95% target"
 
         print(
-            f"{persona_id:<22}{len(bucket):>4}  {fmt(retrieval):>10}  {fmt(answer):>8}  "
-            f"{fmt(citation):>9}  {fmt(decline):>8}{flag}"
+            f"{persona_id:<22}{strategy_name:<17}{len(bucket):>4}  {fmt(retrieval):>10}  "
+            f"{fmt(answer):>8}  {fmt(citation):>9}  {'-':>8}{flag}"
         )
 
 
@@ -224,20 +484,20 @@ def eval(
 ) -> None:
     """Run the golden-set evaluation: persona-bucketed accuracy + citation correctness.
 
-    Only evaluates questions with verification_status="verified" and
-    reviewed=true (see corpus/data/questions.json) -- run
-    `generate-questions` first if there aren't enough yet.
+    Only evaluates questions with verification_status="verified" (see
+    corpus/data/questions.json) -- run `generate-questions` first if there
+    aren't enough yet. Grading strategy per persona comes from
+    corpus/data/personas.json's grading_strategies field.
     """
     if strategy not in ("vector", "hybrid"):
         raise typer.BadParameter("--strategy must be 'vector' or 'hybrid'")
 
     questions = load_verified_questions(persona_filter=persona)
     if not questions:
-        print(
-            "No verified+reviewed questions to evaluate. Run `generate-questions` first."
-        )
+        print("No verified questions to evaluate. Run `generate-questions` first.")
         raise typer.Exit(code=1)
 
+    personas = load_personas()
     print(f"Evaluating {len(questions)} question(s) with strategy={strategy} ...\n")
-    results = [evaluate_one(q, strategy) for q in questions]
+    results = [evaluate_one(q, strategy, personas) for q in questions]
     print_report(results)
