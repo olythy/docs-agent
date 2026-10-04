@@ -268,6 +268,15 @@ def test_get_all_source_files_returns_distinct_set(monkeypatch):
     assert result == {"a.pdf", "b.docx"}
 
 
+def test_count_hub_scored_chunks_returns_scored_and_total(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (258, 33156)
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    assert VectorStore().count_hub_scored_chunks() == (258, 33156)
+
+
 def test_has_chunks_from_source_returns_false_when_missing(monkeypatch):
     cursor = MagicMock()
     cursor.fetchone.return_value = None

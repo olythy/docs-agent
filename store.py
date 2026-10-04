@@ -896,6 +896,26 @@ class VectorStore:
             cur.execute("SELECT DISTINCT metadata->>'source_file' FROM document_chunks;")
             return {row[0] for row in cur.fetchall()}
 
+    def count_hub_scored_chunks(self) -> tuple[int, int]:
+        """Count how many chunks already carry a ``metadata.hub_score``.
+
+        Used by ``corpus.commands.coverage`` to flag a stale or missing
+        :meth:`compute_hub_scores` pass -- chunks ingested after the last
+        run (or before the first) have no score, so CSLS re-ranking
+        silently has nothing to work with for them.
+
+        Returns:
+            ``(scored, total)`` chunk counts.
+        """
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FILTER (WHERE metadata ? 'hub_score'), count(*) "
+                "FROM document_chunks;"
+            )
+            row = cur.fetchone()
+            assert row is not None  # an aggregate query always returns one row
+            return row[0], row[1]
+
     def get_embedding_dimension(self) -> int | None:
         """Read the declared dimension of the document_chunks.embedding column.
 

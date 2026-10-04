@@ -77,3 +77,28 @@ def coverage() -> None:
     print("-" * len(header))
     overall_pct = f"{total_covered / total_all:.0%}" if total_all else "-"
     print(f"{'TOTAL':<22}{total_covered:>9}  {total_all:>5}  {overall_pct:>6}")
+
+    _print_hub_score_coverage()
+
+
+def _print_hub_score_coverage() -> None:
+    """Print how many chunks have a hub_score, in red if any are missing.
+
+    CSLS re-ranking (see ``query.retrieval``) needs ``compute-hub-scores``
+    to have run over the *current* corpus; an eval run against chunks
+    without a score silently measures a pipeline with CSLS (partly) off.
+    """
+    from store import VectorStore
+
+    scored, total = VectorStore().count_hub_scored_chunks()
+    pct = f"{scored / total:.1%}" if total else "-"
+    line = f"\nhub_score: {scored}/{total} chunks scored ({pct})"
+    if total and scored < total:
+        typer.secho(
+            f"{line} -- WARNING: run `corpus/cli.py compute-hub-scores` before "
+            "trusting eval results (CSLS is partly or fully off).",
+            fg=typer.colors.RED,
+            bold=True,
+        )
+    else:
+        typer.secho(line, fg=typer.colors.GREEN)
