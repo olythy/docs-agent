@@ -684,3 +684,49 @@ def test_a_real_call_id_is_still_sent_back_to_the_api():
 
     assert contents[1].parts[0].function_call.id == "call_461665"
     assert contents[2].parts[0].function_response.id == "call_461665"
+
+
+def _prompt_chunks():
+    from models import ChunkMetadata, RetrievedChunk
+
+    return [
+        RetrievedChunk(
+            id=1,
+            content="szoveg",
+            metadata=ChunkMetadata(source_file="a.docx", page_number=1, chunk_index=0),
+            score=0.5,
+        )
+    ]
+
+
+def test_build_prompt_keeps_the_strict_refusal_by_default(monkeypatch, settings_override):
+    from drivers.llm import _build_prompt
+
+    monkeypatch.setattr(
+        llm_module, "settings", settings_override(ANSWER_PARTIAL_COVERAGE=False)
+    )
+
+    system, _ = _build_prompt("q?", _prompt_chunks())
+
+    assert "If the answer cannot be found in the excerpts at all" in system
+    assert "sample selected from a much larger collection" not in system
+
+
+def test_build_prompt_partial_coverage_refuses_only_without_a_relevant_excerpt(
+    monkeypatch, settings_override
+):
+    """Regression: with the strict wording a broad question with partial context
+    was refused 3/3; the exact refusal sentence must stay (decline detection and
+    the adversarial questions depend on it)."""
+    from drivers.llm import _build_prompt
+
+    monkeypatch.setattr(
+        llm_module, "settings", settings_override(ANSWER_PARTIAL_COVERAGE=True)
+    )
+
+    system, _ = _build_prompt("q?", _prompt_chunks())
+
+    assert "Refuse only when NONE of the excerpts is relevant" in system
+    assert "sample selected from a much larger collection" in system
+    assert "I could not find this information in the provided documents." in system
+    assert "If the answer cannot be found in the excerpts at all" not in system

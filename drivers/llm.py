@@ -268,6 +268,50 @@ class _OpenAICompatibleAnswerDriver(AnswerDriver):
         return response.choices[0].message.content or ""
 
 
+_SYSTEM_PROMPT_HEAD = (
+    "You are a helpful assistant that answers questions based strictly on "
+    "the provided document excerpts. Do not use your own general or "
+    "training knowledge, and do not fill in gaps with what you believe "
+    "is probably true, even if you feel confident about it — every "
+    "claim in your answer must be traceable to a specific excerpt "
+    "below. Always cite the source file and page number when "
+    "referencing information. If the excerpts only partially answer "
+    "the question, say exactly what they do and don't cover, rather "
+    "than completing the picture from outside knowledge. "
+)
+
+#: The original refusal rule. Confirmed live that with a broad "how did the
+#: practice develop ..." question and two relevant (but partial) excerpts, the
+#: model read "cannot be found at all" as "the excerpts do not contain the
+#: whole answer" and gave this exact sentence every time (3/3), even when a
+#: reminder was appended after the question.
+_REFUSAL_CLAUSE_STRICT = (
+    "If the answer cannot be found in the excerpts at all, respond with "
+    "exactly: 'I could not find this information in the provided "
+    "documents.'"
+)
+
+#: Refuse only when NO excerpt is relevant; otherwise answer with what the
+#: excerpts show. The exact refusal sentence is kept (the golden-set's decline
+#: detection and the adversarial questions depend on it).
+_REFUSAL_CLAUSE_PARTIAL = (
+    "Refuse only when NONE of the excerpts is relevant to the question: then "
+    "respond with exactly: 'I could not find this information in the provided "
+    "documents.' Whenever at least one excerpt is relevant, you must answer "
+    "with what it shows, even if that is only part of what was asked: list the "
+    "relevant cases or facts with their file names and page numbers, and then "
+    "say in one sentence which part of the question the excerpts do not cover. "
+    "A partial answer is always better than a refusal."
+)
+
+_SAMPLE_NOTE = (
+    " The excerpts are a small sample selected from a much larger collection "
+    "of decisions, so they will rarely cover everything a broad question asks: "
+    "describe what this sample shows and say what it does not cover, instead "
+    "of refusing."
+)
+
+
 def _build_prompt(
     question: str, context_chunks: list[RetrievedChunk]
 ) -> tuple[str, str]:
@@ -316,20 +360,14 @@ def _build_prompt(
         )
     context_text = "\n\n".join(context_parts)
 
-    system_prompt = (
-        "You are a helpful assistant that answers questions based strictly on "
-        "the provided document excerpts. Do not use your own general or "
-        "training knowledge, and do not fill in gaps with what you believe "
-        "is probably true, even if you feel confident about it — every "
-        "claim in your answer must be traceable to a specific excerpt "
-        "below. Always cite the source file and page number when "
-        "referencing information. If the excerpts only partially answer "
-        "the question, say exactly what they do and don't cover, rather "
-        "than completing the picture from outside knowledge. If the "
-        "answer cannot be found in the excerpts at all, respond with "
-        "exactly: 'I could not find this information in the provided "
-        "documents.'"
+    refusal_clause = (
+        _REFUSAL_CLAUSE_PARTIAL
+        if settings.ANSWER_PARTIAL_COVERAGE
+        else _REFUSAL_CLAUSE_STRICT
     )
+    system_prompt = _SYSTEM_PROMPT_HEAD + refusal_clause
+    if settings.ANSWER_PARTIAL_COVERAGE:
+        system_prompt += _SAMPLE_NOTE
 
     user_message = f"Document excerpts:\n\n{context_text}\n\nQuestion: {question}"
 

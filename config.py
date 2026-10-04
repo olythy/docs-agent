@@ -364,6 +364,20 @@ class Settings:
                               replaces) the normal candidate pool. Off by
                               default pending an A/B measurement.
 
+        ANSWER_PARTIAL_COVERAGE
+                              Whether the answer LLM is told to refuse only
+                              when *no* excerpt is relevant, and otherwise to
+                              answer with what the excerpts show and say what
+                              they do not cover (default: ``False``). With the
+                              strict wording, a broad question ("how did the
+                              practice develop ...") whose relevant excerpts
+                              cover only part of it was refused every time
+                              (3/3 on q0010); the partial-coverage wording
+                              plus a note that the excerpts are a *sample* of
+                              a larger collection brought that to 0/3. The
+                              exact refusal sentence is kept. Off by default
+                              pending a regression check on the personas that
+                              are at 100% (see docs/decisions.md).
         EXPOSE_DOCUMENT_DATE  Whether each excerpt's document date is shown to
                               the answer LLM (default: ``False``). When
                               ``True``, the excerpt header gets
@@ -508,6 +522,9 @@ class Settings:
     )
     RETRIEVAL_PERIOD_FILTER: bool = (
         os.getenv("RETRIEVAL_PERIOD_FILTER", "false").lower() == "true"
+    )
+    ANSWER_PARTIAL_COVERAGE: bool = (
+        os.getenv("ANSWER_PARTIAL_COVERAGE", "false").lower() == "true"
     )
     EXPOSE_DOCUMENT_DATE: bool = (
         os.getenv("EXPOSE_DOCUMENT_DATE", "false").lower() == "true"
