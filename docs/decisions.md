@@ -2,6 +2,14 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-04 — Vertex answer driver kept hitting 401 because `google-genai` checks `credentials.expired`, not `valid`
+
+Confirmed live: after the earlier fixes (`invalidate()` on a 401, and a `valid=False` override on `get_credentials()`'s credentials object), `GeminiAnswerDriver._generate` still retried on `Gemini generate_content status 401` -- the retries never recovered.
+
+**Root cause**: `google-genai`'s `get_token_from_credentials()` decides whether to call `credentials.refresh()` from `credentials.expired or not credentials.token`; it never looks at `valid`. The `_GcloudCliCredentials` object never sets `expiry`, so the base class's `expired` is `False` forever -- the SDK took the first token and never asked for another, and `invalidate()` on a 401 had no effect because nothing re-read the cache. The earlier `valid=False` override was based on a wrong assumption about which property the SDK checks (verified this time by reading the installed SDK source).
+
+**Fix**: `drivers/gcloud_auth.py` gained `is_stale()` (the cache's own freshness check, now shared with `get_access_token()`), and the credentials object's `expired`/`valid` are driven by it, so a near-expiry or invalidated token makes the SDK call `refresh()`, which re-fetches. Regression tests in `tests/unit/test_gcloud_auth.py`. Not verified against a real >1h Vertex session yet -- unit tests only.
+
 ## 2026-10-04 — `gcloud auth print-access-token` had no subprocess timeout; a real multi-hour bulk ingest hung indefinitely
 
 Confirmed live: during the overnight full-corpus re-ingest, the ingest process went to ~0% CPU and made zero progress (no new `document_ingested` log entries, no new rows) for over an hour, after the user's terminal showed a 401 error. Diagnosed by checking `ps` (the process was alive, sleeping, not a crash) and the log timeline (real progress stopped abruptly, over an hour before the check). `drivers/gcloud_auth.py`'s `get_access_token()` calls `subprocess.run(["gcloud", "auth", "print-access-token"], ...)` with no `timeout` argument -- if that one subprocess call ever hangs (observed live, cause not fully isolated -- possibly a network hiccup mid-reauth after the preceding 401 invalidated the cached token), nothing bounds the wait, and every Vertex-backed driver's own `@retry_on_transient_error` never even gets a chance to fire, since it only retries on exceptions the decorated function actually raises -- an indefinitely blocked `subprocess.run()` call never returns at all.

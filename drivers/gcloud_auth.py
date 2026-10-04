@@ -65,8 +65,7 @@ def get_access_token() -> str:
     """
     global _cached_token, _token_fetched_at
 
-    age = time.monotonic() - _token_fetched_at
-    if _cached_token is None or age > (_TOKEN_LIFETIME_SECONDS - _REFRESH_MARGIN_SECONDS):
+    if is_stale():
         try:
             result = subprocess.run(
                 ["gcloud", "auth", "print-access-token"],
@@ -84,7 +83,16 @@ def get_access_token() -> str:
             raise RuntimeError(f"gcloud auth print-access-token failed: {result.stderr}")
         _cached_token = result.stdout.strip()
         _token_fetched_at = time.monotonic()
+    assert _cached_token is not None
     return _cached_token
+
+
+def is_stale() -> bool:
+    """Whether the cached token is missing, invalidated, or near its expiry."""
+    age = time.monotonic() - _token_fetched_at
+    return _cached_token is None or age > (
+        _TOKEN_LIFETIME_SECONDS - _REFRESH_MARGIN_SECONDS
+    )
 
 
 def invalidate() -> None:
@@ -97,14 +105,16 @@ def invalidate() -> None:
 def get_credentials():
     """Return a ``google.auth.credentials.Credentials`` backed by :func:`get_access_token`.
 
-    ``valid`` always reports ``False`` so any caller that checks it before
-    using the token (e.g. ``google-genai``'s request-signing logic) always
-    calls ``refresh()`` first -- which just delegates to
-    :func:`get_access_token`'s own freshness check, the single source of
-    truth for whether a real ``gcloud`` subprocess call is actually needed.
-    Without this override, the base class's default ``valid`` becomes
-    ``True`` forever once a token is set (since ``expiry`` is never set
-    here), and nothing would ever pick up a refreshed token again.
+    ``expired`` (and ``valid``) are driven by :func:`is_stale` instead of
+    the base class's ``expiry`` timestamp, which is never set here. Confirmed
+    live (a 401 that kept recurring despite an earlier ``valid=False``
+    override) that ``google-genai`` decides whether to call ``refresh()``
+    from ``credentials.expired``, not ``valid`` -- and the base class's
+    ``expired`` is ``False`` forever when ``expiry`` is ``None``, so the
+    token was never refreshed after the first one, and
+    :func:`invalidate` on a 401 had no effect either. ``refresh()`` just
+    delegates to :func:`get_access_token`, the single source of truth for
+    whether a real ``gcloud`` subprocess call is actually needed.
 
     Returns:
         A ``Credentials`` instance usable as the ``credentials=`` argument
@@ -114,8 +124,12 @@ def get_credentials():
 
     class _GcloudCliCredentials(google.auth.credentials.Credentials):
         @property
+        def expired(self) -> bool:
+            return is_stale()
+
+        @property
         def valid(self) -> bool:
-            return False
+            return not is_stale()
 
         def refresh(self, request) -> None:
             self.token = get_access_token()

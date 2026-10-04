@@ -76,3 +76,30 @@ def test_get_access_token_raises_transient_error_on_timeout(monkeypatch):
 
     with pytest.raises(TransientAPIError, match="timed out"):
         get_access_token()
+
+
+def test_credentials_expired_tracks_the_token_cache(monkeypatch):
+    """Regression: google-genai checks ``credentials.expired`` (not ``valid``)
+    to decide whether to call refresh(). With no ``expiry`` set it was always
+    False, so a stale or invalidated token was never replaced."""
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
+    creds = gcloud_auth.get_credentials()
+    assert creds.expired is False
+
+    gcloud_auth.invalidate()
+    assert creds.expired is True
+
+
+def test_credentials_refresh_fetches_a_new_token_after_invalidate(monkeypatch):
+    fake_run = MagicMock(
+        side_effect=[_fake_gcloud_token("old"), _fake_gcloud_token("new")]
+    )
+    monkeypatch.setattr("subprocess.run", fake_run)
+    creds = gcloud_auth.get_credentials()
+    assert creds.token == "old"
+
+    gcloud_auth.invalidate()
+    creds.refresh(request=None)
+
+    assert creds.token == "new"
+    assert creds.expired is False
