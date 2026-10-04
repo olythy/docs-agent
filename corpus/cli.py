@@ -19,6 +19,7 @@ Usage::
     uv run python corpus/cli.py eval [--persona ID] [--strategy hybrid] [--only-covered]
     uv run python corpus/cli.py compute-hub-scores
     uv run python corpus/cli.py coverage
+    uv run python corpus/cli.py compare-retrieval [--persona ID]
 """
 
 import sys
@@ -31,6 +32,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from corpus.commands import (
+    compare_retrieval,
     compute_hub_scores,
     coverage,
     download,
@@ -44,6 +46,7 @@ app.add_typer(generate_questions.app)
 app.add_typer(eval.app)
 app.add_typer(compute_hub_scores.app)
 app.add_typer(coverage.app)
+app.add_typer(compare_retrieval.app)
 
 if __name__ == "__main__":
     app()
