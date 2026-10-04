@@ -37,8 +37,13 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 ├── connection_scope.py     # Shared-or-short-lived connection handling, used by composition (DocumentStore)
 ├── metadata/               # Structured-metadata core (generic, corpus-agnostic)
 │   ├── catalog.py           # Validate / load / version the key catalog (a JSON file per corpus)
+│   ├── evidence.py          # EvidenceSelector: rerank a document's chunks by a key's description
+│   ├── sources.py           # MetaSource ABC: LLMMetaSource (general) and ChunkMetadataSource (adapter)
+│   ├── conversion.py        # Candidate text -> typed MetaValue
 │   ├── verification.py      # EvidenceVerifier: does an extracted value really exist in the text?
-│   └── date_parsers.py      # Language-specific date readers the verifier is given (Hungarian today)
+│   ├── date_parsers.py      # Language-specific date readers the verifier is given (Hungarian today)
+│   └── runner.py            # MetaExtractionRunner: idempotent, resumable extraction + statuses
+├── llm_json.py             # extract_json: tolerant parsing of a model's JSON reply (shared by corpus tooling and metadata)
 ├── logger.py                # Structured JSONL telemetry/event logging
 ├── retry_policy.py          # Shared retry-with-backoff decorator (TransientAPIError, retry_on_transient_error)
 ├── drivers/
@@ -73,7 +78,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── eval_data/
 │   │   └── sample_questions.json  # eval_cli.py's own 25-question self-referential eval set (fixture docs live in tests/data/)
 │   ├── log_cli.py            # Telemetry & logging CLI: watch/tail, stats, clear (uv run python scripts/log_cli.py)
-│   ├── meta_cli.py           # Structured-metadata CLI: sync-documents, load-catalog (uv run python scripts/meta_cli.py)
+│   ├── meta_cli.py           # Structured-metadata CLI: sync-documents, load-catalog, extract-meta, coverage (uv run python scripts/meta_cli.py)
 │   └── utils.py              # Shared CLI utilities (subprocess runner, paths, terminal formatting)
 ├── docker-compose.yml       # Local Postgres+pgvector (dev + test databases)
 ├── docker/
@@ -91,7 +96,8 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   │   ├── compute_hub_scores.py  # `compute-hub-scores` command (CSLS hub_score batch pass)
 │   │   ├── coverage.py        # `coverage` command: how much of the golden set is answerable now; flags missing hub scores
 │   │   ├── compare_retrieval.py  # `compare-retrieval` command: retrieval-only A/B of identifier-guarantee / period options
-│   │   └── funnel.py          # `funnel` command: per-stage retrieval trace -- where a golden/valid document drops out
+│   │   ├── funnel.py          # `funnel` command: per-stage retrieval trace -- where a golden/valid document drops out
+│   │   └── meta_accuracy.py   # `meta-accuracy` command: extracted metadata vs meta.csv (measurement truth only)
 │   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/
@@ -209,7 +215,6 @@ Run `make` or `make help` any time for this same list straight from the terminal
 | `make db-migrate` | `uv run python scripts/db_cli.py up` — migrate `DATABASE_URL` (`.env`, dev database) |
 | `make db-migrate-test` | `AGENT_ENV=test uv run python scripts/db_cli.py up` — migrate test database (`.env.test`) |
 | `make db-flush` | `uv run python scripts/db_cli.py flush` — truncate `document_chunks` and `documents` (rows only, keeps schema and the key catalog) |
-| `make documents-sync` | `uv run python scripts/meta_cli.py sync-documents` — make the `documents` table match the ingested chunks (idempotent) |
 | `make db-refresh` | `uv run python scripts/db_cli.py flush && uv run python scripts/db_cli.py up` — empty table, re-apply pending migrations |
 | `make migrate-status` | `uv run python scripts/db_cli.py status` — show applied vs. pending migrations |
 | `make migrate-install` | `uv run python scripts/db_cli.py install` — create `schema_migrations` tracking table only |
@@ -218,6 +223,17 @@ Run `make` or `make help` any time for this same list straight from the terminal
 | `make migrate-reset` | `uv run python scripts/db_cli.py reset` — revert every applied migration |
 | `make migrate-refresh` | `uv run python scripts/db_cli.py refresh` — `reset` then `up` |
 | `make make-migration name=<snake_case>` | `uv run python scripts/db_cli.py make <snake_case>` — scaffold a new migration file |
+
+### Structured metadata (`scripts/meta_cli.py`)
+
+Typed per-document facts for counting/listing questions -- see `docs/structured-metadata-design.md`. Runs against `DATABASE_URL`.
+
+| Command | Equivalent / Description |
+|---|---|
+| `make documents-sync` | `uv run python scripts/meta_cli.py sync-documents` — make the `documents` table match the ingested chunks (idempotent) |
+| `uv run python scripts/meta_cli.py load-catalog corpus/data/meta_catalog.json` | validate a key catalog and import it into `meta_keys` (a changed key definition bumps its version) |
+| `make extract-meta limit=50` | `uv run python scripts/meta_cli.py extract-meta --limit 50` — extract the catalog's keys (**one LLM call per document**); idempotent and resumable; start small |
+| `make meta-coverage` | `uv run python scripts/meta_cli.py coverage` — per key: verified / confirmed absent / unverified / not tried (red when anything is unknown) |
 
 ### Agent & Runtime (`scripts/agent_cli.py`)
 

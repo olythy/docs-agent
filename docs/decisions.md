@@ -2,6 +2,16 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-04 — Milestone 2 of the structured-metadata layer: first live extraction (50 documents), and what "verified" does and does not mean
+
+Built the extraction path: a key catalog loaded from data (`corpus/data/meta_catalog.json`), `EvidenceSelector` (rerank a document's chunks using the key's *description* as the query, keep the best 1-2 per key), `LLMMetaSource` (one call per document, a verbatim quote required per value), `ChunkMetadataSource` (an adapter that copies the `document_date` the ingest regex already extracted), `EvidenceVerifier`, `MetaExtractionRunner` (idempotent and resumable: only (document, key) pairs with no status at the key's current version; a source that fails leaves the key *pending* so the next run retries it) and the `extract-meta` / `coverage` commands.
+
+**First live run, `--limit 50`**, 1 min 54 s: 149 values present, 0 unverified, 0 failed, 1 confirmed absent. Against `corpus/meta.csv` (measurement truth only): `document_kind` 50/50, `issuing_body` 49/50. The one miss is instructive: in `M_70015_2020_10` the court's name is *anonymised in the document itself* ("...-i Törvényszék"), the model quoted exactly that, the quote verified, and the value still disagrees with the truth. **Verification proves a value is in the document, not that it is the right fact**; a corpus whose documents are partly redacted needs another source (here a sidecar adapter), not a better extractor.
+
+**The sample is biased and the 100% is weak evidence.** `--limit` takes documents in file-name order, so 42 of the 50 were from one court and only 1 was an order (végzés); partial and interim judgments were not exercised, and `meta.csv` cannot check them anyway (it only knows Ítélet / Végzés / Egyéb). A random or per-court sample is the next step before running all 2,235 documents (~85 minutes of LLM calls at this rate).
+
+**A layering slip caught and fixed.** The new generic `metadata/` package first imported `extract_json` from `corpus/verification.py`, i.e. the corpus-agnostic core depended on the corpus tooling. `extract_json` is a general helper, so it moved to `llm_json.py` and `corpus/verification.py` re-exports it (existing imports and tests unchanged). The runner depends on two small Protocols (`DocumentRepository`, `ChunkRepository`) instead of the concrete stores, so its logic is tested with in-memory fakes, with one integration test on the real stores.
+
 ## 2026-10-04 — Milestone 1 of the structured-metadata layer: connection handling by composition, and `flush` now also empties `documents`
 
 Built the tables (migration 0004), the models, `DocumentStore`, a `sync-documents` command and tests (12 DB tests; applied to the test database only so far). Two choices worth recording:

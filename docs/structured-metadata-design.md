@@ -1,6 +1,6 @@
 # Structured metadata layer: design
 
-Status: **agreed design; milestone 1 is built** (the tables, `DocumentStore`, the `sync-documents` command, tests) and applied to the test database; milestones 2-5 are not. The evidence behind it is in `docs/decisions.md` (the 2026-10-04 entries on counting/listing, the `document_date` accuracy measurement, and the key-extraction prototype).
+Status: **agreed design; milestones 1 and 2 are built** (tables, `DocumentStore`, catalog loader, evidence verifier, `EvidenceSelector`, the LLM and adapter sources, `MetaExtractionRunner`, `extract-meta` / `coverage`, and the `meta-accuracy` measurement); a first 50-document live run is recorded in `docs/decisions.md`. Milestones 3-5 are not built.
 
 ## Why
 
@@ -110,7 +110,7 @@ A separate batch command (modelled on `compute-hub-scores`), run after ingest, i
 ## Milestones
 
 1. Migration, `DocumentStore`, generated `content_hash` column; backfill `documents` from the existing chunks. **Built.** Keeping `documents` in step with ingestion (register on ingest, remove on replace) is not wired yet: `sync-documents` does it on demand and is idempotent.
-2. `extract-meta` for objective keys (`issuing_body`, `decision_date`, `document_kind` as a categorical key) with the LLM source and the existing regex date as an adapter; coverage report. **Slice A built**: the catalog loader/versioning (`metadata/catalog.py`, `meta_cli.py load-catalog`, the court catalog as data in `corpus/data/meta_catalog.json`) and the `EvidenceVerifier` with a pluggable `DateParser`. **Slice B not yet**: `EvidenceSelector`, the LLM and regex `MetaSource`s, `MetaExtractionRunner` and the `extract-meta` command.
+2. `extract-meta` for objective keys (`issuing_body`, `decision_date`, `document_kind` as a categorical key) with the LLM source and the existing regex date as an adapter; coverage report. **Built**: the catalog loader/versioning (`metadata/catalog.py`, `meta_cli.py load-catalog`, the court catalog as data in `corpus/data/meta_catalog.json`), the `EvidenceVerifier` with a pluggable `DateParser`, `EvidenceSelector`, `LLMMetaSource` and `ChunkMetadataSource`, `MetaExtractionRunner` and the `extract-meta` / `coverage` commands. The first live run (50 documents, not a random sample) verified every value; the one disagreement with ground truth was a redacted court name that the document itself does not contain.
 3. Plan DSL, `PlanCompiler`, `DateRangeResolver`, `Clock`: testable without any LLM.
 4. `LLMQueryPlanner` and a `corpus/` eval command that scores count/list questions exactly.
 5. Wire the planner into `query_knowledge_base` as the router.

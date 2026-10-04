@@ -124,6 +124,7 @@ Defaults are `config.py`'s (this project's own `.env` overrides some, e.g. Verte
 | `eval [--only-covered] [--verbose] [--persona P] [--strategy S]` | Persona-bucketed retrieval / answer / citation accuracy, with a legend printed under the table. `--verbose` adds, per question, the answer, retrieved and cited documents, whether it refused, and the grader's reason. Costs LLM calls. |
 | `compare-retrieval [--top-k N]` | Retrieval-only A/B (identifier guarantees off / on / on + period): strict `all` hit, loose `any` proxy, document recall, in-period share. No LLM calls. |
 | `funnel -q ID [-q ID ...]` | Follows a question through every retrieval stage (vector, full-text, fusion, rerank, final `top_k`) and shows, per stage, how many chunks and distinct documents there are, where each golden document ranks, and how many documents meet the court/year the question names -- so you can see *where* a document drops out. Retrieval only, no LLM calls; honours the environment's switches. |
+| `meta-accuracy` | Compares the extracted structured metadata (`issuing_body`, `document_kind`) with `corpus/meta.csv`, this corpus's by-product ground truth. Measurement only: the generic metadata core never reads that file. |
 | `compute-hub-scores` | (Re)computes every chunk's `hub_score`. |
 | `generate-questions` / `download` | Golden-question drafting and verification; corpus acquisition. |
 
@@ -148,6 +149,7 @@ flowchart LR
         db["db.py — connection factory"]
         store["store.py — VectorStore"]
         docstore["document_store.py — DocumentStore<br/>(structured metadata; not yet wired into retrieval)"]
+        metadata["metadata/ — catalog, evidence selection,<br/>LLM / adapter sources, verification, runner"]
     end
     subgraph Shapes["Core data shapes"]
         models["models.py<br/>ChunkMetadata / Chunk / RetrievedChunk"]
