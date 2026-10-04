@@ -35,6 +35,10 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 ├── store.py                # VectorStore: all document_chunks persistence (save/search)
 ├── document_store.py       # DocumentStore: all SQL for documents, the key catalog, extracted values and their status
 ├── connection_scope.py     # Shared-or-short-lived connection handling, used by composition (DocumentStore)
+├── metadata/               # Structured-metadata core (generic, corpus-agnostic)
+│   ├── catalog.py           # Validate / load / version the key catalog (a JSON file per corpus)
+│   ├── verification.py      # EvidenceVerifier: does an extracted value really exist in the text?
+│   └── date_parsers.py      # Language-specific date readers the verifier is given (Hungarian today)
 ├── logger.py                # Structured JSONL telemetry/event logging
 ├── retry_policy.py          # Shared retry-with-backoff decorator (TransientAPIError, retry_on_transient_error)
 ├── drivers/
@@ -69,7 +73,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── eval_data/
 │   │   └── sample_questions.json  # eval_cli.py's own 25-question self-referential eval set (fixture docs live in tests/data/)
 │   ├── log_cli.py            # Telemetry & logging CLI: watch/tail, stats, clear (uv run python scripts/log_cli.py)
-│   ├── meta_cli.py           # Structured-metadata CLI: sync-documents (uv run python scripts/meta_cli.py)
+│   ├── meta_cli.py           # Structured-metadata CLI: sync-documents, load-catalog (uv run python scripts/meta_cli.py)
 │   └── utils.py              # Shared CLI utilities (subprocess runner, paths, terminal formatting)
 ├── docker-compose.yml       # Local Postgres+pgvector (dev + test databases)
 ├── docker/
@@ -91,6 +95,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/
+│       ├── meta_catalog.json  # Key catalog for the court-decision corpus (data, loaded by `meta_cli.py load-catalog`)
 │       ├── personas.json    # 5 user-profile definitions driving golden-question style
 │       └── questions.json   # Golden-set questions (question/answer/citation/verification_status)
 ├── skills/                  # Claude Code skills (canonical source — `make skills-install` symlinks into .claude/skills/)

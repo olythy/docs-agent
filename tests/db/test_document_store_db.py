@@ -277,3 +277,65 @@ def test_the_store_can_share_one_connection_across_calls(db_conn):
         store.upsert_document(Document(HASH_A, "a.docx"))
         store.upsert_document(Document(HASH_B, "b.docx"))
         assert store.count_documents() == 2
+
+
+def test_importing_a_catalog_adds_then_leaves_an_unchanged_one_alone(db_conn):
+    from metadata.catalog import KeyCatalog
+
+    keys = [
+        MetaKey(
+            "invoice",
+            "total",
+            ValueType.NUMBER,
+            "Gross total.",
+            status=KeyStatus.APPROVED,
+        ),
+        MetaKey(
+            "invoice",
+            "currency",
+            ValueType.TEXT,
+            "Currency code.",
+            status=KeyStatus.APPROVED,
+        ),
+    ]
+    catalog = KeyCatalog(DocumentStore())
+
+    first = catalog.import_seed(keys)
+    second = catalog.import_seed(keys)
+
+    assert (first.added, first.revised, first.unchanged) == (2, 0, 0)
+    assert (second.added, second.revised, second.unchanged) == (0, 0, 2)
+    assert {k.version for k in DocumentStore().list_keys("invoice")} == {1}
+
+
+def test_changing_a_keys_description_bumps_its_version(db_conn):
+    """So values extracted under the old definition can be recognised as stale."""
+    from metadata.catalog import KeyCatalog
+
+    catalog = KeyCatalog(DocumentStore())
+    catalog.import_seed(
+        [
+            MetaKey(
+                "invoice",
+                "total",
+                ValueType.NUMBER,
+                "Gross total.",
+                status=KeyStatus.APPROVED,
+            )
+        ]
+    )
+
+    result = catalog.import_seed(
+        [
+            MetaKey(
+                "invoice",
+                "total",
+                ValueType.NUMBER,
+                "Net total.",
+                status=KeyStatus.APPROVED,
+            )
+        ]
+    )
+
+    [stored] = DocumentStore().list_keys("invoice")
+    assert (result.revised, stored.description, stored.version) == (1, "Net total.", 2)

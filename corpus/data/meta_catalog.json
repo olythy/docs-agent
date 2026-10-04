@@ -1,0 +1,24 @@
+{
+  "doc_type": "court_decision",
+  "keys": [
+    {
+      "key": "issuing_body",
+      "value_type": "text",
+      "description": "Name of the court that issued this decision, exactly as written in the document.",
+      "example": "Budapest Környéki Törvényszék"
+    },
+    {
+      "key": "decision_date",
+      "value_type": "date",
+      "description": "The date on which this decision was issued (the date of the judgment, usually in the signature line at the end).",
+      "example": "2024-12-16"
+    },
+    {
+      "key": "document_kind",
+      "value_type": "text",
+      "description": "The kind of court document. judgment = a final decision on the merits (ítélet); partial_judgment = a decision on part of the claims (részítélet); interim_judgment = a preliminary decision on a point of principle (közbenső ítélet); order = a procedural or non-merits decision (végzés); other = anything else.",
+      "example": "judgment",
+      "allowed_values": ["judgment", "partial_judgment", "interim_judgment", "order", "other"]
+    }
+  ]
+}

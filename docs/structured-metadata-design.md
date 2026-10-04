@@ -110,7 +110,7 @@ A separate batch command (modelled on `compute-hub-scores`), run after ingest, i
 ## Milestones
 
 1. Migration, `DocumentStore`, generated `content_hash` column; backfill `documents` from the existing chunks. **Built.** Keeping `documents` in step with ingestion (register on ingest, remove on replace) is not wired yet: `sync-documents` does it on demand and is idempotent.
-2. `extract-meta` for objective keys (`issuing_body`, `decision_date`, `document_kind` as a categorical key) with the LLM source and the existing regex date as an adapter; coverage report.
+2. `extract-meta` for objective keys (`issuing_body`, `decision_date`, `document_kind` as a categorical key) with the LLM source and the existing regex date as an adapter; coverage report. **Slice A built**: the catalog loader/versioning (`metadata/catalog.py`, `meta_cli.py load-catalog`, the court catalog as data in `corpus/data/meta_catalog.json`) and the `EvidenceVerifier` with a pluggable `DateParser`. **Slice B not yet**: `EvidenceSelector`, the LLM and regex `MetaSource`s, `MetaExtractionRunner` and the `extract-meta` command.
 3. Plan DSL, `PlanCompiler`, `DateRangeResolver`, `Clock`: testable without any LLM.
 4. `LLMQueryPlanner` and a `corpus/` eval command that scores count/list questions exactly.
 5. Wire the planner into `query_knowledge_base` as the router.
