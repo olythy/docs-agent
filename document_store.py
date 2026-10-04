@@ -398,6 +398,35 @@ class DocumentStore:
             rows = cur.fetchall()
         return [Document(*row) for row in rows]
 
+    def execute_query(
+        self, sql: str, params: tuple, timeout_ms: int = 10_000
+    ) -> list[tuple]:
+        """Run a compiled, parameterised read-only query and return its rows.
+
+        The SQL comes from :class:`metadata.compiler.PlanCompiler`, which only ever
+        puts bound parameters and fixed fragments in it. As defence in depth the
+        statement runs in a read-only transaction with a time limit, so even a
+        compiler bug could neither modify data nor hold the database for long.
+
+        Args:
+            sql: The query, with ``%s`` placeholders.
+            params: Its parameters.
+            timeout_ms: Abort the statement after this many milliseconds.
+
+        Returns:
+            The result rows.
+        """
+        with self._scope.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SET TRANSACTION READ ONLY")
+                    cur.execute(f"SET LOCAL statement_timeout = {int(timeout_ms)}")
+                    cur.execute(sql, params)
+                    rows = cur.fetchall()
+            finally:
+                conn.rollback()  # nothing to keep; also ends the read-only transaction
+        return rows
+
     def coverage(self, keys: list[MetaKey]) -> list[KeyCoverage]:
         """Count, per key, how many documents are in each state.
 
