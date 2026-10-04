@@ -2,6 +2,16 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-04 — `make chat` crashed on the first tool call: Vertex AI mode does not fill `FunctionCall.id`
+
+Found by using the agent for real (not by a test): `make chat` died with `AssertionError: a function call always has an id` in `GeminiAnswerDriver.run_tool_calling_turn` as soon as a question made the model call `query_knowledge_base`.
+
+**Cause**: the 2026-09-30 entry records that Gemini's `FunctionCall` carries a real per-call `id` -- confirmed live, but against the Gemini API (AI Studio). The SDK documents the field as optional ("If populated"), and `VertexAnswerDriver` inherits the same method while talking to Vertex AI, where it is not populated. The `assert` turned an optional field into a crash.
+
+**Fix**: when the id is missing the driver makes one up (`call_<index>_<random>`) purely to pair the tool result with its call, and marks it `provider_data["synthesized_id"]`; when the conversation is rebuilt for the next request, a synthesized id is **not** sent back (a real one still is, unchanged). Not sending it avoids relying on whether Vertex accepts an `id` the model never issued.
+
+Tests: a function call without an id is accepted; a synthesized id is not sent back; a real id still is (the first two fail against the old code). Verified end to end with `LLM_DRIVER=vertex` against the live API: the tool round trip completes. The question used ended in an honest "could not find" -- that is the separate retrieval problem described in the entry below, not this bug.
+
 ## 2026-10-04 — Where the weak golden personas (precedent_seeker, synthesizer) are actually stuck: a day of cheap fixes that did not move the number
 
 With the corpus frozen (33/33 golden questions covered, hub scores 100% fresh) the baseline is: single-document personas 100%; precedent_seeker `independent_fact` answer 50% / `exact_match` 8%; synthesizer 14% / 7%; target 95%. `eval --verbose` (added today) shows the dominant failure is a refusal ("I could not find ...") on ~15 of 26 weak-persona questions **even though 2-4 documents were retrieved**.

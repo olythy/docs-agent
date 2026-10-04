@@ -592,3 +592,95 @@ def test_get_answer_driver_is_cached():
     driver1 = get_answer_driver()
     driver2 = get_answer_driver()
     assert driver1 is driver2
+
+
+def test_gemini_driver_tolerates_a_function_call_without_an_id(
+    monkeypatch, settings_override
+):
+    """Regression: Vertex AI mode does not fill FunctionCall.id (it is optional
+    in the SDK), and an `assert id is not None` crashed `make chat` on the first
+    question that triggered a tool call."""
+    monkeypatch.setattr(
+        llm_module, "settings", settings_override(LLM_REQUEST_DELAY_SECONDS=0.0)
+    )
+    part = _fake_function_call_part(
+        None, "query_knowledge_base", {"question": "What is X?"}
+    )
+    fake_client = _fake_gemini_client(text=None, function_call_parts=[part])
+    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+
+    result = GeminiAnswerDriver(model="gemini-2.5-flash").run_tool_calling_turn(
+        [{"role": "user", "content": "hey"}],
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "query_knowledge_base",
+                    "description": "d",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ],
+    )
+
+    call = result.tool_calls[0]
+    assert call.id  # made up, but present and usable for pairing the result
+    assert call.provider_data == {"synthesized_id": True}
+
+
+def test_a_synthesized_call_id_is_not_sent_back_to_the_api():
+    from drivers.llm import _messages_to_gemini_contents
+
+    messages = [
+        {"role": "user", "content": "What is X?"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_0_abcd1234",
+                    "type": "function",
+                    "function": {
+                        "name": "query_knowledge_base",
+                        "arguments": '{"question": "What is X?"}',
+                    },
+                    "provider_data": {"synthesized_id": True},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_0_abcd1234", "content": "KB ANSWER"},
+    ]
+
+    _, contents = _messages_to_gemini_contents(messages)
+
+    assert contents[1].parts[0].function_call.id is None
+    assert contents[2].parts[0].function_response.id is None
+    assert contents[2].parts[0].function_response.name == "query_knowledge_base"
+
+
+def test_a_real_call_id_is_still_sent_back_to_the_api():
+    from drivers.llm import _messages_to_gemini_contents
+
+    messages = [
+        {"role": "user", "content": "What is X?"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_461665",
+                    "type": "function",
+                    "function": {
+                        "name": "query_knowledge_base",
+                        "arguments": "{}",
+                    },
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_461665", "content": "KB ANSWER"},
+    ]
+
+    _, contents = _messages_to_gemini_contents(messages)
+
+    assert contents[1].parts[0].function_call.id == "call_461665"
+    assert contents[2].parts[0].function_response.id == "call_461665"

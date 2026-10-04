@@ -33,6 +33,7 @@ Usage::
 """
 
 import json
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -433,6 +434,10 @@ def _messages_to_gemini_contents(messages: list[dict]):
       re-attached to the function-call Part when rebuilding this turn's
       history for the next request.
 
+    A call id this project made up (``provider_data["synthesized_id"]``, see
+    :meth:`GeminiAnswerDriver.run_tool_calling_turn`) is used only to pair the
+    tool result with its call; it is not sent to the API.
+
     A tool-role message only carries ``tool_call_id`` (OpenAI's shape has
     no field for the function name there) — the id-to-name mapping built
     while walking the assistant message that made the call is needed to
@@ -450,6 +455,7 @@ def _messages_to_gemini_contents(messages: list[dict]):
     system_instruction = None
     contents = []
     call_id_to_name: dict[str, str] = {}
+    synthesized_ids: set[str] = set()
     for message in messages:
         role = message["role"]
         if role == "system":
@@ -472,8 +478,11 @@ def _messages_to_gemini_contents(messages: list[dict]):
                     name=name, args=json.loads(tool_call["function"]["arguments"])
                 )
                 assert part.function_call is not None  # from_function_call() sets it
-                part.function_call.id = call_id
                 provider_data = tool_call.get("provider_data") or {}
+                if provider_data.get("synthesized_id"):
+                    synthesized_ids.add(call_id)
+                else:
+                    part.function_call.id = call_id
                 if "thought_signature" in provider_data:
                     part.thought_signature = provider_data["thought_signature"]
                 parts.append(part)
@@ -487,7 +496,8 @@ def _messages_to_gemini_contents(messages: list[dict]):
             assert (
                 response_part.function_response is not None
             )  # from_function_response() sets it
-            response_part.function_response.id = call_id
+            if call_id not in synthesized_ids:
+                response_part.function_response.id = call_id
             # role="user", not "tool": see this function's docstring.
             contents.append(types.Content(role="user", parts=[response_part]))
         else:
@@ -666,25 +676,33 @@ class GeminiAnswerDriver(AnswerDriver):
         parts = (
             candidates[0].content.parts if candidates and candidates[0].content else []
         )
-        for part in parts or []:
+        for index, part in enumerate(parts or []):
             function_call = part.function_call
             if function_call is None:
                 continue
-            assert function_call.id is not None, "a function call always has an id"
             assert function_call.name is not None, (
                 "a function call from the model always has a name"
             )
-            provider_data = (
-                {"thought_signature": part.thought_signature}
-                if part.thought_signature
-                else None
-            )
+            provider_data: dict = {}
+            call_id = function_call.id
+            if call_id is None:
+                # ``FunctionCall.id`` is optional in the SDK ("If populated").
+                # Confirmed live that the Gemini API (AI Studio) fills it, but
+                # Vertex AI mode does not -- ``make chat`` crashed on the first
+                # question that triggered a tool call. Make one up for this
+                # project's own bookkeeping (pairing the tool result with the
+                # call), and remember it is ours so it is never sent back to
+                # the API as if the model had issued it.
+                call_id = f"call_{index}_{uuid.uuid4().hex[:8]}"
+                provider_data["synthesized_id"] = True
+            if part.thought_signature:
+                provider_data["thought_signature"] = part.thought_signature
             tool_calls.append(
                 ToolCallRequest(
-                    id=function_call.id,
+                    id=call_id,
                     name=function_call.name,
                     arguments=json.dumps(function_call.args or {}),
-                    provider_data=provider_data,
+                    provider_data=provider_data or None,
                 )
             )
         content = None if tool_calls else (response.text or "")
