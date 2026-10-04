@@ -78,6 +78,11 @@ def coverage() -> None:
     overall_pct = f"{total_covered / total_all:.0%}" if total_all else "-"
     print(f"{'TOTAL':<22}{total_covered:>9}  {total_all:>5}  {overall_pct:>6}")
 
+    print(
+        "\ncovered = questions whose every cited document is already ingested "
+        "(only those are\nfair to evaluate, see `eval --only-covered`); total = verified "
+        "golden questions."
+    )
     _print_hub_score_coverage()
 
 

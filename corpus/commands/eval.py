@@ -164,7 +164,11 @@ def _resolve_cited_source_files(generated_answer: str) -> list[str]:
     if not tokens:
         return []
 
-    matches = VectorStore().search_by_identifier(tokens, top_k=10)
+    # per_token: with one shared LIMIT, a long document citing one identifier
+    # in every chunk could fill all rows and hide the answer's other
+    # citation from the grader (same bug as in retrieval, see
+    # docs/decisions.md).
+    matches = VectorStore().search_by_identifier(tokens, top_k=10, per_token=True)
     seen: list[str] = []
     for m in matches:
         if m.metadata.source_file not in seen:
@@ -205,7 +209,7 @@ def _verify_answer_claim_support(
         "You are verifying a RAG system's answer against real source "
         "documents, for a Hungarian real-estate-law question-answering "
         "evaluation. This question asks about a *category or pattern* of "
-        "case (e.g. \"which cases involve X type of ruling\"), so the "
+        'case (e.g. "which cases involve X type of ruling"), so the '
         "system is allowed to cite ANY real, correctly-matching document "
         "-- not necessarily one specific document a human happened to "
         "sample when a golden reference answer for this question was "
@@ -310,7 +314,11 @@ class IndependentFactGradingStrategy(GradingStrategy):
                 "reason": "No real, existing citation found in the generated answer.",
             }
 
-        missing = [f for f in cited_source_files if not verify_citation_exists({"source_file": f})]
+        missing = [
+            f
+            for f in cited_source_files
+            if not verify_citation_exists({"source_file": f})
+        ]
         if missing:
             # Shouldn't happen in practice -- search_by_identifier() only
             # returns rows that already exist -- but checked explicitly
@@ -402,6 +410,41 @@ def _citation_ranks(
     return {c["source_file"]: doc_rank.get(c["source_file"]) for c in citations}
 
 
+#: How many times a whole question is retried after an API rate limit/transient
+#: failure that the drivers' own per-call retries already gave up on, and how
+#: long to wait first. Confirmed live: one Vertex 429 on question 25 of 33
+#: aborted an entire ~10 minute (paid) eval run.
+_QUESTION_RETRIES = 3
+_QUESTION_RETRY_WAIT_SECONDS = 45
+
+
+def _evaluate_one_with_retry(
+    question: dict, strategy_name: str, personas: dict[str, dict]
+) -> dict:
+    """Run :func:`evaluate_one`, waiting out transient API failures between tries.
+
+    Raises:
+        TransientAPIError: If the question still fails after every retry.
+    """
+    import time
+
+    from retry_policy import TransientAPIError
+
+    for attempt in range(1, _QUESTION_RETRIES + 1):
+        try:
+            return evaluate_one(question, strategy_name, personas)
+        except TransientAPIError as exc:
+            if attempt == _QUESTION_RETRIES:
+                raise
+            print(
+                f"  [{question['id']}] transient API error ({exc}); waiting "
+                f"{_QUESTION_RETRY_WAIT_SECONDS}s before retry {attempt + 1}/"
+                f"{_QUESTION_RETRIES} ..."
+            )
+            time.sleep(_QUESTION_RETRY_WAIT_SECONDS)
+    raise AssertionError("unreachable")
+
+
 def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) -> dict:
     """Run one golden question through the real pipeline and grade it under
     every grading strategy its persona configures.
@@ -437,7 +480,16 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
 
     answer = query_knowledge_base(question["question"], strategy=strategy)
 
-    result: dict = {"persona_id": question["persona_id"], "question_id": question["id"]}
+    result: dict = {
+        "persona_id": question["persona_id"],
+        "question_id": question["id"],
+        "question": question["question"],
+        "answer": answer,
+        "retrieved_source_files": sorted(retrieved_source_files),
+        "expected_source_files": [
+            c["source_file"] for c in question.get("citations", [])
+        ],
+    }
 
     if question["persona_id"] == "adversarial":
         result["is_decline"] = looks_like_a_decline(answer)
@@ -521,7 +573,71 @@ def print_report(results: list[dict]) -> None:
             f"{fmt(answer):>8}  {fmt(citation):>9}  {'-':>8}{flag}"
         )
 
+    _print_report_legend()
     _print_retrieval_miss_diagnostics(graded)
+
+
+def print_verbose_cases(results: list[dict]) -> None:
+    """Print, per question, what the system answered and why it was graded as it was.
+
+    The aggregate table says *how many* questions failed; this says *why*,
+    so the failure modes can be told apart: the system declined, it cited
+    nothing real, it cited a document that doesn't support the claim, or
+    retrieval never surfaced the right document in the first place.
+    """
+    from query.decline_detection import looks_like_a_decline
+
+    print("\n" + "=" * 90 + "\nPer-question detail (--verbose)\n" + "=" * 90)
+    for r in results:
+        print(f"\n[{r['question_id']}] ({r['persona_id']}) {r['question']}")
+        print(f"  expected docs : {', '.join(r['expected_source_files']) or '-'}")
+        print(f"  retrieved docs: {', '.join(r['retrieved_source_files']) or '-'}")
+        answer = r["answer"]
+        print(f"  declined?     : {'YES' if looks_like_a_decline(answer) else 'no'}")
+        cited = _resolve_cited_source_files(answer)
+        print(f"  answer cites  : {', '.join(cited) or 'no real, resolvable document'}")
+        print(f"  answer        : {answer.strip()[:700]}")
+        if "is_decline" in r:
+            print(
+                f"  graded        : adversarial, declined correctly = {r['is_decline']}"
+            )
+            continue
+        for name, grade in r["grades"].items():
+            print(
+                f"  graded [{name}]: retrieval={grade['retrieval_hit']} "
+                f"answer={grade['answer_correct']} citation={grade['citation_correct']}"
+            )
+            print(f"      reason: {grade['reason']}")
+
+
+def _print_report_legend() -> None:
+    """Print what each report column and grading strategy means.
+
+    Printed under every report so a number is still interpretable weeks
+    later, without having to re-read this module.
+    """
+    print(
+        """
+How to read this table:
+  n           questions in the row.
+  retrieval   did the right document(s) reach the final top_k chunks the LLM sees?
+  answer      did the generated answer convey the expected facts?
+  citation    does the answer cite the right source?
+  decline     adversarial only: did the system honestly refuse instead of inventing?
+  <-- below 95% target: answer accuracy under the project's per-persona goal.
+
+Grading strategies (a persona can have two; each gets its own row):
+  exact_match       one right answer, pinned to the document(s) cited in the golden
+                    question. retrieval = EVERY cited document is in the top_k chunks.
+                    answer/citation = an LLM grader compares against the golden answer.
+  independent_fact  any real document that satisfies the question counts, not just the
+                    one sampled when the question was written. retrieval = at least one
+                    document the ANSWER cites was retrieved; answer = citation = a separate
+                    LLM confirms the cited document(s) support the answer's claim.
+  A low exact_match next to a higher independent_fact usually means the system found
+  other valid documents, not that retrieval failed outright.
+"""
+    )
 
 
 def _print_retrieval_miss_diagnostics(graded: list[dict]) -> None:
@@ -542,7 +658,13 @@ def _print_retrieval_miss_diagnostics(graded: list[dict]) -> None:
     if not misses:
         return
 
-    print(f"\nRetrieval misses (diagnostic, pool={DIAGNOSTIC_POOL_SIZE}):")
+    print(f"\nRetrieval misses (diagnostic, top {DIAGNOSTIC_POOL_SIZE} CHUNKS):")
+    print(
+        "  One line per document the missed question cites. 'rank N' = Nth distinct\n"
+        "  document within those chunks; 'not found' = not in them at all (or not\n"
+        "  ingested). A 'rank 1' line only means THIS cited document was found -- the\n"
+        "  question is a miss because another cited document was not."
+    )
     for r in misses:
         for source_file, rank in r["citation_ranks"].items():
             where = f"rank {rank}" if rank is not None else "not found"
@@ -566,6 +688,16 @@ def eval(
                 "Skip questions whose cited source_file(s) aren't all ingested "
                 "yet (see `coverage`) -- during a partial ingest, those would "
                 "show up as retrieval misses that are really just missing data."
+            ),
+        ),
+    ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            help=(
+                "After the table, print every question with the system's answer, "
+                "the documents it retrieved/cited, and the grader's reason -- to "
+                "tell failure modes apart (declined / unsupported / wrong document)."
             ),
         ),
     ] = False,
@@ -604,5 +736,7 @@ def eval(
 
     personas = load_personas()
     print(f"Evaluating {len(questions)} question(s) with strategy={strategy} ...\n")
-    results = [evaluate_one(q, strategy, personas) for q in questions]
+    results = [_evaluate_one_with_retry(q, strategy, personas) for q in questions]
     print_report(results)
+    if verbose:
+        print_verbose_cases(results)

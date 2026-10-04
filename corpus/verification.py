@@ -25,12 +25,15 @@ def extract_json(text: str) -> dict:
 
     Models sometimes wrap JSON in ```` ```json ... ``` ```` fences despite
     being asked not to -- strip those before parsing rather than failing.
+    Also tolerates raw control characters (e.g. a literal newline) inside
+    JSON strings, which ``json.loads``' default strict mode rejects: confirmed
+    live, one such grader reply aborted a whole 33-question eval run.
     """
     stripped = text.strip()
     if stripped.startswith("```"):
         stripped = stripped.split("\n", 1)[1] if "\n" in stripped else stripped
         stripped = stripped.rsplit("```", 1)[0]
-    return json.loads(stripped)
+    return json.loads(stripped, strict=False)
 
 
 def verify_citation_exists(citation: dict) -> bool:
