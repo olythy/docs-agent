@@ -561,3 +561,25 @@ def test_compute_hub_scores_commits_in_batches_and_reports_progress(
     assert updated_count == 3
     assert progress_calls == [(2, 3), (3, 3)]
     assert conn.commit.call_count == 2
+
+
+def test_search_by_identifier_per_token_uses_a_partitioned_bounded_query(monkeypatch):
+    """Each token gets its own share, so one document's many chunks can't
+    starve another token's document; a chunk matching two tokens is returned once."""
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [
+        (1, "x", {"source_file": "a.docx", "page_number": 1, "chunk_index": 0}),
+        (1, "x", {"source_file": "a.docx", "page_number": 1, "chunk_index": 0}),
+        (2, "y", {"source_file": "b.docx", "page_number": 1, "chunk_index": 0}),
+    ]
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    results = VectorStore().search_by_identifier(
+        ["P.1/2018", "K.2/2022"], top_k=20, per_token=True
+    )
+
+    sql, params = cursor.execute.call_args[0]
+    assert "PARTITION BY" in sql
+    assert params == (["%P.1/2018%", "%K.2/2022%"], 10)
+    assert [r.id for r in results] == [1, 2]

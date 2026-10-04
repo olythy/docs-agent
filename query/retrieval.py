@@ -131,8 +131,43 @@ class VectorRetrievalStrategy(RetrievalStrategy):
         return filtered[:top_k]
 
 
+def _round_robin_by_document(
+    chunks: list[RetrievedChunk], limit: int
+) -> list[RetrievedChunk]:
+    """Pick up to ``limit`` chunks, taking turns across distinct documents.
+
+    ``chunks`` is in descending score order. Round 1 takes each document's
+    best chunk (documents ordered by that best chunk's rank), round 2 each
+    document's second-best, and so on -- so a question naming two documents
+    gets both represented before either gets a second chunk.
+
+    Args:
+        chunks: Candidate chunks, best first.
+        limit: Maximum number of chunks to return.
+
+    Returns:
+        At most ``limit`` chunks, one document per turn.
+    """
+    by_document: dict[str, list[RetrievedChunk]] = {}
+    for chunk in chunks:
+        by_document.setdefault(chunk.metadata.source_file, []).append(chunk)
+
+    picked: list[RetrievedChunk] = []
+    queues = list(by_document.values())
+    while queues and len(picked) < limit:
+        for queue in queues:
+            if len(picked) == limit:
+                break
+            picked.append(queue.pop(0))
+        queues = [queue for queue in queues if queue]
+    return picked
+
+
 def _apply_top_k_with_guarantees(
-    chunks: list[RetrievedChunk], guaranteed_ids: set[int], top_k: int
+    chunks: list[RetrievedChunk],
+    guaranteed_ids: set[int],
+    top_k: int,
+    diversify: bool = False,
 ) -> list[RetrievedChunk]:
     """Truncate ``chunks`` to ``top_k``, giving guaranteed chunks priority.
 
@@ -163,14 +198,25 @@ def _apply_top_k_with_guarantees(
         guaranteed_ids: ``RetrievedChunk.id`` values to prioritize over
             plain ranking (e.g. from :meth:`store.VectorStore.search_by_identifier`).
         top_k: Maximum number of chunks to return.
+        diversify: If ``True``, fill the guaranteed slots round-robin across
+            distinct documents (see :func:`_round_robin_by_document`)
+            instead of purely by score. Confirmed live that without this a
+            question naming two case numbers can have all ``top_k`` slots
+            taken by one long document's chunks.
 
     Returns:
         At most ``top_k`` chunks: every guaranteed chunk present in
         ``chunks`` (highest-scoring first, capped at ``top_k``), plus the
         highest-scoring remaining chunks filling whatever budget is left.
     """
-    guaranteed = [c for c in chunks if c.id in guaranteed_ids][:top_k]
-    rest = [c for c in chunks if c.id not in guaranteed_ids]
+    guaranteed_pool = [c for c in chunks if c.id in guaranteed_ids]
+    guaranteed = (
+        _round_robin_by_document(guaranteed_pool, top_k)
+        if diversify
+        else guaranteed_pool[:top_k]
+    )
+    guaranteed_picked = {c.id for c in guaranteed}
+    rest = [c for c in chunks if c.id not in guaranteed_picked]
     return guaranteed + rest[: max(0, top_k - len(guaranteed))]
 
 
@@ -216,15 +262,27 @@ def _csls_rerank(vector_results: list[RetrievedChunk]) -> list[RetrievedChunk]:
 class HybridRetrievalStrategy(RetrievalStrategy):
     """Vector + keyword search, fused with RRF, then optionally reranked."""
 
-    def __init__(self, reranker_driver_name: str | None = None) -> None:
+    def __init__(
+        self,
+        reranker_driver_name: str | None = None,
+        diversify_guarantees: bool | None = None,
+    ) -> None:
         """Initialise the strategy.
 
         Args:
             reranker_driver_name: Explicit reranker driver override, passed
                 through to :func:`drivers.reranker.get_reranker_driver`.
                 Defaults to ``None``, i.e. read ``settings.RERANKER_DRIVER``.
+            diversify_guarantees: Override for
+                ``settings.RETRIEVAL_DIVERSIFY_GUARANTEES`` -- lets an A/B
+                comparison run both behaviours in one process.
         """
         self._reranker_driver_name = reranker_driver_name
+        self._diversify_guarantees = (
+            settings.RETRIEVAL_DIVERSIFY_GUARANTEES
+            if diversify_guarantees is None
+            else diversify_guarantees
+        )
 
     def select_chunks(
         self,
@@ -273,7 +331,9 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         identifier_tokens = extract_identifier_tokens(question)
         if identifier_tokens:
             identifier_results = store.search_by_identifier(
-                identifier_tokens, top_k=candidate_k
+                identifier_tokens,
+                top_k=candidate_k,
+                per_token=self._diversify_guarantees,
             )
             identifier_chunk_ids = {c.id for c in identifier_results}
             fused_ids = {c.id for c in fused}
@@ -323,11 +383,19 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                 return []
             valid_chunks = self._maybe_listwise_rerank(question, valid_chunks)
             return _apply_top_k_with_guarantees(
-                valid_chunks, identifier_chunk_ids, top_k
+                valid_chunks,
+                identifier_chunk_ids,
+                top_k,
+                diversify=self._diversify_guarantees,
             )
 
         reranked = self._maybe_listwise_rerank(question, reranked)
-        return _apply_top_k_with_guarantees(reranked, identifier_chunk_ids, top_k)
+        return _apply_top_k_with_guarantees(
+            reranked,
+            identifier_chunk_ids,
+            top_k,
+            diversify=self._diversify_guarantees,
+        )
 
     def _maybe_listwise_rerank(
         self, question: str, chunks: list[RetrievedChunk]

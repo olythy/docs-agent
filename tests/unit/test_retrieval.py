@@ -21,6 +21,7 @@ from query.retrieval import (
     _apply_top_k_with_guarantees,
     _csls_rerank,
     _passes_relevance_gate,
+    _round_robin_by_document,
     get_retrieval_strategy,
     retrieve_chunks,
 )
@@ -141,7 +142,7 @@ def test_hybrid_strategy_rescues_identifier_match_missed_by_vector_and_fulltext(
 
     assert [c.id for c in result] == [99, 1]
     fake_store.search_by_identifier.assert_called_once_with(
-        ["4.P.20.409/2023/4"], top_k=1
+        ["4.P.20.409/2023/4"], top_k=1, per_token=True
     )
 
 
@@ -503,3 +504,39 @@ def test_hybrid_strategy_applies_listwise_rerank_when_enabled(
 
     fake_listwise_rerank.assert_called_once()
     assert [c.id for c in result] == [2, 1]
+
+
+def test_round_robin_by_document_takes_turns_across_documents():
+    """Regression for q0018: one long document's chunks must not take every
+    slot while a second named document gets none."""
+    chunks = [
+        _chunk(1, 0.9, "a.docx"),
+        _chunk(2, 0.8, "a.docx"),
+        _chunk(3, 0.7, "a.docx"),
+        _chunk(4, 0.6, "b.docx"),
+    ]
+
+    result = _round_robin_by_document(chunks, limit=3)
+
+    assert [c.id for c in result] == [1, 4, 2]
+
+
+def test_round_robin_by_document_returns_everything_when_under_limit():
+    chunks = [_chunk(1, 0.9, "a.docx"), _chunk(2, 0.8, "b.docx")]
+    assert [c.id for c in _round_robin_by_document(chunks, limit=4)] == [1, 2]
+
+
+def test_apply_top_k_with_guarantees_diversify_represents_every_guaranteed_document():
+    chunks = [_chunk(i, 1.0 - i / 10, "a.docx") for i in range(1, 5)] + [
+        _chunk(9, 0.1, "b.docx")
+    ]
+    guaranteed_ids = {1, 2, 3, 4, 9}
+
+    default = _apply_top_k_with_guarantees(chunks, guaranteed_ids, top_k=4)
+    diversified = _apply_top_k_with_guarantees(
+        chunks, guaranteed_ids, top_k=4, diversify=True
+    )
+
+    assert {c.metadata.source_file for c in default} == {"a.docx"}
+    assert {c.metadata.source_file for c in diversified} == {"a.docx", "b.docx"}
+    assert len(diversified) == 4

@@ -2,6 +2,20 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-04 — Multi-document golden questions were failing because identifier guarantees let one long document take every `top_k` slot
+
+Found by reading the golden-set eval's per-question retrieval misses (`corpus/cli.py eval --only-covered`): precedent_seeker/synthesizer retrieval hit was 0-38% while fact_finder/practical_procedural were 100%. Those weak personas' questions each cite 2 documents, and `exact_match` grading needs *both* in the final `top_k` chunks. The "rank 1" lines in the miss diagnostics looked like a ranking bug; they were just the question's *other* citation (the diagnostic prints every cited file, not only the missing one).
+
+**Root cause (q0018, confirmed live and by a second-opinion read of the code):** a question naming two case numbers (both extracted correctly by `extract_identifier_tokens`) made `store.search_by_identifier()` run one `ILIKE ... OR ...` query with a single shared `LIMIT` and no `ORDER BY`. Since a document's identifier is embedded in every chunk, one long document (39 chunks) could fill all 20 rows and the second document none -- and which rows won was arbitrary. Then `_apply_top_k_with_guarantees` took `[:top_k]` of the guaranteed chunks by score, ignoring documents, so all 4 slots went to one document. A per-document cap on the non-guaranteed remainder alone would not have helped, because the guaranteed path fills the slots first.
+
+**Fix** (`RETRIEVAL_DIVERSIFY_GUARANTEES`): `search_by_identifier(per_token=True)` gives each identifier token its own bounded, `id`-ordered share (`ROW_NUMBER() OVER (PARTITION BY ...)`); `_apply_top_k_with_guarantees(diversify=True)` fills guaranteed slots round-robin by document.
+
+**Measured, not assumed** (`corpus/cli.py compare-retrieval`, retrieval-only, both arms in one process with a shared query embedding, 23 covered questions, ingest still growing the corpus): synthesizer hit 0% -> 20% (q0012, q0018: recall 0.5 -> 1.0), no question regressed, fact_finder/practical_procedural unchanged at 100%. Default switched to `true` on that basis. Small sample -- a direction, not a significance claim.
+
+**What this did not fix:** 18 of the 20 weak-persona questions are unchanged, many with 0.00 document recall. Those are content questions with no identifier ("in which cases did the court reject..."), where the correct documents never reach the candidate pool -- a separate recall problem. Candidates not yet tried: sending a `title` to the Vertex reranker, a larger `RETRIEVAL_CANDIDATE_POOL_SIZE`, a per-document chunk cap. Also noted: `_citation_ranks`' `pool=50` is 50 *chunks* (and wider than production's 20-candidate pool), so its "not found" is a weaker statement than it reads; not yet fixed.
+
+Also found the same day: `hub_score` had been computed for only 258 of ~33,000 chunks, so earlier eval baselines had CSLS effectively off; re-running `compute-hub-scores` changed the numbers by almost nothing (CSLS only reorders the vector leg before RRF). `coverage` now flags a missing/stale hub-score pass in red. `hub_score` is a snapshot of the current corpus (average similarity to the 20 nearest neighbours), so it must be recomputed after the ingest finishes.
+
 ## 2026-10-04 — Vertex answer driver kept hitting 401 because `google-genai` checks `credentials.expired`, not `valid`
 
 Confirmed live: after the earlier fixes (`invalidate()` on a 401, and a `valid=False` override on `get_credentials()`'s credentials object), `GeminiAnswerDriver._generate` still retried on `Gemini generate_content status 401` -- the retries never recovered.

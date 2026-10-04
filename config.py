@@ -335,6 +335,20 @@ class Settings:
                               reranker (default: 20) -- keeps the prompt a
                               bounded size regardless of candidate pool
                               width.
+        RETRIEVAL_DIVERSIFY_GUARANTEES
+                              Whether exact-identifier matches (case
+                              numbers, ...) are spread across the distinct
+                              documents a question names (default:
+                              ``True``). When ``True``,
+                              ``store.search_by_identifier`` takes a bounded
+                              share per identifier token (deterministic
+                              order) instead of one shared ``LIMIT``, and
+                              ``query.retrieval._apply_top_k_with_guarantees``
+                              fills the guaranteed slots round-robin by
+                              document instead of letting one long document
+                              take every slot. On by default after an A/B
+                              measurement (see ``corpus/cli.py
+                              compare-retrieval`` and docs/decisions.md).
 
     Database (REQUIRED):
         DATABASE_URL          PostgreSQL connection URL with pgvector enabled.
@@ -464,6 +478,9 @@ class Settings:
     )
     LISTWISE_RERANK_MAX_CANDIDATES: int = int(
         os.getenv("LISTWISE_RERANK_MAX_CANDIDATES", "20")
+    )
+    RETRIEVAL_DIVERSIFY_GUARANTEES: bool = (
+        os.getenv("RETRIEVAL_DIVERSIFY_GUARANTEES", "true").lower() == "true"
     )
 
     # --- Database ---

@@ -800,7 +800,7 @@ class VectorStore:
         return results
 
     def search_by_identifier(
-        self, tokens: list[str], top_k: int
+        self, tokens: list[str], top_k: int, per_token: bool = False
     ) -> list[RetrievedChunk]:
         """Return chunks whose content directly contains any of ``tokens``.
 
@@ -814,6 +814,14 @@ class VectorStore:
         Args:
             tokens: Identifier-like tokens from :func:`extract_identifier_tokens`.
             top_k: Maximum number of results.
+            per_token: If ``True``, give every token its own bounded share
+                (``ceil(top_k / len(tokens))`` rows, in ``id`` order)
+                instead of one shared ``LIMIT``. Without it, a token whose
+                document has many chunks (the identifier is embedded in
+                every chunk) can take all ``top_k`` rows and starve the
+                other tokens' documents -- and since there is no
+                ``ORDER BY``, which rows win is arbitrary. A chunk that
+                matches several tokens is returned once.
 
         Returns:
             Matching chunks, each with a placeholder ``score`` (1.0) — the
@@ -825,19 +833,36 @@ class VectorStore:
         if not tokens:
             return []
 
-        conditions = " OR ".join(["content ILIKE %s"] * len(tokens))
-        params: list = [f"%{token}%" for token in tokens]
-        params.append(top_k)
-
-        sql = f"""
-            SELECT id, content, metadata
-            FROM document_chunks
-            WHERE {conditions}
-            LIMIT %s;
-        """
+        if per_token:
+            patterns = [f"%{token}%" for token in tokens]
+            per_token_limit = max(1, -(-top_k // len(tokens)))
+            sql = """
+                SELECT id, content, metadata FROM (
+                    SELECT c.id, c.content, c.metadata,
+                           ROW_NUMBER() OVER (PARTITION BY p ORDER BY c.id) AS rn
+                    FROM document_chunks c, unnest(%s::text[]) AS p
+                    WHERE c.content ILIKE p
+                ) matched
+                WHERE rn <= %s
+                ORDER BY id;
+            """
+            query_params: tuple = (patterns, per_token_limit)
+        else:
+            conditions = " OR ".join(["content ILIKE %s"] * len(tokens))
+            params: list = [f"%{token}%" for token in tokens]
+            params.append(top_k)
+            sql = f"""
+                SELECT id, content, metadata
+                FROM document_chunks
+                WHERE {conditions}
+                LIMIT %s;
+            """
+            query_params = tuple(params)
         with self._connection() as conn, conn.cursor() as cur:
-            cur.execute(sql, tuple(params))
+            cur.execute(sql, query_params)
             rows = cur.fetchall()
+        if per_token:
+            rows = list({row[0]: row for row in rows}.values())
 
         results = []
         for chunk_id, content, metadata in rows:
