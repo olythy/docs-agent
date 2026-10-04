@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 .PHONY: help docker-up docker-down docker-down-clean doctor \
-        db-migrate db-migrate-test db-flush db-refresh setup \
+        db-migrate db-migrate-test db-flush db-refresh setup documents-sync \
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
         make-migration add-document add-directory delete-document query chat \
         inspect-chunks extract-text eval eval-rerank eval-llm eval-all \
@@ -58,10 +58,14 @@ db-migrate: ## Migrate DATABASE_URL (.env) — the dev database
 db-migrate-test: ## Migrate DATABASE_URL from .env.test — the test database
 	AGENT_ENV=test uv run python scripts/db_cli.py up
 
-db-flush: ## Truncate document_chunks (rows only, keeps the schema)
+db-flush: ## Truncate document_chunks and documents (rows only, keeps the schema and the key catalog)
 	uv run python scripts/db_cli.py flush
 
 db-refresh: db-flush db-migrate ## Empty the table, then re-apply pending migrations
+
+# --- Structured metadata (scripts/meta_cli.py) ---
+documents-sync: ## Sync the documents table from the ingested chunks (idempotent)
+	uv run python scripts/meta_cli.py sync-documents
 
 migrate-status: ## Show applied vs. pending migrations
 	uv run python scripts/db_cli.py status

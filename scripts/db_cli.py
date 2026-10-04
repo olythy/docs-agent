@@ -17,7 +17,8 @@ Commands:
     fresh               Revert all migration files unconditionally, drop tracking table,
                         and re-run migrations from scratch.
     refresh             Shorthand for reset + up.
-    flush               Truncate the document_chunks table (rows only, keeps schema).
+    flush               Truncate document_chunks and documents (rows only, keeps schema and
+                        the key catalog).
     make <name>         Scaffold a new migration file under migrations/
                         (alias: make-migration).
 """
@@ -321,11 +322,21 @@ def cmd_fresh(conn: PgConnection) -> None:
 
 
 def cmd_flush(conn: PgConnection) -> None:
-    """Truncate the document_chunks table, resetting its identity sequence."""
+    """Truncate document_chunks and documents, keeping the schema and the key catalog.
+
+    ``documents`` is derived from the chunks, so it is emptied with them (its
+    values and status rows go by cascade). ``meta_keys`` is curated data and is
+    left alone. ``documents`` may not exist yet on a database that has not been
+    migrated (``db-refresh`` flushes *before* migrating), so it is checked first.
+    """
     with conn.cursor() as cur:
         cur.execute("TRUNCATE document_chunks RESTART IDENTITY;")
+        cur.execute("SELECT to_regclass('documents') IS NOT NULL;")
+        row = cur.fetchone()
+        if row is not None and row[0]:
+            cur.execute("TRUNCATE documents CASCADE;")
     conn.commit()
-    print("document_chunks flushed.")
+    print("document_chunks and documents flushed.")
 
 
 def flush_document_chunks() -> None:

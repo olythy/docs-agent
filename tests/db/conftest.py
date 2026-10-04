@@ -26,6 +26,12 @@ from config import settings
 from db import get_connection
 from scripts.db_cli import cmd_up, ensure_migrations_table
 
+#: Every table the tests may write to. CASCADE empties the tables that reference
+#: ``documents``; ``meta_keys`` is the catalog and tests write to it too.
+_TRUNCATE_ALL = (
+    "TRUNCATE document_chunks, documents, meta_keys RESTART IDENTITY CASCADE;"
+)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _ensure_test_schema():
@@ -58,7 +64,7 @@ def _ensure_test_schema():
         ensure_migrations_table(conn)
         cmd_up(conn)
         with conn.cursor() as cur:
-            cur.execute("TRUNCATE document_chunks RESTART IDENTITY;")
+            cur.execute(_TRUNCATE_ALL)
         conn.commit()
     finally:
         conn.close()
@@ -70,6 +76,6 @@ def db_conn():
     conn = psycopg2.connect(settings.DATABASE_URL)
     yield conn
     with conn.cursor() as cur:
-        cur.execute("TRUNCATE document_chunks RESTART IDENTITY;")
+        cur.execute(_TRUNCATE_ALL)
     conn.commit()
     conn.close()

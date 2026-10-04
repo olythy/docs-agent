@@ -12,9 +12,16 @@ Key exports:
     Chunk          -- One chunk before storage: content + ChunkMetadata.
     RetrievedChunk -- One chunk returned by a search, with its id and score.
     RetrievalTrace -- Optional recorder of every retrieval stage's candidates.
+    Document, MetaKey, MetaValue, MetaStatus -- The structured-metadata layer
+        (see docs/structured-metadata-design.md): a document's identity, the
+        key catalog, an extracted value with its evidence, and what is known
+        about a (document, key) pair.
 """
 
 from dataclasses import dataclass, field
+from datetime import date, datetime
+from decimal import Decimal
+from enum import StrEnum
 
 
 @dataclass(frozen=True)
@@ -218,3 +225,132 @@ class RetrievalTrace:
     def record(self, stage: str, chunks: list["RetrievedChunk"]) -> None:
         """Store a copy of ``chunks`` as the outcome of ``stage``."""
         self.stages[stage] = list(chunks)
+
+
+class ValueType(StrEnum):
+    """The type of a metadata key's values; selects which ``value_*`` column holds them."""
+
+    TEXT = "text"
+    NUMBER = "number"
+    DATE = "date"
+    BOOL = "bool"
+
+
+class KeyStatus(StrEnum):
+    """Lifecycle of a catalog key; only ``APPROVED`` keys are usable in queries."""
+
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    RETIRED = "retired"
+
+
+class MetaSource(StrEnum):
+    """Where a metadata value came from."""
+
+    DETERMINISTIC = "deterministic"
+    LLM = "llm"
+    SIDECAR = "sidecar"
+
+
+class MetaState(StrEnum):
+    """What is known about a (document, key) pair.
+
+    ``PRESENT`` extracted and verified; ``CONFIRMED_ABSENT`` the document was
+    examined and does not state it; ``UNVERIFIED`` extracted but the evidence
+    did not check out (never used by queries); ``NOT_ATTEMPTED`` no attempt yet.
+    A count over a key must report everything that is not ``PRESENT`` or
+    ``CONFIRMED_ABSENT`` as unknown.
+    """
+
+    PRESENT = "present"
+    CONFIRMED_ABSENT = "confirmed_absent"
+    UNVERIFIED = "unverified"
+    NOT_ATTEMPTED = "not_attempted"
+
+
+@dataclass(frozen=True)
+class Document:
+    """A document's identity: the root every extracted value hangs off.
+
+    Attributes:
+        content_hash: SHA-256 of the whole document (the primary key).
+        source_file: Basename of the source file.
+        summary: The per-document summary, if one was generated.
+        ingested_at: When the document was (re)ingested, if known.
+    """
+
+    content_hash: str
+    source_file: str
+    summary: str | None = None
+    ingested_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class MetaKey:
+    """One entry of the key catalog for a document type.
+
+    Attributes:
+        doc_type: The kind of document the key applies to.
+        key: English snake_case name.
+        value_type: Which typed column holds its values.
+        description: What the extractor reads to decide whether the key fits.
+        example: An illustrative value.
+        allowed_values: For categorical keys, the canonical English tokens.
+        multi_valued: Whether several rows per document are expected.
+        status: ``PROPOSED`` keys are not usable in queries.
+        version: Bumped when the description changes, so stale values can be found.
+    """
+
+    doc_type: str
+    key: str
+    value_type: ValueType
+    description: str
+    example: str | None = None
+    allowed_values: tuple[str, ...] | None = None
+    multi_valued: bool = False
+    status: KeyStatus = KeyStatus.PROPOSED
+    version: int = 1
+
+
+@dataclass(frozen=True)
+class MetaValue:
+    """One extracted value of one key of one document, with its evidence.
+
+    Exactly one of the ``value_*`` fields is set (the database enforces it).
+
+    Attributes:
+        content_hash: The document.
+        key: The catalog key.
+        key_version: The key description version that produced this value.
+        source: Where it came from.
+        ordinal: Position among a multi-valued key's rows (0 for single-valued).
+        qualifiers: Role / party / instance etc., as the catalog allows.
+        evidence: The verbatim quote that shows the value.
+        evidence_chunk_index: Which chunk of the document the quote is in.
+        page: Page or section number of that chunk, if known.
+    """
+
+    content_hash: str
+    key: str
+    key_version: int
+    source: MetaSource
+    value_text: str | None = None
+    value_number: Decimal | None = None
+    value_date: date | None = None
+    value_bool: bool | None = None
+    unit: str | None = None
+    ordinal: int = 0
+    qualifiers: dict[str, str] = field(default_factory=dict)
+    evidence: str | None = None
+    evidence_chunk_index: int | None = None
+    page: int | None = None
+
+
+@dataclass(frozen=True)
+class MetaStatus:
+    """What is known about one (document, key) pair; see :class:`MetaState`."""
+
+    content_hash: str
+    key: str
+    state: MetaState
+    key_version: int
