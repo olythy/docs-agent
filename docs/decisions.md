@@ -2,6 +2,16 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-04 — Milestone 4 of the structured-metadata layer: the planner fails loudly, and its eval is a measurement tool, not a feature
+
+Built `LLMQueryPlanner` (`metadata/planner.py`) and `meta-plan-eval` (`corpus/commands/meta_plan_eval.py`); **not yet measured** against a model.
+
+- **No fallback plan.** A reply that is not JSON, or a plan the catalog rejects, is retried exactly once with the verbatim error; a second failure raises `PlanningFailed` carrying the reason and the last reply. A default plan (say, "count everything") would return a clean, confident, wrong number, which is worse than "I could not interpret this".
+- **The planner validates with the compiler that will run the plan**, so a plan that passes cannot fail later, and the retry message is the same text a person would read.
+- **The model never chooses the catalog** (`doc_type` is a caller argument) **and never does date arithmetic** (it describes the period in the closed grammar; the resolver computes it).
+- **The eval's expected answers are computed in Python from the stored values, independently of the compiler**, otherwise a compiler bug would grade itself correct. It therefore measures planner + compiler, not extraction (`meta-accuracy` does that). It must be run on full extraction coverage, because a document without a stored value cannot match any question.
+- **It lives under `corpus/`** because its question templates and Hungarian words are corpus-specific; the product capability is the generic planner/compiler/executor, wired into `query_knowledge_base` in milestone 5.
+
 ## 2026-10-04 — Milestone 3 of the structured-metadata layer: the plan, the date resolver, the compiler, and the rule that a count says what it could not decide
 
 Built, with no LLM anywhere: `DateRangeResolver` (a small closed grammar -- absolute, calendar, relative, rolling, between -- resolved from an injected `Clock`), `parse_plan` (a strict shape check: unknown fields rejected, the doc type comes from the caller and never from the model), `PlanCompiler` (plan + catalog -> parameterised SQL) and `PlanExecutor`.

@@ -125,6 +125,7 @@ Defaults are `config.py`'s (this project's own `.env` overrides some, e.g. Verte
 | `compare-retrieval [--top-k N]` | Retrieval-only A/B (identifier guarantees off / on / on + period): strict `all` hit, loose `any` proxy, document recall, in-period share. No LLM calls. |
 | `funnel -q ID [-q ID ...]` | Follows a question through every retrieval stage (vector, full-text, fusion, rerank, final `top_k`) and shows, per stage, how many chunks and distinct documents there are, where each golden document ranks, and how many documents meet the court/year the question names -- so you can see *where* a document drops out. Retrieval only, no LLM calls; honours the environment's switches. |
 | `meta-accuracy` | Compares the extracted structured metadata (`issuing_body`, `document_kind`) with `corpus/meta.csv`, this corpus's by-product ground truth. Measurement only: the generic metadata core never reads that file. |
+| `meta-plan-eval` | Asks generated Hungarian count/list questions through the real `LLMQueryPlanner` and executor and scores the answers exactly (expected sets computed in Python from the stored values, not by the compiler). Measurement only; the question templates are corpus-specific, so it lives under `corpus/`. |
 | `compute-hub-scores` | (Re)computes every chunk's `hub_score`. |
 | `generate-questions` / `download` | Golden-question drafting and verification; corpus acquisition. |
 
