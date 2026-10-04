@@ -503,7 +503,9 @@ def test_assert_dimension_matches_caches_successful_check(monkeypatch):
     assert get_dim_mock.call_count == 1
 
 
-def test_compute_hub_scores_averages_neighbor_similarity(monkeypatch, settings_override):
+def test_compute_hub_scores_averages_neighbor_similarity(
+    monkeypatch, settings_override
+):
     """Each chunk's hub_score must be the average cosine similarity to its
     nearest HUB_SCORE_NEIGHBOR_SAMPLE_SIZE neighbors in the whole corpus."""
     monkeypatch.setattr(
@@ -583,3 +585,68 @@ def test_search_by_identifier_per_token_uses_a_partitioned_bounded_query(monkeyp
     assert "PARTITION BY" in sql
     assert params == (["%P.1/2018%", "%K.2/2022%"], 10)
     assert [r.id for r in results] == [1, 2]
+
+
+def test_search_with_years_adds_a_document_date_condition(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    VectorStore().search([0.1, 0.2], top_k=5, min_score=0.0, years=[2020, 2021])
+
+    sql, params = cursor.execute.call_args[0]
+    assert "document_date" in sql
+    assert ["2020", "2021"] in params
+
+
+def test_search_fulltext_with_years_adds_a_document_date_condition(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    VectorStore().search_fulltext("tulajdonjog per", top_k=5, years=[2022])
+
+    sql, params = cursor.execute.call_args[0]
+    assert "document_date" in sql
+    assert ["2022"] in params
+
+
+def test_search_without_years_has_no_document_date_condition(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    VectorStore().search([0.1, 0.2], top_k=5, min_score=0.0)
+
+    assert "document_date" not in cursor.execute.call_args[0][0]
+
+
+def test_search_with_years_enables_iterative_hnsw_scan_for_this_transaction(
+    monkeypatch,
+):
+    """Without it, a selective year filter is applied after HNSW's ef_search
+    nearest neighbours and can leave almost nothing."""
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    VectorStore().search([0.1, 0.2], top_k=5, min_score=0.0, years=[2020])
+
+    executed = [call[0][0] for call in cursor.execute.call_args_list]
+    assert any("SET LOCAL hnsw.iterative_scan" in sql for sql in executed)
+
+
+def test_search_without_years_does_not_touch_iterative_scan(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    conn = _fake_conn_with_cursor(cursor)
+    monkeypatch.setattr(store, "get_connection", lambda: conn)
+
+    VectorStore().search([0.1, 0.2], top_k=5, min_score=0.0)
+
+    executed = [call[0][0] for call in cursor.execute.call_args_list]
+    assert not any("iterative_scan" in sql for sql in executed)

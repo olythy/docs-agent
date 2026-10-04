@@ -305,7 +305,14 @@ def _build_prompt(
             if chunk.metadata.page_number is not None
             else "?"
         )
-        context_parts.append(f"[{i}] Source: {source}, page {page}\n{chunk.content}")
+        date = (
+            f", date: {chunk.metadata.document_date}"
+            if settings.EXPOSE_DOCUMENT_DATE and chunk.metadata.document_date
+            else ""
+        )
+        context_parts.append(
+            f"[{i}] Source: {source}{date}, page {page}\n{chunk.content}"
+        )
     context_text = "\n\n".join(context_parts)
 
     system_prompt = (

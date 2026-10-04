@@ -350,6 +350,33 @@ class Settings:
                               measurement (see ``corpus/cli.py
                               compare-retrieval`` and docs/decisions.md).
 
+        RETRIEVAL_PERIOD_FILTER
+                              Whether retrieval widens its candidate pool
+                              with documents from the years the question
+                              names (default: ``False``). Embeddings are
+                              weak at telling years apart, so a question
+                              like "... 2020 és 2022 között" can come back
+                              dominated by other years. When ``True``,
+                              ``query.time_filter.extract_years`` reads the
+                              years from the question and a second,
+                              ``document_date``-restricted vector and
+                              full-text search is merged into (never
+                              replaces) the normal candidate pool. Off by
+                              default pending an A/B measurement.
+
+        EXPOSE_DOCUMENT_DATE  Whether each excerpt's document date is shown to
+                              the answer LLM (default: ``False``). When
+                              ``True``, the excerpt header gets
+                              ``date: YYYY-MM-DD``. Without it the model
+                              cannot check a question's "2020 és 2022
+                              között": the date is not in the chunk text,
+                              and the file name carries the *filing* year,
+                              not the decision date. (Also sending it to
+                              the Vertex ranker as a record ``title`` was
+                              tried and did not help -- see
+                              docs/decisions.md.) Off by default pending an
+                              A/B measurement.
+
     Database (REQUIRED):
         DATABASE_URL          PostgreSQL connection URL with pgvector enabled.
         HNSW_EF_SEARCH        Set via ``SET hnsw.ef_search = ...`` on every
@@ -478,6 +505,12 @@ class Settings:
     )
     LISTWISE_RERANK_MAX_CANDIDATES: int = int(
         os.getenv("LISTWISE_RERANK_MAX_CANDIDATES", "20")
+    )
+    RETRIEVAL_PERIOD_FILTER: bool = (
+        os.getenv("RETRIEVAL_PERIOD_FILTER", "false").lower() == "true"
+    )
+    EXPOSE_DOCUMENT_DATE: bool = (
+        os.getenv("EXPOSE_DOCUMENT_DATE", "false").lower() == "true"
     )
     RETRIEVAL_DIVERSIFY_GUARANTEES: bool = (
         os.getenv("RETRIEVAL_DIVERSIFY_GUARANTEES", "true").lower() == "true"

@@ -42,6 +42,7 @@ from logger import LogAction, get_logger
 from models import RetrievedChunk
 from query.hybrid import reciprocal_rank_fusion
 from query.listwise_rerank import listwise_rerank
+from query.time_filter import extract_years
 from store import VectorStore, extract_identifier_tokens
 
 # Progress logging, not print(): retrieve_chunks() is called from
@@ -79,6 +80,7 @@ class RetrievalStrategy(ABC):
         top_k: int,
         min_score: float,
         metadata_filter: dict | None = None,
+        years: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         """Turn an already-fetched vector candidate pool into final chunks.
 
@@ -95,6 +97,12 @@ class RetrievalStrategy(ABC):
             min_score: ``settings.RETRIEVAL_MIN_SCORE`` (or its override).
             metadata_filter: Optional dict of key-value pairs to restrict
                 candidates in secondary searches (e.g. full-text).
+            years: Years the question refers to (see
+                :func:`query.time_filter.extract_years`), set only when
+                the active strategy asked for period-aware retrieval.
+                ``vector_results`` already includes candidates from those
+                years; a strategy that runs its own secondary searches
+                should do the same.
 
         Returns:
             The final, ordered list of at most ``top_k`` chunks.
@@ -118,6 +126,7 @@ class VectorRetrievalStrategy(RetrievalStrategy):
         top_k: int,
         min_score: float,
         metadata_filter: dict | None = None,
+        years: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         """Filter ``vector_results`` by ``min_score`` and truncate to ``top_k``.
 
@@ -129,6 +138,14 @@ class VectorRetrievalStrategy(RetrievalStrategy):
         """
         filtered = [c for c in vector_results if c.score >= min_score]
         return filtered[:top_k]
+
+
+def _merge_unique(
+    primary: list[RetrievedChunk], extra: list[RetrievedChunk]
+) -> list[RetrievedChunk]:
+    """Append ``extra`` chunks whose id is not already in ``primary``."""
+    seen = {c.id for c in primary}
+    return primary + [c for c in extra if c.id not in seen]
 
 
 def _round_robin_by_document(
@@ -168,6 +185,7 @@ def _apply_top_k_with_guarantees(
     guaranteed_ids: set[int],
     top_k: int,
     diversify: bool = False,
+    years: list[int] | None = None,
 ) -> list[RetrievedChunk]:
     """Truncate ``chunks`` to ``top_k``, giving guaranteed chunks priority.
 
@@ -203,6 +221,15 @@ def _apply_top_k_with_guarantees(
             instead of purely by score. Confirmed live that without this a
             question naming two case numbers can have all ``top_k`` slots
             taken by one long document's chunks.
+        years: Years the question names (see
+            :func:`query.time_filter.extract_years`). When given, at least
+            ``ceil(top_k / 2)`` of the final chunks come from those years
+            (counting guaranteed ones), if the candidates have that many --
+            spread across documents when ``diversify`` is set. Confirmed
+            live that widening the candidate pool alone is not enough: the
+            reranker knows nothing about dates and ranks other years'
+            chunks back to the top. Soft: with no in-period candidate (or
+            no ``document_date``) nothing changes.
 
     Returns:
         At most ``top_k`` chunks: every guaranteed chunk present in
@@ -215,9 +242,31 @@ def _apply_top_k_with_guarantees(
         if diversify
         else guaranteed_pool[:top_k]
     )
-    guaranteed_picked = {c.id for c in guaranteed}
-    rest = [c for c in chunks if c.id not in guaranteed_picked]
-    return guaranteed + rest[: max(0, top_k - len(guaranteed))]
+    selected = list(guaranteed)
+    picked = {c.id for c in selected}
+
+    if years:
+        wanted = {str(y) for y in years}
+
+        def in_period(chunk: RetrievedChunk) -> bool:
+            return (chunk.metadata.document_date or "")[:4] in wanted
+
+        reserve = -(-top_k // 2)
+        need = min(
+            reserve - sum(1 for c in selected if in_period(c)), top_k - len(selected)
+        )
+        if need > 0:
+            candidates = [c for c in chunks if c.id not in picked and in_period(c)]
+            extra = (
+                _round_robin_by_document(candidates, need)
+                if diversify
+                else candidates[:need]
+            )
+            selected += extra
+            picked |= {c.id for c in extra}
+
+    rest = [c for c in chunks if c.id not in picked]
+    return selected + rest[: max(0, top_k - len(selected))]
 
 
 def _csls_rerank(vector_results: list[RetrievedChunk]) -> list[RetrievedChunk]:
@@ -266,6 +315,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         self,
         reranker_driver_name: str | None = None,
         diversify_guarantees: bool | None = None,
+        period_filter: bool | None = None,
     ) -> None:
         """Initialise the strategy.
 
@@ -276,12 +326,17 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             diversify_guarantees: Override for
                 ``settings.RETRIEVAL_DIVERSIFY_GUARANTEES`` -- lets an A/B
                 comparison run both behaviours in one process.
+            period_filter: Override for ``settings.RETRIEVAL_PERIOD_FILTER``
+                -- same purpose.
         """
         self._reranker_driver_name = reranker_driver_name
         self._diversify_guarantees = (
             settings.RETRIEVAL_DIVERSIFY_GUARANTEES
             if diversify_guarantees is None
             else diversify_guarantees
+        )
+        self.period_filter = (
+            settings.RETRIEVAL_PERIOD_FILTER if period_filter is None else period_filter
         )
 
     def select_chunks(
@@ -292,6 +347,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         top_k: int,
         min_score: float,
         metadata_filter: dict | None = None,
+        years: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         """Fuse ``vector_results`` with a keyword search, then rerank.
 
@@ -312,6 +368,21 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             )
         else:
             fulltext_results = store.search_fulltext(question, top_k=candidate_k)
+
+        if years:
+            # Same widening as the vector side (see retrieve_chunks): also
+            # pull keyword candidates from the question's years, so a pool
+            # dominated by other years can't crowd them out. Unfiltered
+            # candidates stay, so a wrongly-read year only adds candidates.
+            fulltext_results = _merge_unique(
+                fulltext_results,
+                store.search_fulltext(
+                    question,
+                    top_k=candidate_k,
+                    years=years,
+                    **({"metadata_filter": metadata_filter} if metadata_filter else {}),
+                ),
+            )
 
         fused = reciprocal_rank_fusion(vector_results, fulltext_results)
         logger.info(
@@ -387,6 +458,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                 identifier_chunk_ids,
                 top_k,
                 diversify=self._diversify_guarantees,
+                years=years,
             )
 
         reranked = self._maybe_listwise_rerank(question, reranked)
@@ -395,6 +467,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             identifier_chunk_ids,
             top_k,
             diversify=self._diversify_guarantees,
+            years=years,
         )
 
     def _maybe_listwise_rerank(
@@ -538,23 +611,45 @@ def retrieve_chunks(
         logger.info(
             "[query] Selecting final chunks via %s ...", type(active_strategy).__name__
         )
+        select_kwargs: dict = {}
         if metadata_filter:
-            chunks = active_strategy.select_chunks(
-                question,
-                vector_results,
-                store,
-                top_k=k,
-                min_score=threshold,
-                metadata_filter=metadata_filter,
+            select_kwargs["metadata_filter"] = metadata_filter
+        years = (
+            extract_years(question)
+            if getattr(active_strategy, "period_filter", False)
+            else []
+        )
+        if years:
+            # Embeddings are weak at telling years apart, so a pool of the
+            # top-N most similar chunks can contain none from the year the
+            # question asks about (confirmed live, see docs/decisions.md).
+            # Soft: add a second, year-restricted pool to the unfiltered one
+            # instead of replacing it, so a wrongly-read year only adds
+            # candidates and never removes any.
+            logger.info(
+                "[query] Question refers to year(s) %s; widening the pool.", years
             )
-        else:
-            chunks = active_strategy.select_chunks(
-                question,
-                vector_results,
-                store,
-                top_k=k,
-                min_score=threshold,
+            year_results = store.search(
+                query_vector,
+                top_k=candidate_k,
+                min_score=0.0,
+                years=years,
+                **({"metadata_filter": metadata_filter} if metadata_filter else {}),
             )
+            vector_results = sorted(
+                _merge_unique(vector_results, year_results),
+                key=lambda c: c.score,
+                reverse=True,
+            )
+            select_kwargs["years"] = years
+        chunks = active_strategy.select_chunks(
+            question,
+            vector_results,
+            store,
+            top_k=k,
+            min_score=threshold,
+            **select_kwargs,
+        )
 
         scores_str = ", ".join(f"{c.score:.4f}" for c in chunks)
         logger.info(

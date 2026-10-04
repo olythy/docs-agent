@@ -20,6 +20,7 @@ from query.retrieval import (
     VectorRetrievalStrategy,
     _apply_top_k_with_guarantees,
     _csls_rerank,
+    _merge_unique,
     _passes_relevance_gate,
     _round_robin_by_document,
     get_retrieval_strategy,
@@ -485,7 +486,9 @@ def test_hybrid_strategy_applies_listwise_rerank_when_enabled(
     monkeypatch.setattr(
         retrieval_module,
         "settings",
-        settings_override(LISTWISE_RERANK_ENABLED=True, LISTWISE_RERANK_MAX_CANDIDATES=20),
+        settings_override(
+            LISTWISE_RERANK_ENABLED=True, LISTWISE_RERANK_MAX_CANDIDATES=20
+        ),
     )
     fake_store = MagicMock()
     fake_store.search_fulltext.return_value = []
@@ -493,10 +496,15 @@ def test_hybrid_strategy_applies_listwise_rerank_when_enabled(
         retrieval_module, "get_reranker_driver", lambda *a, **k: _NoopFakeReranker()
     )
     monkeypatch.setattr(retrieval_module, "get_answer_driver", lambda: MagicMock())
-    fake_listwise_rerank = MagicMock(side_effect=lambda q, chunks, driver, **kw: chunks[::-1])
+    fake_listwise_rerank = MagicMock(
+        side_effect=lambda q, chunks, driver, **kw: chunks[::-1]
+    )
     monkeypatch.setattr(retrieval_module, "listwise_rerank", fake_listwise_rerank)
 
-    vector_results = [_chunk(1, score=0.9, source="a.pdf"), _chunk(2, score=0.8, source="b.pdf")]
+    vector_results = [
+        _chunk(1, score=0.9, source="a.pdf"),
+        _chunk(2, score=0.8, source="b.pdf"),
+    ]
     strategy = HybridRetrievalStrategy()
     result = strategy.select_chunks(
         "question", vector_results, fake_store, top_k=4, min_score=0.25
@@ -540,3 +548,80 @@ def test_apply_top_k_with_guarantees_diversify_represents_every_guaranteed_docum
     assert {c.metadata.source_file for c in default} == {"a.docx"}
     assert {c.metadata.source_file for c in diversified} == {"a.docx", "b.docx"}
     assert len(diversified) == 4
+
+
+def test_merge_unique_keeps_primary_order_and_drops_duplicate_ids():
+    primary = [_chunk(1), _chunk(2)]
+    extra = [_chunk(2), _chunk(3)]
+
+    assert [c.id for c in _merge_unique(primary, extra)] == [1, 2, 3]
+
+
+def _dated_chunk(chunk_id, score, source, date):
+    chunk = _chunk(chunk_id, score, source)
+    return replace(chunk, metadata=replace(chunk.metadata, document_date=date))
+
+
+def test_apply_top_k_reserves_half_the_slots_for_the_questions_years():
+    """Regression for the soft period widening: the reranker knows nothing
+    about dates, so off-year chunks kept the whole top_k."""
+    chunks = [
+        _dated_chunk(1, 0.9, "a.docx", "2019-01-01"),
+        _dated_chunk(2, 0.8, "b.docx", "2019-02-01"),
+        _dated_chunk(3, 0.7, "c.docx", "2018-03-01"),
+        _dated_chunk(4, 0.6, "d.docx", "2017-04-01"),
+        _dated_chunk(5, 0.5, "e.docx", "2022-05-01"),
+        _dated_chunk(6, 0.4, "f.docx", "2022-06-01"),
+    ]
+
+    result = _apply_top_k_with_guarantees(chunks, set(), top_k=4, years=[2022])
+
+    in_period = [
+        c.id for c in result if (c.metadata.document_date or "").startswith("2022")
+    ]
+    assert sorted(in_period) == [5, 6]
+    assert len(result) == 4
+
+
+def test_apply_top_k_period_reservation_changes_nothing_without_in_period_chunks():
+    chunks = [
+        _dated_chunk(i, 1.0 - i / 10, "a.docx", "2019-01-01") for i in range(1, 7)
+    ]
+
+    with_years = _apply_top_k_with_guarantees(chunks, set(), top_k=4, years=[2022])
+    without = _apply_top_k_with_guarantees(chunks, set(), top_k=4)
+
+    assert [c.id for c in with_years] == [c.id for c in without]
+
+
+def test_apply_top_k_period_reservation_counts_guaranteed_chunks_already_in_period():
+    chunks = [
+        _dated_chunk(1, 0.9, "a.docx", "2022-01-01"),
+        _dated_chunk(2, 0.8, "b.docx", "2022-02-01"),
+        _dated_chunk(3, 0.7, "c.docx", "2019-03-01"),
+        _dated_chunk(4, 0.6, "d.docx", "2019-04-01"),
+        _dated_chunk(5, 0.5, "e.docx", "2022-05-01"),
+    ]
+
+    result = _apply_top_k_with_guarantees(chunks, {1, 2}, top_k=4, years=[2022])
+
+    # two guaranteed in-period chunks already meet the reservation of 2, so the
+    # remaining slots follow plain score order, not more in-period chunks.
+    assert [c.id for c in result] == [1, 2, 3, 4]
+
+
+def test_apply_top_k_period_reservation_spreads_across_documents_when_diversifying():
+    chunks = [
+        _dated_chunk(1, 0.9, "x.docx", "2019-01-01"),
+        _dated_chunk(2, 0.8, "x.docx", "2019-01-01"),
+        _dated_chunk(3, 0.7, "a.docx", "2022-01-01"),
+        _dated_chunk(4, 0.6, "a.docx", "2022-01-01"),
+        _dated_chunk(5, 0.5, "b.docx", "2022-02-01"),
+    ]
+
+    result = _apply_top_k_with_guarantees(
+        chunks, set(), top_k=4, diversify=True, years=[2022]
+    )
+
+    reserved = {c.metadata.source_file for c in result if c.id in {3, 4, 5}}
+    assert reserved == {"a.docx", "b.docx"}

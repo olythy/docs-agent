@@ -315,6 +315,11 @@ def _is_inflected_number(token: str) -> bool:
     )
 
 
+#: SQL fragment: the chunk's document_date (ISO ``YYYY-MM-DD``) is in one of
+#: the given years (a ``text[]`` parameter).
+_YEAR_CONDITION = "left(metadata->>'document_date', 4) = ANY(%s)"
+
+
 def _to_pgvector_literal(embedding: list[float]) -> str:
     """Format a float vector as a pgvector literal, e.g. ``'[0.1,0.2,...]'``."""
     return "[" + ",".join(str(v) for v in embedding) + "]"
@@ -537,6 +542,7 @@ class VectorStore:
         top_k: int,
         min_score: float,
         metadata_filter: dict | None = None,
+        years: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         """Return the most similar chunks to ``query_embedding``, above ``min_score``.
 
@@ -552,6 +558,10 @@ class VectorStore:
                 dropped.
             metadata_filter: Optional dict of key-value pairs that chunk metadata
                 must contain (uses Postgres JSONB containment ``@>``).
+            years: Optional years; only chunks whose ``document_date`` falls
+                in one of them are considered (documents without a date are
+                excluded from this call -- callers that want them back run
+                an unfiltered search too, see ``query.retrieval``).
 
         Returns:
             A list of :class:`models.RetrievedChunk` ordered by descending
@@ -562,11 +572,15 @@ class VectorStore:
             share identical text).
         """
         vector_literal = _to_pgvector_literal(query_embedding)
-        where_clause = ""
+        conditions: list[str] = []
         params: list = [vector_literal]
         if metadata_filter:
-            where_clause = "WHERE metadata @> %s::jsonb"
+            conditions.append("metadata @> %s::jsonb")
             params.append(json.dumps(metadata_filter))
+        if years:
+            conditions.append(_YEAR_CONDITION)
+            params.append([str(y) for y in years])
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.extend([vector_literal, top_k])
 
         sql = f"""
@@ -581,6 +595,13 @@ class VectorStore:
             LIMIT %s;
         """
         with self._connection() as conn, conn.cursor() as cur:
+            if years:
+                # pgvector's HNSW index applies a WHERE clause *after* it has
+                # found its ef_search nearest neighbours, so a selective filter
+                # (a year with ~90 of ~2,200 documents) can leave few or no
+                # rows. Iterative scan keeps scanning until LIMIT rows pass the
+                # filter. LOCAL: only this transaction, not the whole session.
+                cur.execute("SET LOCAL hnsw.iterative_scan = 'relaxed_order'")
             cur.execute(sql, tuple(params))
             rows = cur.fetchall()
 
@@ -599,6 +620,9 @@ class VectorStore:
                     score=score,
                 )
             )
+        if years:
+            # relaxed_order can return rows slightly out of distance order.
+            results.sort(key=lambda c: c.score, reverse=True)
         return results
 
     def compute_hub_scores(
@@ -661,9 +685,7 @@ class VectorStore:
             total_updated = 0
             with conn.cursor() as cur:
                 batch: list[tuple[int, float]] = []
-                for processed, (chunk_id, embedding_text) in enumerate(
-                    chunks, start=1
-                ):
+                for processed, (chunk_id, embedding_text) in enumerate(chunks, start=1):
                     cur.execute(
                         """
                         SELECT 1 - (embedding <=> %s::vector) AS score
@@ -706,6 +728,7 @@ class VectorStore:
         query_text: str,
         top_k: int,
         metadata_filter: dict | None = None,
+        years: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         """Return chunks matching any word of ``query_text`` via full-text search.
 
@@ -747,6 +770,7 @@ class VectorStore:
             top_k: Maximum number of results.
             metadata_filter: Optional dict of key-value pairs that chunk metadata
                 must contain (uses Postgres JSONB containment ``@>``).
+            years: Optional years; same meaning as in :meth:`search`.
 
         Returns:
             A list of :class:`models.RetrievedChunk` ordered by descending
@@ -765,8 +789,11 @@ class VectorStore:
         where_filter = ""
         params: list = [or_joined_query, or_joined_query]
         if metadata_filter:
-            where_filter = "AND metadata @> %s::jsonb"
+            where_filter += " AND metadata @> %s::jsonb"
             params.append(json.dumps(metadata_filter))
+        if years:
+            where_filter += f" AND {_YEAR_CONDITION}"
+            params.append([str(y) for y in years])
         params.append(top_k)
 
         sql = f"""
@@ -918,7 +945,9 @@ class VectorStore:
             The set of distinct source_file values across all chunks.
         """
         with self._connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT DISTINCT metadata->>'source_file' FROM document_chunks;")
+            cur.execute(
+                "SELECT DISTINCT metadata->>'source_file' FROM document_chunks;"
+            )
             return {row[0] for row in cur.fetchall()}
 
     def count_hub_scored_chunks(self) -> tuple[int, int]:
