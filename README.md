@@ -42,7 +42,12 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── conversion.py        # Candidate text -> typed MetaValue
 │   ├── verification.py      # EvidenceVerifier: does an extracted value really exist in the text?
 │   ├── date_parsers.py      # Language-specific date readers the verifier is given (Hungarian today)
-│   └── runner.py            # MetaExtractionRunner: idempotent, resumable extraction + statuses
+│   ├── runner.py            # MetaExtractionRunner: idempotent, resumable extraction + statuses
+│   ├── clock.py             # Clock / SystemClock (time-zone aware) / FixedClock: the injected "today"
+│   ├── date_ranges.py       # DateRangeResolver: "last October", "next week" -> a concrete range, deterministically
+│   ├── plan.py              # QueryPlan + parse_plan: the strict shape of an LLM-produced plan
+│   ├── compiler.py          # PlanCompiler: plan + catalog -> parameterised SQL (no value ever in the SQL text)
+│   └── executor.py          # PlanExecutor: compile, run read-only, return counts with "+K unknown"
 ├── llm_json.py             # extract_json: tolerant parsing of a model's JSON reply (shared by corpus tooling and metadata)
 ├── logger.py                # Structured JSONL telemetry/event logging
 ├── retry_policy.py          # Shared retry-with-backoff decorator (TransientAPIError, retry_on_transient_error)
