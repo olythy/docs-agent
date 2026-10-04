@@ -51,6 +51,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── retrieval.py          # query_knowledge_base: hybrid retrieval + answer generation
 │   ├── hybrid.py             # reciprocal_rank_fusion: pure RRF fusion logic
 │   ├── listwise_rerank.py    # Optional final LLM disambiguation pass over near-duplicate candidates
+│   ├── time_filter.py        # extract_years(): the years a question names (for the opt-in period-aware retrieval)
 │   └── decline_detection.py  # Shared "did the model honestly decline" heuristic (eval + scripts/eval_cli.py)
 ├── migrations/              # Python migrations (Laravel-artisan-style runner)
 │   ├── base.py                # Migration ABC: up()/down() run raw SQL, no ORM
@@ -71,14 +72,16 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   └── init-test-db.sql      # Creates the "docs_agent_test" database on first startup
 ├── docs/
 │   ├── decisions.md          # Engineering decision & bug-log history (the "why" behind this README)
-│   └── architecture.md       # Pipeline diagrams + Strategy/Driver selection table (the "how it flows")
+│   └── architecture.md       # Pipeline diagrams, Strategy/Driver table, and the index of every switch + its measured effect (the "how it flows")
 ├── corpus/                  # The real-estate-law evaluation corpus "sub-app" — see corpus/cli.py
 │   ├── cli.py                # Thin Typer entrypoint: merges commands/ modules via add_typer()
 │   ├── commands/
 │   │   ├── download.py        # `download` command (thin wrapper around download_court_decisions.py)
 │   │   ├── generate_questions.py  # `generate-questions` command (draft + two-tier-verify golden questions)
 │   │   ├── eval.py            # `eval` command: persona-bucketed golden-set accuracy + citation correctness
-│   │   └── compute_hub_scores.py  # `compute-hub-scores` command (CSLS hub_score batch pass)
+│   │   ├── compute_hub_scores.py  # `compute-hub-scores` command (CSLS hub_score batch pass)
+│   │   ├── coverage.py        # `coverage` command: how much of the golden set is answerable now; flags missing hub scores
+│   │   └── compare_retrieval.py  # `compare-retrieval` command: retrieval-only A/B of identifier-guarantee / period options
 │   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/
