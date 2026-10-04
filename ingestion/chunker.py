@@ -815,6 +815,27 @@ def _strip_header_prefix(content: str, header_path: str) -> str:
     return content
 
 
+def strip_chunk_prefixes(content: str, metadata: ChunkMetadata) -> str:
+    """Return a stored chunk's own text, without the prefixes embedded into it.
+
+    A stored chunk's ``content`` starts with the document summary, the
+    document's identifiers and a header path (see :func:`_package_chunk`). Code
+    that needs the document's *own* wording -- for instance to check that a
+    quote really occurs in the document, not just in its generated summary --
+    must remove them. This is the one place that knows how they were added.
+
+    Args:
+        content: A chunk's stored content.
+        metadata: The same chunk's metadata (carries the three prefixes' values).
+
+    Returns:
+        The chunk's body text.
+    """
+    body = _strip_document_summary_prefix(content, metadata.document_summary)
+    body = _strip_identifiers_prefix(body, metadata.document_identifiers)
+    return _strip_header_prefix(body, metadata.header_path or "")
+
+
 def _package_chunk(content: str, metadata: ChunkMetadata) -> Chunk:
     """Builds the final, embedding-ready Chunk from raw content and its metadata.
 

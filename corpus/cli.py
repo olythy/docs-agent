@@ -21,6 +21,7 @@ Usage::
     uv run python corpus/cli.py coverage
     uv run python corpus/cli.py compare-retrieval [--persona ID]
     uv run python corpus/cli.py funnel -q ID [-q ID ...]
+    uv run python corpus/cli.py meta-accuracy
 """
 
 import sys
@@ -40,6 +41,7 @@ from corpus.commands import (
     eval,
     funnel,
     generate_questions,
+    meta_accuracy,
 )
 
 app = typer.Typer(help=__doc__)
@@ -50,6 +52,7 @@ app.add_typer(compute_hub_scores.app)
 app.add_typer(coverage.app)
 app.add_typer(compare_retrieval.app)
 app.add_typer(funnel.app)
+app.add_typer(meta_accuracy.app)
 
 if __name__ == "__main__":
     app()

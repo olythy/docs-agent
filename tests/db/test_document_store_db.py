@@ -339,3 +339,231 @@ def test_changing_a_keys_description_bumps_its_version(db_conn):
 
     [stored] = DocumentStore().list_keys("invoice")
     assert (result.revised, stored.description, stored.version) == (1, "Net total.", 2)
+
+
+def _key(name, version=1):
+    return MetaKey(
+        "court_decision",
+        name,
+        ValueType.TEXT,
+        "d",
+        status=KeyStatus.APPROVED,
+        version=version,
+    )
+
+
+def test_replace_values_swaps_the_rows_of_one_key_only(db_conn):
+    store = DocumentStore()
+    store.upsert_document(Document(HASH_A, "a.docx"))
+    store.add_value(MetaValue(HASH_A, "court", 1, MetaSource.LLM, value_text="old"))
+    store.add_value(MetaValue(HASH_A, "kind", 1, MetaSource.LLM, value_text="keep"))
+
+    store.replace_values(
+        HASH_A,
+        "court",
+        [
+            MetaValue(
+                HASH_A, "court", 2, MetaSource.LLM, value_text="new 0", ordinal=0
+            ),
+            MetaValue(
+                HASH_A, "court", 2, MetaSource.LLM, value_text="new 1", ordinal=1
+            ),
+        ],
+    )
+
+    assert [v.value_text for v in store.get_values(HASH_A, "court")] == [
+        "new 0",
+        "new 1",
+    ]
+    assert [v.value_text for v in store.get_values(HASH_A, "kind")] == ["keep"]
+    store.replace_values(HASH_A, "court", [])  # clearing is allowed
+    assert store.get_values(HASH_A, "court") == []
+
+
+def test_documents_needing_extraction_follow_the_status_and_the_key_version(db_conn):
+    store = DocumentStore()
+    store.upsert_document(Document(HASH_A, "a.docx"))
+    store.upsert_document(Document(HASH_B, "b.docx"))
+    keys = [_key("court"), _key("kind")]
+
+    # nothing attempted: both documents need work
+    assert [d.source_file for d in store.documents_needing(keys)] == [
+        "a.docx",
+        "b.docx",
+    ]
+
+    # A is done for both keys, B only for one
+    for key in ("court", "kind"):
+        store.set_status(MetaStatus(HASH_A, key, MetaState.PRESENT, key_version=1))
+    store.set_status(
+        MetaStatus(HASH_B, "court", MetaState.CONFIRMED_ABSENT, key_version=1)
+    )
+    assert [d.source_file for d in store.documents_needing(keys)] == ["b.docx"]
+
+    # a key whose definition changed (version 2) makes every document pending again
+    bumped = [_key("court", version=2), _key("kind")]
+    assert [d.source_file for d in store.documents_needing(bumped)] == [
+        "a.docx",
+        "b.docx",
+    ]
+
+    assert [d.source_file for d in store.documents_needing(keys, limit=1)] == ["b.docx"]
+    assert store.documents_needing([]) == []
+
+
+def test_statuses_of_a_document_are_returned_by_key(db_conn):
+    store = DocumentStore()
+    store.upsert_document(Document(HASH_A, "a.docx"))
+    store.set_status(MetaStatus(HASH_A, "court", MetaState.PRESENT, key_version=3))
+
+    statuses = store.get_statuses(HASH_A)
+
+    assert set(statuses) == {"court"}
+    assert (statuses["court"].state, statuses["court"].key_version) == (
+        MetaState.PRESENT,
+        3,
+    )
+
+
+def test_coverage_counts_every_document_in_exactly_one_state(db_conn):
+    store = DocumentStore()
+    for h, f in (
+        (HASH_A, "a.docx"),
+        (HASH_B, "b.docx"),
+        ("c" * 64, "c.docx"),
+        ("d" * 64, "d.docx"),
+    ):
+        store.upsert_document(Document(h, f))
+    store.set_status(MetaStatus(HASH_A, "court", MetaState.PRESENT, key_version=1))
+    store.set_status(MetaStatus(HASH_B, "court", MetaState.UNVERIFIED, key_version=1))
+    store.set_status(
+        MetaStatus("c" * 64, "court", MetaState.CONFIRMED_ABSENT, key_version=1)
+    )
+    # d: never attempted
+
+    [cov] = store.coverage([_key("court")])
+
+    assert (cov.present, cov.unverified, cov.confirmed_absent, cov.not_attempted) == (
+        1,
+        1,
+        1,
+        1,
+    )
+    assert cov.total == 4 and cov.unknown == 2
+
+
+def test_a_status_from_an_older_definition_counts_as_not_attempted(db_conn):
+    store = DocumentStore()
+    store.upsert_document(Document(HASH_A, "a.docx"))
+    store.set_status(MetaStatus(HASH_A, "court", MetaState.PRESENT, key_version=1))
+
+    [cov] = store.coverage([_key("court", version=2)])
+
+    assert (cov.present, cov.not_attempted) == (0, 1)
+
+
+def test_a_documents_chunks_come_back_in_document_order(db_conn):
+    _save_chunks(HASH_A, "a.docx", "summary", n=3)
+    _save_chunks(HASH_B, "b.docx", "summary", n=1)
+
+    chunks = VectorStore().get_document_chunks(HASH_A)
+
+    assert [c.metadata.chunk_index for c in chunks] == [0, 1, 2]
+    assert {c.metadata.source_file for c in chunks} == {"a.docx"}
+    assert VectorStore().get_document_chunks("f" * 64) == []
+
+
+def test_the_runner_extracts_end_to_end_with_the_real_stores_and_a_scripted_source(
+    db_conn,
+):
+    """The whole path on a real database: documents, chunks, status, values, resumability."""
+    from unittest.mock import MagicMock
+
+    from metadata.catalog import KeyCatalog
+    from metadata.evidence import EvidenceSelector
+    from metadata.runner import MetaExtractionRunner
+    from metadata.sources import Candidate, ChunkMetadataSource, SourceResult
+    from metadata.sources import MetaSource as SourceBase
+
+    class ScriptedCourtSource(SourceBase):
+        kind = MetaSource.LLM
+        needs_verification = True
+
+        def supports(self, key):
+            return key.key == "issuing_body"
+
+        def extract(self, chunks, keys):
+            quote = "Egri Törvényszék"
+            return SourceResult(
+                candidates=[
+                    Candidate(
+                        "issuing_body", quote, evidence=quote, evidence_chunk_index=0
+                    )
+                ]
+            )
+
+    _save_chunks(HASH_A, "a.docx", "summary", n=2)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE document_chunks SET content = 'Az Egri Törvényszék ítélete. Eger, 2023. május 4.',"
+            " metadata = jsonb_set(metadata, '{document_date}', '\"2023-05-04\"');"
+        )
+    db_conn.commit()
+    DocumentStore().sync_from_chunks()
+    KeyCatalog(DocumentStore()).import_seed(
+        [
+            MetaKey(
+                "court_decision",
+                "issuing_body",
+                ValueType.TEXT,
+                "The court.",
+                status=KeyStatus.APPROVED,
+            ),
+            MetaKey(
+                "court_decision",
+                "decision_date",
+                ValueType.DATE,
+                "Date.",
+                status=KeyStatus.APPROVED,
+            ),
+        ]
+    )
+    runner = MetaExtractionRunner(
+        DocumentStore(),
+        VectorStore(),
+        EvidenceSelector(MagicMock()),
+        [
+            ChunkMetadataSource({"decision_date": "document_date"}),
+            ScriptedCourtSource(),
+        ],
+    )
+
+    first = runner.run("court_decision")
+    second = runner.run("court_decision")
+
+    assert (first.documents, first.present) == (1, 2)
+    assert second.documents == 0  # resumable: nothing left to do
+    store = DocumentStore()
+    [court] = store.get_values(HASH_A, "issuing_body")
+    [when] = store.get_values(HASH_A, "decision_date")
+    assert (court.value_text, court.source) == ("Egri Törvényszék", MetaSource.LLM)
+    assert court.evidence_chunk_index == 0
+    assert (when.value_date, when.source) == (
+        date(2023, 5, 4),
+        MetaSource.DETERMINISTIC,
+    )
+    by_key = {c.key: c for c in store.coverage(store.list_keys("court_decision"))}
+    assert (by_key["issuing_body"].present, by_key["decision_date"].present) == (1, 1)
+
+
+def test_list_values_returns_every_value_of_a_key_with_its_file_name(db_conn):
+    store = DocumentStore()
+    store.upsert_document(Document(HASH_A, "a.docx"))
+    store.upsert_document(Document(HASH_B, "b.docx"))
+    store.add_value(MetaValue(HASH_B, "court", 1, MetaSource.LLM, value_text="B court"))
+    store.add_value(MetaValue(HASH_A, "court", 1, MetaSource.LLM, value_text="A court"))
+    store.add_value(MetaValue(HASH_A, "kind", 1, MetaSource.LLM, value_text="other key"))
+
+    rows = store.list_values("court")
+
+    assert [(f, v.value_text) for f, v in rows] == [("a.docx", "A court"), ("b.docx", "B court")]

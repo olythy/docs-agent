@@ -8,6 +8,7 @@ builds SQL for them. See docs/structured-metadata-design.md.
 Key exports:
     DocumentStore -- The data-access class.
     SyncResult    -- What :meth:`DocumentStore.sync_from_chunks` changed.
+    KeyCoverage   -- Per-key counts of documents by state (for the coverage report).
 """
 
 import json
@@ -40,6 +41,27 @@ class SyncResult:
 
     upserted: int
     removed: int
+
+
+@dataclass(frozen=True)
+class KeyCoverage:
+    """How many documents are in each :class:`models.MetaState` for one key.
+
+    ``not_attempted`` counts documents with no status row at all, so the four
+    numbers always add up to ``total``.
+    """
+
+    key: str
+    present: int
+    confirmed_absent: int
+    unverified: int
+    not_attempted: int
+    total: int
+
+    @property
+    def unknown(self) -> int:
+        """Documents a count over this key cannot account for."""
+        return self.unverified + self.not_attempted
 
 
 class DocumentStore:
@@ -245,6 +267,13 @@ class DocumentStore:
             psycopg2.errors.ForeignKeyViolation: If the document is not registered.
             psycopg2.errors.UniqueViolation: If the (document, key, ordinal) row exists.
         """
+        with self._scope.connection() as conn:
+            self._insert_value(conn, value)
+            conn.commit()
+
+    @staticmethod
+    def _insert_value(conn, value: MetaValue) -> None:
+        """Insert one value row on ``conn`` without committing."""
         sql = """
             INSERT INTO document_meta
                 (content_hash, key, key_version, value_text, value_number,
@@ -252,28 +281,178 @@ class DocumentStore:
                  evidence_chunk_index, page, source)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s);
         """
+        with conn.cursor() as cur:
+            cur.execute(
+                sql,
+                (
+                    value.content_hash,
+                    value.key,
+                    value.key_version,
+                    value.value_text,
+                    value.value_number,
+                    value.value_date,
+                    value.value_bool,
+                    value.unit,
+                    value.ordinal,
+                    json.dumps(value.qualifiers),
+                    value.evidence,
+                    value.evidence_chunk_index,
+                    value.page,
+                    value.source.value,
+                ),
+            )
+
+    def replace_values(
+        self, content_hash: str, key: str, values: list[MetaValue]
+    ) -> None:
+        """Replace all of a document's values for one key, atomically.
+
+        Re-extracting a key (because its definition changed, or an earlier run
+        failed) must not leave the old rows behind or insert next to them.
+
+        Args:
+            content_hash: The document.
+            key: The catalog key.
+            values: The new rows (may be empty, which just clears the key).
+        """
+        delete_sql = "DELETE FROM document_meta WHERE content_hash = %s AND key = %s;"
         with self._scope.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    sql,
-                    (
-                        value.content_hash,
-                        value.key,
-                        value.key_version,
-                        value.value_text,
-                        value.value_number,
-                        value.value_date,
-                        value.value_bool,
-                        value.unit,
-                        value.ordinal,
-                        json.dumps(value.qualifiers),
-                        value.evidence,
-                        value.evidence_chunk_index,
-                        value.page,
-                        value.source.value,
-                    ),
-                )
+                cur.execute(delete_sql, (content_hash, key))
+            for value in values:
+                self._insert_value(conn, value)
             conn.commit()
+
+    def get_statuses(self, content_hash: str) -> dict[str, MetaStatus]:
+        """Return a document's recorded status per key (keys never attempted are absent)."""
+        sql = """
+            SELECT key, state, key_version FROM document_meta_status
+            WHERE content_hash = %s;
+        """
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (content_hash,))
+            rows = cur.fetchall()
+        return {
+            key: MetaStatus(content_hash, key, MetaState(state), key_version=version)
+            for key, state, version in rows
+        }
+
+    def documents_needing(
+        self, keys: list[MetaKey], limit: int | None = None
+    ) -> list[Document]:
+        """Return documents for which at least one of ``keys`` still has to be extracted.
+
+        A key is *done* for a document when a status row exists at the key's
+        current version or later; a missing row (never attempted) or one from an
+        older definition counts as pending. This is what makes extraction
+        resumable and lets a changed definition refresh only what it affects.
+
+        Args:
+            keys: The catalog keys to consider (their ``version`` is the bar).
+            limit: Return at most this many documents (ordered by file name).
+        """
+        if not keys:
+            return []
+        sql = """
+            SELECT d.content_hash, d.source_file, d.summary, d.ingested_at
+            FROM documents d
+            WHERE EXISTS (
+                SELECT 1 FROM unnest(%s::text[], %s::int[]) AS k(key, version)
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM document_meta_status s
+                    WHERE s.content_hash = d.content_hash
+                      AND s.key = k.key AND s.key_version >= k.version
+                )
+            )
+            ORDER BY d.source_file
+            LIMIT %s;
+        """
+        params = ([k.key for k in keys], [k.version for k in keys], limit)
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+        return [Document(*row) for row in rows]
+
+    def coverage(self, keys: list[MetaKey]) -> list[KeyCoverage]:
+        """Count, per key, how many documents are in each state.
+
+        Only a status row at the key's *current* version counts; an older one is
+        treated as not attempted, because the definition has changed since.
+
+        Args:
+            keys: The catalog keys to report on.
+        """
+        total = self.count_documents()
+        sql = """
+            SELECT state, count(*) FROM document_meta_status
+            WHERE key = %s AND key_version >= %s
+            GROUP BY state;
+        """
+        result = []
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            for key in keys:
+                cur.execute(sql, (key.key, key.version))
+                counts = {MetaState(state): n for state, n in cur.fetchall()}
+                recorded = sum(counts.values())
+                result.append(
+                    KeyCoverage(
+                        key=key.key,
+                        present=counts.get(MetaState.PRESENT, 0),
+                        confirmed_absent=counts.get(MetaState.CONFIRMED_ABSENT, 0),
+                        unverified=counts.get(MetaState.UNVERIFIED, 0),
+                        not_attempted=total
+                        - recorded
+                        + counts.get(MetaState.NOT_ATTEMPTED, 0),
+                        total=total,
+                    )
+                )
+        return result
+
+    def list_values(self, key: str) -> list[tuple[str, MetaValue]]:
+        """Return every stored value of one key, with its document's file name.
+
+        Meant for reports and measurement over a whole corpus (it reads every row
+        of the key), not for per-document lookups.
+
+        Args:
+            key: The catalog key.
+
+        Returns:
+            ``(source_file, value)`` pairs ordered by file name and ordinal.
+        """
+        sql = """
+            SELECT d.source_file, m.content_hash, m.key, m.key_version, m.source,
+                   m.value_text, m.value_number, m.value_date, m.value_bool, m.unit,
+                   m.ordinal, m.qualifiers, m.evidence, m.evidence_chunk_index, m.page
+            FROM document_meta m JOIN documents d USING (content_hash)
+            WHERE m.key = %s
+            ORDER BY d.source_file, m.ordinal;
+        """
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (key,))
+            rows = cur.fetchall()
+        return [
+            (
+                r[0],
+                MetaValue(
+                    content_hash=r[1],
+                    key=r[2],
+                    key_version=r[3],
+                    source=MetaSource(r[4]),
+                    value_text=r[5],
+                    value_number=r[6],
+                    value_date=r[7],
+                    value_bool=r[8],
+                    unit=r[9],
+                    ordinal=r[10],
+                    qualifiers=r[11],
+                    evidence=r[12],
+                    evidence_chunk_index=r[13],
+                    page=r[14],
+                ),
+            )
+            for r in rows
+        ]
 
     def get_values(self, content_hash: str, key: str) -> list[MetaValue]:
         """Return a document's values for one key, in ordinal order."""

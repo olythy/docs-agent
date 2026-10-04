@@ -1010,6 +1010,39 @@ class VectorStore:
             )
             return {row[0]: row[1] for row in cur.fetchall()}
 
+    def get_document_chunks(self, content_hash: str) -> list[RetrievedChunk]:
+        """Return every chunk of one document, in document order.
+
+        Uses the indexed ``content_hash`` column, so it does not scan the table.
+
+        Args:
+            content_hash: The document's SHA-256 content hash.
+
+        Returns:
+            The chunks ordered by ``chunk_index``, each with a placeholder
+            ``score`` of 0.0 (this is a lookup, not a search).
+        """
+        sql = """
+            SELECT id, content, metadata
+            FROM document_chunks
+            WHERE content_hash = %s
+            ORDER BY (metadata->>'chunk_index')::int;
+        """
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (content_hash,))
+            rows = cur.fetchall()
+        return [
+            RetrievedChunk(
+                id=chunk_id,
+                content=content,
+                metadata=ChunkMetadata.from_dict(
+                    json.loads(metadata) if isinstance(metadata, str) else metadata
+                ),
+                score=0.0,
+            )
+            for chunk_id, content, metadata in rows
+        ]
+
     def get_all_source_files(self) -> set[str]:
         """Return every distinct ``source_file`` currently in document_chunks.
 

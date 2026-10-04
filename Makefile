@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 .PHONY: help docker-up docker-down docker-down-clean doctor \
-        db-migrate db-migrate-test db-flush db-refresh setup documents-sync \
+        db-migrate db-migrate-test db-flush db-refresh setup documents-sync extract-meta meta-coverage \
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
         make-migration add-document add-directory delete-document query chat \
         inspect-chunks extract-text eval eval-rerank eval-llm eval-all \
@@ -66,6 +66,12 @@ db-refresh: db-flush db-migrate ## Empty the table, then re-apply pending migrat
 # --- Structured metadata (scripts/meta_cli.py) ---
 documents-sync: ## Sync the documents table from the ingested chunks (idempotent)
 	uv run python scripts/meta_cli.py sync-documents
+
+extract-meta: ## Extract catalog metadata (LLM calls!) — usage: make extract-meta limit=50
+	uv run python scripts/meta_cli.py extract-meta $(if $(limit),--limit $(limit),)
+
+meta-coverage: ## Per-key metadata coverage (verified / absent / unverified / not tried)
+	uv run python scripts/meta_cli.py coverage
 
 migrate-status: ## Show applied vs. pending migrations
 	uv run python scripts/db_cli.py status
