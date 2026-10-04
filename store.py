@@ -12,7 +12,7 @@ Key exports:
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from contextlib import contextmanager
 from typing import ClassVar, Self
 
@@ -375,6 +375,11 @@ class VectorStore:
     Args:
         conn: Optional active psycopg connection. If provided, callers are
             responsible for closing it.
+        content_hashes: Optional document restriction: when given, every
+            search (vector, full-text, identifier) only sees chunks of these
+            documents (the indexed ``content_hash`` column). Used to run a
+            normal retrieval inside the document set a structured filter
+            selected; an empty collection restricts to nothing.
     """
 
     _validated_dimensions: ClassVar[set[int]] = set()
@@ -384,10 +389,13 @@ class VectorStore:
         """Clear cached dimension validations. Useful in test fixtures."""
         cls._validated_dimensions.clear()
 
-    def __init__(self, conn=None) -> None:
+    def __init__(
+        self, conn=None, content_hashes: Collection[str] | None = None
+    ) -> None:
         self._conn = conn
         self._managed_conn = None
         self._conn_depth = 0
+        self._scope = None if content_hashes is None else sorted(content_hashes)
 
     def __enter__(self) -> Self:
         """Enter the connection context, opening a reusable connection if none exists."""
@@ -420,6 +428,21 @@ class VectorStore:
                 yield conn
             finally:
                 conn.close()
+
+    def restricted_to(self, content_hashes: Collection[str]) -> "VectorStore":
+        """A store over the same connection that only sees the given documents."""
+        return VectorStore(conn=self._conn, content_hashes=content_hashes)
+
+    def _scope_condition(self, column: str = "content_hash") -> tuple[str, list]:
+        """The SQL condition and parameters for the document restriction.
+
+        Returns:
+            ``("", [])`` when unrestricted, otherwise a condition (starting
+            with `` AND ``) and its parameter list.
+        """
+        if self._scope is None:
+            return "", []
+        return f" AND {column} = ANY(%s)", [self._scope]
 
     def delete_chunks_by_hash(self, content_hash: str) -> int:
         """Delete all document_chunks rows matching the given SHA-256 content hash.
@@ -619,6 +642,9 @@ class VectorStore:
         if years:
             conditions.append(_YEAR_CONDITION)
             params.append([str(y) for y in years])
+        if self._scope is not None:
+            conditions.append("content_hash = ANY(%s)")
+            params.append(self._scope)
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.extend([vector_literal, top_k])
 
@@ -634,7 +660,7 @@ class VectorStore:
             LIMIT %s;
         """
         with self._connection() as conn, conn.cursor() as cur:
-            if years:
+            if years or self._scope is not None:
                 # pgvector's HNSW index applies a WHERE clause *after* it has
                 # found its ef_search nearest neighbours, so a selective filter
                 # (a year with ~90 of ~2,200 documents) can leave few or no
@@ -659,7 +685,7 @@ class VectorStore:
                     score=score,
                 )
             )
-        if years:
+        if years or self._scope is not None:
             # relaxed_order can return rows slightly out of distance order.
             results.sort(key=lambda c: c.score, reverse=True)
         return results
@@ -833,6 +859,9 @@ class VectorStore:
         if years:
             where_filter += f" AND {_YEAR_CONDITION}"
             params.append([str(y) for y in years])
+        scope_sql, scope_params = self._scope_condition()
+        where_filter += scope_sql
+        params.extend(scope_params)
         params.append(top_k)
 
         sql = f"""
@@ -902,6 +931,7 @@ class VectorStore:
         if not tokens:
             return []
 
+        scope_sql, scope_params = self._scope_condition("c.content_hash")
         if per_token:
             patterns = [f"%{token}%" for token in tokens]
             regexes = [_identifier_regex(token) for token in tokens]
@@ -915,13 +945,18 @@ class VectorStore:
                            ROW_NUMBER() OVER (PARTITION BY t.p ORDER BY c.id) AS rn
                     FROM document_chunks c,
                          unnest(%s::text[], %s::text[]) AS t(p, r)
-                    WHERE c.content ILIKE t.p
-                       OR (t.r IS NOT NULL AND {normalized_match})
+                    WHERE (c.content ILIKE t.p
+                       OR (t.r IS NOT NULL AND {normalized_match})){scope_sql}
                 ) matched
                 WHERE rn <= %s
                 ORDER BY id;
             """
-            query_params: tuple = (patterns, regexes, per_token_limit)
+            query_params: tuple = (
+                patterns,
+                regexes,
+                *scope_params,
+                per_token_limit,
+            )
         else:
             params: list = []
             condition_parts = []
@@ -936,11 +971,13 @@ class VectorStore:
                     params.append(regex)
                 condition_parts.append(f"({part})")
             conditions = " OR ".join(condition_parts)
+            plain_scope_sql, plain_scope_params = self._scope_condition()
+            params.extend(plain_scope_params)
             params.append(top_k)
             sql = f"""
                 SELECT id, content, metadata
                 FROM document_chunks
-                WHERE {conditions}
+                WHERE ({conditions}){plain_scope_sql}
                 LIMIT %s;
             """
             query_params = tuple(params)
