@@ -78,7 +78,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── eval_data/
 │   │   └── sample_questions.json  # eval_cli.py's own 25-question self-referential eval set (fixture docs live in tests/data/)
 │   ├── log_cli.py            # Telemetry & logging CLI: watch/tail, stats, clear (uv run python scripts/log_cli.py)
-│   ├── meta_cli.py           # Structured-metadata CLI: sync-documents, load-catalog, extract-meta, coverage (uv run python scripts/meta_cli.py)
+│   ├── meta_cli.py           # Structured-metadata CLI: sync-documents, load-catalog, extract-meta, coverage, keys, set-key-status (uv run python scripts/meta_cli.py)
 │   └── utils.py              # Shared CLI utilities (subprocess runner, paths, terminal formatting)
 ├── docker-compose.yml       # Local Postgres+pgvector (dev + test databases)
 ├── docker/
@@ -232,7 +232,8 @@ Typed per-document facts for counting/listing questions -- see `docs/structured-
 |---|---|
 | `make documents-sync` | `uv run python scripts/meta_cli.py sync-documents` — make the `documents` table match the ingested chunks (idempotent) |
 | `uv run python scripts/meta_cli.py load-catalog corpus/data/meta_catalog.json` | validate a key catalog and import it into `meta_keys` (a changed key definition bumps its version) |
-| `make extract-meta limit=50` | `uv run python scripts/meta_cli.py extract-meta --limit 50` — extract the catalog's keys (**one LLM call per document**); idempotent and resumable; start small |
+| `make extract-meta limit=50 [seed=7]` | `uv run python scripts/meta_cli.py extract-meta --limit 50 [--seed 7]` — extract the catalog's keys (**one LLM call per document**); idempotent and resumable; start small; `--seed` takes a random, reproducible sample instead of the first N by file name |
+| `uv run python scripts/meta_cli.py keys` / `set-key-status <doc_type> <key> <approved\|retired\|proposed>` | list the catalog with statuses; approve a key the extractor proposed or retire a duplicate |
 | `make meta-coverage` | `uv run python scripts/meta_cli.py coverage` — per key: verified / confirmed absent / unverified / not tried (red when anything is unknown) |
 
 ### Agent & Runtime (`scripts/agent_cli.py`)

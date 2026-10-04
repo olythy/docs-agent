@@ -2,6 +2,19 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-04 — Extraction on a random sample: four wrong values that all verified, and the two fixes
+
+A random, reproducible sample (`extract-meta --limit 200 --seed 7`, plus the earlier 50: 250 documents from 14 courts, 8 min 35 s, 598 values) scored `issuing_body` 247/250 (98.8%) and `document_kind` 247/249 (99.2%) against `meta.csv`, and the misses showed that a *verified* value is often the wrong one:
+
+- Two courts: the model chose a court **mentioned in the text** as an earlier or higher instance ("a Fővárosi Ítélőtábla 3.Pf.20.378/2020/8. számú ítélete") instead of the court that issued the decision. The quote was real.
+- Two kinds: the heading says "ÍTÉLETET" or "RÉSZÍTÉLETET", but the model never saw the heading (the reranker, steered by the key description, picked other chunks) and quoted some other phrase ("v é g z é s t :") or defaulted to `other`. For a categorical key the check "the quote is in the text and the token is allowed" cannot tell that the quote does not *show* the value.
+
+**Two fixes.** (1) `EvidenceSelector` now always includes the document's first and last chunk (heading and signature block exist in documents of almost every kind), then fills the budget by rank. (2) The key descriptions, which are data, were sharpened: `issuing_body` is the court of *this* decision (heading and signature line, not a court merely mentioned), and `document_kind` is decided by the capitalised heading. Re-importing the catalog bumped both keys to version 2, and `extract-meta` then redid only those two keys (`decision_date` untouched), which is the version mechanism working as designed.
+
+**Result on 292 documents:** `issuing_body` 291/292 (99.7%), `document_kind` 290/291 (99.7%); of the five earlier errors four were fixed (one of them now `partial_judgment`, finer than `meta.csv` can check) and the fifth is a court name anonymised in the document itself. The one remaining `document_kind` disagreement (`K_700939_2024_6`) is probably `meta.csv` being coarse: the document's own heading is "KIJAVÍTÓ VÉGZÉS" (a correcting order) and `meta.csv` calls it an Ítélet.
+
+**Caveats.** Not a clean A/B: both changes went in together and were tuned *after seeing the failures*, so the gain on those documents is optimistic; the ~40 documents that were new in the second run (never seen) had no error, which is the cleaner evidence. 4 documents "failed" (the reply was not JSON even after repair) and stay pending for the next run. The extractor also proposed a duplicate key (`date_of_issue`, a copy of `decision_date`): proposals work as designed (unusable until approved) but need a way to be retired, hence `meta_cli.py keys` / `set-key-status`. Running everything (~1,950 documents left) costs about 75 minutes of LLM calls at this rate.
+
 ## 2026-10-04 — Milestone 2 of the structured-metadata layer: first live extraction (50 documents), and what "verified" does and does not mean
 
 Built the extraction path: a key catalog loaded from data (`corpus/data/meta_catalog.json`), `EvidenceSelector` (rerank a document's chunks using the key's *description* as the query, keep the best 1-2 per key), `LLMMetaSource` (one call per document, a verbatim quote required per value), `ChunkMetadataSource` (an adapter that copies the `document_date` the ingest regex already extracted), `EvidenceVerifier`, `MetaExtractionRunner` (idempotent and resumable: only (document, key) pairs with no status at the key's current version; a source that fails leaves the key *pending* so the next run retries it) and the `extract-meta` / `coverage` commands.
