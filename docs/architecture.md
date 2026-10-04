@@ -147,6 +147,7 @@ flowchart LR
     subgraph DataAccess["Data access (all SQL lives here)"]
         db["db.py — connection factory"]
         store["store.py — VectorStore"]
+        docstore["document_store.py — DocumentStore<br/>(structured metadata; not yet wired into retrieval)"]
     end
     subgraph Shapes["Core data shapes"]
         models["models.py<br/>ChunkMetadata / Chunk / RetrievedChunk"]

@@ -1,6 +1,6 @@
 # Structured metadata layer: design
 
-Status: **agreed design, not yet built.** Milestone 1 is next. The evidence behind it is in `docs/decisions.md` (the 2026-10-04 entries on counting/listing, the `document_date` accuracy measurement, and the key-extraction prototype).
+Status: **agreed design; milestone 1 is built** (the tables, `DocumentStore`, the `sync-documents` command, tests) and applied to the test database; milestones 2-5 are not. The evidence behind it is in `docs/decisions.md` (the 2026-10-04 entries on counting/listing, the `document_date` accuracy measurement, and the key-extraction prototype).
 
 ## Why
 
@@ -44,7 +44,7 @@ Top-k chunk retrieval is good at *lookup* ("who represents the second defendant 
 |---|---|
 | `content_hash` (FK, `ON DELETE CASCADE`) | the document |
 | `key`, `key_version` | which key, and which description version produced it |
-| `value_text`, `value_number`, `value_date`, `unit` | typed value |
+| `value_text`, `value_number`, `value_date`, `value_bool`, `unit` | typed value; the database enforces that exactly one of the four `value_*` columns is set |
 | `ordinal` | position among a multi-valued key's rows |
 | `qualifiers` (JSONB) | role / party / instance etc.; the catalog declares which qualifiers a key allows |
 | `evidence`, `evidence_chunk_index`, `page` | the verbatim quote and where it is (a chunk *index*, not a chunk id, which goes stale on re-ingest) |
@@ -109,7 +109,7 @@ A separate batch command (modelled on `compute-hub-scores`), run after ingest, i
 
 ## Milestones
 
-1. Migration, `DocumentStore`, generated `content_hash` column; backfill `documents` from the existing chunks.
+1. Migration, `DocumentStore`, generated `content_hash` column; backfill `documents` from the existing chunks. **Built.** Keeping `documents` in step with ingestion (register on ingest, remove on replace) is not wired yet: `sync-documents` does it on demand and is idempotent.
 2. `extract-meta` for objective keys (`issuing_body`, `decision_date`, `document_kind` as a categorical key) with the LLM source and the existing regex date as an adapter; coverage report.
 3. Plan DSL, `PlanCompiler`, `DateRangeResolver`, `Clock`: testable without any LLM.
 4. `LLMQueryPlanner` and a `corpus/` eval command that scores count/list questions exactly.
