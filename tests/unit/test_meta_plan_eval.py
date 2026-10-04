@@ -4,38 +4,70 @@ from datetime import date
 
 from corpus.commands.meta_plan_eval import (
     StoredDoc,
-    build_cases,
+    build_facts,
+    keeps_mentions,
+    pick_today,
     score_count,
     score_list,
 )
 
-TODAY = date(2026, 10, 4)
+TODAY = date(2024, 3, 13)  # a Wednesday
 
 
 def _docs():
     return [
-        StoredDoc("a", "Kúria", "judgment", date(2025, 10, 3)),
-        StoredDoc("b", "Kúria", "judgment", date(2025, 10, 20)),
-        StoredDoc("c", "Kúria", "order", date(2024, 1, 5)),
+        StoredDoc("a", "Kúria", "judgment", date(2024, 3, 5)),  # last week
+        StoredDoc("b", "Kúria", "order", date(2024, 3, 20)),  # next week
+        StoredDoc("c", "Debreceni Ítélőtábla", "judgment", date(2023, 10, 5)),
         StoredDoc("d", None, None, None),  # nothing known: never matches anything
     ]
 
 
-def test_expected_sets_come_from_stored_values_only():
-    cases = {c.template: c for c in build_cases(_docs(), TODAY, 10, seed=1)}
+def test_expected_sets_are_resolved_against_the_fixed_today():
+    facts = build_facts(_docs(), TODAY, per_template=50, seed=1)
 
-    assert all("d" not in c.expected for c in build_cases(_docs(), TODAY, 10, seed=1))
-    assert cases["count_relative_month"].expected == {"a", "b"}
-    assert "tavaly október hónapjában" in cases["count_relative_month"].question
+    last = {f.scope: f.expected for f in facts if f.template == "last_week"}
+    nxt = {f.scope: f.expected for f in facts if f.template == "next_week"}
+    assert last[""] == {"a"} and nxt[""] == {"b"}
+    assert last["issued by Kúria"] == {"a"}
+    assert all("d" not in f.expected for f in facts)
+
+
+def test_a_scope_with_a_name_requires_the_phrasing_to_keep_it():
+    facts = build_facts(_docs(), TODAY, per_template=50, seed=1)
+
+    named = next(f for f in facts if f.scope == "issued by Kúria")
+    assert named.must_mention == ("Kúria",)
+    assert next(f for f in facts if f.scope == "").must_mention == ()
+
+
+def test_the_description_reads_as_plain_english_for_the_phrasing_step():
+    facts = build_facts(_docs(), TODAY, per_template=50, seed=1)
+
+    fact = next(
+        f for f in facts if f.template == "last_week" and f.scope == "issued by Kúria"
+    )
+    assert fact.description() in (
+        "the number of documents issued by Kúria dated last week",
+        "a list of the documents issued by Kúria dated last week",
+    )
 
 
 def test_the_draw_is_reproducible_and_capped_per_template():
-    first = build_cases(_docs(), TODAY, 1, seed=7)
-    again = build_cases(_docs(), TODAY, 1, seed=7)
+    one = build_facts(_docs(), TODAY, per_template=1, seed=7)
 
-    assert first == again
-    templates = [c.template for c in first]
+    assert one == build_facts(_docs(), TODAY, per_template=1, seed=7)
+    templates = [f.template for f in one]
     assert len(templates) == len(set(templates))
+
+
+def test_today_is_the_median_decision_date_and_needs_dates():
+    assert pick_today(_docs()) == date(2024, 3, 5)
+
+
+def test_a_phrasing_that_lost_the_name_is_detected():
+    assert keeps_mentions("Hány ítéletet hozott a  KÚRIA tavaly?", ("Kúria",))
+    assert not keeps_mentions("Hány ítéletet hozott a bíróság?", ("Kúria",))
 
 
 def test_scoring():

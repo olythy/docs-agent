@@ -1,37 +1,52 @@
 """The `meta-plan-eval` command: does question -> plan -> SQL give the exact answer?
 
-Generates count and list questions in Hungarian from the values already stored in
-``document_meta`` (the court, the kind of decision, the decision date), computes
-each question's exact expected answer *in Python*, independently of the plan
-compiler, then lets the real planner and executor answer it and compares.
-Scoring is set arithmetic, no LLM grader: a count must equal the expected number,
-and a list is scored with precision/recall of document sets.
+Builds count and list questions whose exact answers are known, lets the real
+planner and executor answer them, and scores the result by set arithmetic (no LLM
+grader). It measures the *planner and compiler*; whether the stored values are
+right is measured separately by ``meta-accuracy``.
 
-This measures the *planner and compiler*. Whether the stored values are right is
-measured separately by ``meta-accuracy``. The question templates (and the
-Hungarian month and decision-kind words) are specific to this corpus, which is why
-this lives under ``corpus/`` and never in the generic metadata core.
+How a question is made, and why:
+
+1. The code picks a *fact* from the stored values: a scope (all documents, one
+   issuing body, one kind) and a period ("last week", "last year's October", "in
+   the last 30 days", ...), and computes the exact expected document set in Python.
+2. An LLM only *phrases* that fact as a natural question in the chosen language,
+   so the questions are not tied to hand-written, single-language templates. It
+   is never asked to compute anything, so the expected answer stays independent
+   of any model. A phrasing that loses the scope's text value (e.g. the court's
+   name) is rejected and reported, not silently kept.
+3. Relative periods ("next week") need data near "today", but the corpus is all
+   past, so the eval runs on a *fixed clock* set inside the data's date range.
+   The planner is told that date, and the expected ranges are resolved with it.
+
+The period arithmetic uses the same ``DateRangeResolver`` as the compiler; that
+resolver has its own calendar tests, so what is measured here is whether the
+planner *chose the right period description*. The corpus-specific part is only
+which stored keys it reads (``issuing_body``, ``document_kind``,
+``decision_date``), which is why this lives under ``corpus/``.
 """
 
+import calendar
 import random
+import statistics
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
 import typer
 
+from metadata.clock import FixedClock
+from metadata.date_ranges import DateRange, DateRangeResolver
+
 app = typer.Typer()
 
 DOC_TYPE = "court_decision"
 
-_MONTHS = [
-    "január", "február", "március", "április", "május", "június",
-    "július", "augusztus", "szeptember", "október", "november", "december",
-]  # fmt: skip
-_KIND_WORDS = {"judgment": "ítéletet", "order": "végzést"}
 #: A list question is only generated when the answer fits the plan's default limit.
 _MAX_LIST = 50
+#: Share of the generated questions that ask for a list rather than a count.
+_LIST_SHARE = 0.3
 
 
 @dataclass(frozen=True)
@@ -45,102 +60,160 @@ class StoredDoc:
 
 
 @dataclass(frozen=True)
-class EvalCase:
-    """One question with its exactly computed answer.
+class Fact:
+    """A question's meaning, before it is phrased, with its exact answer.
 
     Attributes:
-        template: Which question shape produced it.
-        question: The question, in Hungarian.
+        template: The period shape, e.g. ``last_week`` (what the report groups by).
         operation: ``count`` or ``list``.
+        scope: The documents asked about, in English words (empty for all).
+        period: The period as a person would say it, in English.
         expected: The content hashes of the documents that match.
+        must_mention: Text values a phrasing has to keep (e.g. the court's name).
     """
 
     template: str
-    question: str
     operation: str
+    scope: str
+    period: str
     expected: frozenset[str]
+    must_mention: tuple[str, ...] = ()
+
+    def description(self) -> str:
+        """The fact in plain English, for the phrasing step."""
+        what = (
+            "the number of documents"
+            if self.operation == "count"
+            else "a list of the documents"
+        )
+        scope = f" {self.scope}" if self.scope else ""
+        return f"{what}{scope} dated {self.period}"
 
 
-def build_cases(
+def _periods(rng: random.Random, years: Sequence[int]):
+    """Yield ``(template, spoken period, date spec)`` for a spread of period shapes."""
+    year = rng.choice(years)
+    month = rng.randint(1, 12)
+    name = calendar.month_name[month]
+    quarter = rng.randint(1, 4)
+    yield "calendar_year", f"in {year}", {"kind": "calendar", "year": year}
+    yield (
+        "calendar_month",
+        f"in {name} {year}",
+        {"kind": "calendar", "year": year, "month": month},
+    )
+    yield (
+        "calendar_quarter",
+        f"in the {quarter}. quarter of {year}",
+        {"kind": "calendar", "year": year, "quarter": quarter},
+    )
+    yield (
+        "last_years_month",
+        f"in {name} of last year",
+        {"kind": "calendar", "year_offset": -1, "month": month},
+    )
+    for template, phrase, unit, offset in (
+        ("last_year", "last year", "year", -1),
+        ("last_quarter", "last quarter", "quarter", -1),
+        ("last_month", "last month", "month", -1),
+        ("this_month", "this month", "month", 0),
+        ("next_month", "next month", "month", 1),
+        ("last_week", "last week", "week", -1),
+        ("this_week", "this week", "week", 0),
+        ("next_week", "next week", "week", 1),
+    ):
+        yield template, phrase, {"kind": "relative", "unit": unit, "offset": offset}
+    yield (
+        "rolling_past",
+        "in the last 30 days",
+        {"kind": "rolling", "unit": "day", "count": 30},
+    )
+    yield (
+        "rolling_future",
+        "in the next 14 days",
+        {"kind": "rolling", "unit": "day", "count": 14, "direction": "future"},
+    )
+
+
+def _kind_words(kind: str) -> str:
+    return kind.replace("_", " ") + "s"
+
+
+def build_facts(
     docs: Sequence[StoredDoc], today: date, per_template: int, seed: int
-) -> list[EvalCase]:
-    """Generate up to ``per_template`` questions of each shape, reproducibly.
+) -> list[Fact]:
+    """Generate up to ``per_template`` facts for each period shape, reproducibly.
 
-    Only combinations that match at least one document are used, and a document
-    whose relevant value is unknown never counts as a match (the comparison is
-    against what is *stored*, so the unknown documents are reported separately by
-    the executor).
+    Only combinations that match at least one document are used. A document whose
+    relevant value is unknown never matches (the comparison is against what is
+    *stored*; the executor reports the unknown ones separately).
 
     Args:
         docs: Every document with its stored facts.
-        today: The date the relative questions are asked on.
-        per_template: How many questions to draw per template.
+        today: The (fixed) date the relative periods are resolved against.
+        per_template: How many facts to draw per period shape.
         seed: Seeds the draw.
     """
     rng = random.Random(seed)
-    cases: list[EvalCase] = []
+    resolver = DateRangeResolver(FixedClock(today))
+    dated = [d for d in docs if d.decided]
+    years = sorted({d.decided.year for d in dated if d.decided})
+    if not years:
+        return []
+    scopes: list[tuple[str, tuple[str, ...], Callable[[StoredDoc], bool]]] = [
+        ("", (), lambda d: True)
+    ]
+    for body in sorted({d.body for d in dated if d.body}):
+        scopes.append((f"issued by {body}", (body,), lambda d, b=body: d.body == b))
+    for kind in sorted({d.kind for d in dated if d.kind}):
+        scopes.append(
+            (f"that are {_kind_words(kind)}", (), lambda d, k=kind: d.kind == k)
+        )
 
-    def draw(template: str, groups: dict, make, operation: str, cap: int | None = None):
-        keys = sorted(groups)
-        rng.shuffle(keys)
-        taken = 0
-        for key in keys:
-            hashes = frozenset(groups[key])
-            if cap is not None and len(hashes) > cap:
-                continue
-            cases.append(EvalCase(template, make(*key), operation, hashes))
-            taken += 1
-            if taken == per_template:
+    drawn: dict[str, list[Fact]] = defaultdict(list)
+    for template, period, spec in _periods(rng, years):
+        window: DateRange = resolver.resolve(spec)
+        in_window = [
+            d for d in dated if d.decided and window.start <= d.decided <= window.end
+        ]
+        order = list(range(len(scopes)))
+        rng.shuffle(order)
+        for index in order:
+            if len(drawn[template]) >= per_template:
                 break
+            scope, mention, matches = scopes[index]
+            hashes = frozenset(d.content_hash for d in in_window if matches(d))
+            if not hashes:
+                continue
+            as_list = len(hashes) <= _MAX_LIST and rng.random() < _LIST_SHARE
+            drawn[template].append(
+                Fact(
+                    template,
+                    "list" if as_list else "count",
+                    scope,
+                    period,
+                    hashes,
+                    mention,
+                )
+            )
+    return [fact for facts in drawn.values() for fact in facts]
 
-    by_body_kind: dict[tuple, set] = defaultdict(set)
-    by_year: dict[tuple, set] = defaultdict(set)
-    by_month: dict[tuple, set] = defaultdict(set)
-    by_body_year: dict[tuple, set] = defaultdict(set)
-    for d in docs:
-        if d.body and d.kind in _KIND_WORDS:
-            by_body_kind[(d.body, d.kind)].add(d.content_hash)
-        if d.decided:
-            by_year[(d.decided.year,)].add(d.content_hash)
-            by_month[(d.decided.year, d.decided.month)].add(d.content_hash)
-        if d.body and d.decided:
-            by_body_year[(d.body, d.decided.year)].add(d.content_hash)
 
-    draw(
-        "count_body_kind",
-        by_body_kind,
-        lambda body, kind: f"Hány {_KIND_WORDS[kind]} hozott a(z) {body}?",
-        "count",
-    )
-    draw(
-        "count_year",
-        by_year,
-        lambda year: f"Hány határozat kelt {year}-ben?",
-        "count",
-    )
-    draw(
-        "count_month",
-        by_month,
-        lambda year, month: (
-            f"Hány határozat kelt {year} {_MONTHS[month - 1]} hónapjában?"
-        ),
-        "count",
-    )
-    last_year = {k: v for k, v in by_month.items() if k[0] == today.year - 1}
-    draw(
-        "count_relative_month",
-        {(month,): hashes for (_, month), hashes in last_year.items()},
-        lambda month: f"Hány határozat kelt tavaly {_MONTHS[month - 1]} hónapjában?",
-        "count",
-    )
-    draw(
-        "list_body_year",
-        by_body_year,
-        lambda body, year: f"Sorold fel a(z) {body} {year}-ben kelt határozatait.",
-        "list",
-        cap=_MAX_LIST,
-    )
-    return cases
+def pick_today(docs: Sequence[StoredDoc]) -> date:
+    """A fixed 'today' inside the data's date range: the median decision date.
+
+    Relative periods around it ("last week", "next month") then contain documents.
+    """
+    dates = sorted(d.decided for d in docs if d.decided)
+    if not dates:
+        raise ValueError("no stored decision dates to pick a 'today' from")
+    return dates[len(dates) // 2]
+
+
+def keeps_mentions(question: str, must_mention: Sequence[str]) -> bool:
+    """Whether a phrased question still contains every required text value."""
+    folded = " ".join(question.lower().split())
+    return all(" ".join(m.lower().split()) in folded for m in must_mention)
 
 
 @dataclass(frozen=True)
@@ -175,6 +248,18 @@ def score_count(expected: frozenset[str], counted: int) -> Score:
     return Score(right, float(right), float(right))
 
 
+_PHRASING_PROMPT = """Write ONE natural question, in {language}, that a person would ask to get exactly this:
+
+    {description}
+
+Rules:
+- Keep the period the way a person says it (e.g. "last week", "in March 2023"); do not turn it into dates and do not compute anything.
+- Keep any proper name exactly as given.
+- Vary the wording naturally; use "how many" for a number and "list/which" for a list.
+- Output ONLY the question.
+"""
+
+
 def _load_docs() -> list[StoredDoc]:
     from document_store import DocumentStore
 
@@ -192,65 +277,101 @@ def _load_docs() -> list[StoredDoc]:
 
 @app.command(name="meta-plan-eval")
 def meta_plan_eval(
-    per_template: int = typer.Option(4, help="Questions drawn per template."),
-    seed: int = typer.Option(1, help="Seeds the question draw."),
+    per_template: int = typer.Option(2, help="Questions drawn per period shape."),
+    seed: int = typer.Option(1, help="Seeds the draw."),
+    language: str = typer.Option(
+        "Hungarian", help="Language the questions are phrased in."
+    ),
+    today: str = typer.Option(
+        "", help="Fixed 'today' (YYYY-MM-DD); default: the median decision date."
+    ),
     show: int = typer.Option(5, help="How many wrong answers to print in full."),
 ) -> None:
-    """Ask generated count/list questions through the real planner and score them exactly."""
+    """Phrase generated count/list facts as questions, answer them through the planner, score exactly."""
     from document_store import DocumentStore
     from drivers.llm import get_answer_driver
-    from metadata.clock import SystemClock
     from metadata.compiler import PlanCompiler
-    from metadata.date_ranges import DateRangeResolver
     from metadata.executor import PlanExecutor
     from metadata.plan import PlanError
     from metadata.planner import LLMQueryPlanner, PlanningFailed
     from models import KeyStatus
 
-    clock = SystemClock()
+    docs = _load_docs()
+    fixed_today = date.fromisoformat(today) if today else pick_today(docs)
+    clock = FixedClock(fixed_today)
     store = DocumentStore()
     compiler = PlanCompiler(DateRangeResolver(clock))
-    planner = LLMQueryPlanner(get_answer_driver(), compiler, clock)
+    llm = get_answer_driver()
+    planner = LLMQueryPlanner(llm, compiler, clock)
     executor = PlanExecutor(store, compiler)
     keys = store.list_keys(DOC_TYPE, KeyStatus.APPROVED)
 
-    cases = build_cases(_load_docs(), clock.today(), per_template, seed)
+    print(f"fixed today for this run: {fixed_today}")
     outcomes: dict[str, list[Score]] = defaultdict(list)
     wrong: list[str] = []
-    for case in cases:
-        try:
-            plan = planner.plan(case.question, DOC_TYPE, keys)
-            result = executor.execute(plan)
-        except (PlanningFailed, PlanError) as exc:
-            outcomes[case.template].append(Score(False, 0.0, 0.0))
-            wrong.append(f"{case.question}\n    FAILED: {exc}")
+    rejected = 0
+    for fact in build_facts(docs, fixed_today, per_template, seed):
+        question = (
+            llm.run_tool_calling_turn(
+                [
+                    {
+                        "role": "user",
+                        "content": _PHRASING_PROMPT.format(
+                            language=language, description=fact.description()
+                        ),
+                    }
+                ]
+            ).content
+            or ""
+        ).strip()
+        if not question or not keeps_mentions(question, fact.must_mention):
+            rejected += 1
+            print(
+                f"  phrasing rejected (lost a name): {question!r} <- {fact.description()}"
+            )
             continue
-        if case.operation == "count":
-            got = score_count(case.expected, result.count or 0)
+        try:
+            result = executor.execute(planner.plan(question, DOC_TYPE, keys))
+        except (PlanningFailed, PlanError) as exc:
+            outcomes[fact.template].append(Score(False, 0.0, 0.0))
+            wrong.append(f"{question}\n    FAILED: {exc}")
+            continue
+        if fact.operation == "count":
+            got = score_count(fact.expected, result.count or 0)
         else:
-            got = score_list(case.expected, [str(row[0]) for row in result.documents])
-        outcomes[case.template].append(got)
+            got = score_list(fact.expected, [str(row[0]) for row in result.documents])
+        outcomes[fact.template].append(got)
         if not got.exact:
             wrong.append(
-                f"{case.question}\n    expected {len(case.expected)}, got "
-                f"{result.count} (+{result.unknown} unknown); plan: {result.explanation}"
+                f"{question}\n    meant: {fact.description()}\n    expected {len(fact.expected)}, got "
+                f"{result.count} (+{result.unknown} unknown); executed: {result.explanation}"
             )
 
-    print(f"\n{'template':<24}{'n':>4}{'exact':>8}{'precision':>11}{'recall':>9}")
+    print(f"\n{'period shape':<20}{'n':>4}{'exact':>8}{'precision':>11}{'recall':>9}")
     for template, scores in outcomes.items():
         n = len(scores)
         print(
-            f"{template:<24}{n:>4}{sum(s.exact for s in scores) / n:>8.0%}"
+            f"{template:<20}{n:>4}{sum(s.exact for s in scores) / n:>8.0%}"
             f"{sum(s.precision for s in scores) / n:>11.0%}"
             f"{sum(s.recall for s in scores) / n:>9.0%}"
         )
+    everything = [s for scores in outcomes.values() for s in scores]
+    if everything:
+        print(
+            f"{'ALL':<20}{len(everything):>4}"
+            f"{statistics.mean(s.exact for s in everything):>8.0%}"
+        )
+    if rejected:
+        print(f"\n{rejected} phrasing(s) rejected and not asked (listed above).")
     for line in wrong[:show]:
         print(f"\nwrong: {line}")
     print(
         """
 How to read this:
   exact      a count equals the expected number / a list is exactly the expected set.
-  Expected answers are computed in Python from the stored values, not by the compiler.
-  Documents whose key is not extracted yet are 'unknown' and cannot match, so run
-  this on full coverage; the printed (+K unknown) shows the gap per wrong answer."""
+  Expected answers are computed in Python from the stored values; an LLM only phrased
+  the questions. Documents whose key is not extracted yet are 'unknown' and cannot
+  match, so run this on full coverage; the printed (+K unknown) shows the gap.
+  The same model phrases and plans: a shared blind spot is possible, so read the
+  'wrong' cases yourself rather than trusting the percentage alone."""
     )
