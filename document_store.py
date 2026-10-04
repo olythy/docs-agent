@@ -398,6 +398,30 @@ class DocumentStore:
             rows = cur.fetchall()
         return [Document(*row) for row in rows]
 
+    def distinct_text_values(self, key: str, limit: int) -> list[str] | None:
+        """Return every distinct stored text value of a key, if there are few enough.
+
+        Lets a planner see the exact spellings a text filter has to match (a
+        combined court name is one value, not two).
+
+        Args:
+            key: The catalog key.
+            limit: The most distinct values worth listing.
+
+        Returns:
+            The values, most frequent first; ``None`` when there are more than
+            ``limit`` (the key is too free-form to list).
+        """
+        sql = """
+            SELECT value_text FROM document_meta
+            WHERE key = %s AND value_text IS NOT NULL
+            GROUP BY value_text ORDER BY count(*) DESC, value_text LIMIT %s;
+        """
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (key, limit + 1))
+            rows = [row[0] for row in cur.fetchall()]
+        return rows if len(rows) <= limit else None
+
     def execute_query(
         self, sql: str, params: tuple, timeout_ms: int = 10_000
     ) -> list[tuple]:

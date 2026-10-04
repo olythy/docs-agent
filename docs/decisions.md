@@ -2,6 +2,19 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-05 — First measurement of the planner: 92% -> (my regression: 71%) -> 100% / 98%
+
+First `meta-plan-eval` on the full extraction (2,235 documents; decision_date 100% covered, issuing_body/document_kind 4 unverified each; fixed "today" 2022-12-08 = the median decision date; Hungarian questions phrased by the LLM): **22 of 24 exact (92%)**. The two misses were real planner faults, not noise:
+
+- **The planner split a combined court name into two.** One stored value is "Budapesti XVIII. és XIX. Kerületi Bíróság" (17 documents); the planner emitted `issuing_body in [XVIII., XIX.]` and matched nothing. A free-text filter can only be right if the planner has seen the stored spellings. Fix (generic): the prompt now lists the *exact stored values* of every free-text key that has few distinct values (`collect_known_values`, at most 60; `DocumentStore.distinct_text_values`), with "a combined name is ONE value". Keys with allowed values or many distinct values are not listed.
+- **"The last quarter" became a lone `decision_date >= 2022-07-01`** (no upper bound; 20 documents instead of 2). I added a prompt rule that a named period is always a closed `between` range.
+
+**That second fix first made things worse: 71% (17/24).** "ALWAYS use between with its spec" led the model to write `{"from": ..., "to": ...}` without `"kind": "between"` and, worse, the resolver's error ("unknown date spec kind None") did not say what to fix, so the single retry failed too. Fixed in both places: the prompt now says the value of a period filter is *one* spec and gives a concrete example (the `between` *kind* is only for spanning two specs), and the resolver's error now shows the offending object. Lesson: a prompt rule added to fix one case must be re-measured on the whole set; and an error message that does not tell the model what to change makes the retry useless.
+
+After the fixes: seed 1 **24/24 (100%)**; a different seed with 4 questions per period shape (a fresh draw, so not tuned on): **49/50 (98%)**. The one miss: the planner dropped the court filter on "dokumentumok, amelyeket a Debreceni Törvényszék ezen a héten kiadott" (precision 81%, recall 100%, 8 documents instead of 2). Not tuned for: one miss in 50 is within what a re-run could change, and a prompt rule added for it would risk the regression above.
+
+What this does *not* show: only count/list questions with a court/kind scope and a period were asked (no sums, no `group_by`, no `contains`, no number thresholds, no residuals); the same model phrases and plans; the expected answers use the stored values, so extraction errors are not in these numbers (`meta-accuracy` measures them: 99.7% on the keys it has truth for).
+
 ## 2026-10-04 — Milestone 5: the router, and what it does when it is unsure
 
 `query_knowledge_base` can now ask the planner first (`QUERY_ROUTER`, off by default; `query/router.py`). Unit-tested with fakes and the document restriction tested on a real Postgres; **not yet measured end to end**.

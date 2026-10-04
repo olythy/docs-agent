@@ -20,13 +20,46 @@ Key exports:
 
 import json
 from abc import ABC, abstractmethod
+from collections.abc import Mapping, Sequence
+from typing import Protocol
 
 from drivers.llm import AnswerDriver
 from llm_json import extract_json
 from metadata.clock import Clock
 from metadata.compiler import PlanCompiler
 from metadata.plan import PlanError, QueryPlan, parse_plan
-from models import MetaKey
+from models import MetaKey, ValueType
+
+#: A text key with more distinct values than this is too free-form to list in a prompt.
+MAX_LISTED_VALUES = 60
+
+
+class ValueSource(Protocol):
+    """The slice of :class:`document_store.DocumentStore` that lists stored values."""
+
+    def distinct_text_values(self, key: str, limit: int) -> list[str] | None: ...
+
+
+def collect_known_values(
+    source: ValueSource, keys: Sequence[MetaKey]
+) -> dict[str, list[str]]:
+    """The exact stored values of every low-cardinality free-text key.
+
+    A planner that has not seen the stored spellings guesses them (and splits a
+    combined name into two). Keys with an allowed-value list already say what they
+    take, and keys with many distinct values are left out.
+
+    Args:
+        source: Where the stored values are read.
+        keys: The approved keys the plan may use.
+    """
+    known: dict[str, list[str]] = {}
+    for key in keys:
+        if key.value_type is ValueType.TEXT and not key.allowed_values:
+            values = source.distinct_text_values(key.key, MAX_LISTED_VALUES)
+            if values:
+                known[key.key] = values
+    return known
 
 
 class PlanningFailed(RuntimeError):
@@ -47,13 +80,21 @@ class QueryPlanner(ABC):
     """Turns a question into a plan over a catalog."""
 
     @abstractmethod
-    def plan(self, question: str, doc_type: str, keys: list[MetaKey]) -> QueryPlan:
+    def plan(
+        self,
+        question: str,
+        doc_type: str,
+        keys: list[MetaKey],
+        known_values: Mapping[str, Sequence[str]] | None = None,
+    ) -> QueryPlan:
         """Return a plan for ``question``.
 
         Args:
             question: The user's question, in any language.
             doc_type: The catalog the keys belong to.
             keys: The *approved* keys the plan may use.
+            known_values: Exact stored values of low-cardinality text keys
+                (see :func:`collect_known_values`), so a filter can copy them.
 
         Raises:
             PlanningFailed: If no valid plan could be produced.
@@ -76,9 +117,18 @@ class LLMQueryPlanner(QueryPlanner):
         self._compiler = compiler
         self._clock = clock
 
-    def plan(self, question: str, doc_type: str, keys: list[MetaKey]) -> QueryPlan:
+    def plan(
+        self,
+        question: str,
+        doc_type: str,
+        keys: list[MetaKey],
+        known_values: Mapping[str, Sequence[str]] | None = None,
+    ) -> QueryPlan:
         messages: list[dict] = [
-            {"role": "user", "content": self._prompt(question, keys)}
+            {
+                "role": "user",
+                "content": self._prompt(question, keys, known_values or {}),
+            }
         ]
         error, reply = "", ""
         for attempt in range(2):
@@ -102,12 +152,23 @@ class LLMQueryPlanner(QueryPlanner):
                 ]
         raise PlanningFailed(error, reply)
 
-    def _prompt(self, question: str, keys: list[MetaKey]) -> str:
+    def _prompt(
+        self,
+        question: str,
+        keys: list[MetaKey],
+        known_values: Mapping[str, Sequence[str]],
+    ) -> str:
         described = []
         for k in keys:
             line = f"- {k.key} ({k.value_type.value}): {k.description}"
             if k.allowed_values:
                 line += f" Allowed values: {', '.join(k.allowed_values)}."
+            if k.key in known_values:
+                line += (
+                    " Stored values (copy one exactly; a combined name is ONE value): "
+                    + "; ".join(known_values[k.key])
+                    + "."
+                )
             described.append(line)
         return _TEMPLATE.format(
             today=self._clock.today().isoformat(),
@@ -142,7 +203,7 @@ FILTERS: a list of {{"key", "op", "value"}} that must ALL hold.
   {{"kind": "rolling", "unit": "day|week|month|year", "count": 30, "direction": "past|future"}}   the last/next N units including today
   {{"kind": "absolute", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}}
   {{"kind": "between", "from": <spec>, "to": <spec>}}
-  Use op "between" with such a spec for a period; "gte"/"lt" etc. with a spec compare against its first/last day.
+  A named period ("last year", "March 2023", "last quarter", "next week") is ALWAYS a closed range: the filter is {{"key": <date key>, "op": "between", "value": <ONE spec from the list above>}}, e.g. last year = {{"key": "decision_date", "op": "between", "value": {{"kind": "relative", "unit": "year", "offset": -1}}}}. Every spec, including the value of "between", has a "kind". The "between" KIND is only for spanning two different specs ("from March to May 2023"). "The last N days/weeks/months" is a rolling spec. Use "gte"/"lt" etc. with a spec only for open-ended questions ("after March 2023", "before 2020").
 
 RULES
 - Use only the keys above. If part of the question has no matching key, put that part in "residual" (a short string in the question's language) and keep the rest as filters.

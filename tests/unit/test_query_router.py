@@ -28,7 +28,7 @@ class FakePlanner(QueryPlanner):
     def __init__(self, plan=None, fail=False):
         self._plan, self._fail, self.calls = plan, fail, 0
 
-    def plan(self, question, doc_type, keys):
+    def plan(self, question, doc_type, keys, known_values=None):
         self.calls += 1
         if self._fail:
             raise PlanningFailed("bad", "reply")
@@ -51,6 +51,9 @@ class FakeKeys:
 
     def list_keys(self, doc_type, status=None):
         return self._keys
+
+    def distinct_text_values(self, key, limit):
+        return None
 
 
 class EchoPhraser:

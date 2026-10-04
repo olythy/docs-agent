@@ -293,7 +293,7 @@ def meta_plan_eval(
     from metadata.compiler import PlanCompiler
     from metadata.executor import PlanExecutor
     from metadata.plan import PlanError
-    from metadata.planner import LLMQueryPlanner, PlanningFailed
+    from metadata.planner import LLMQueryPlanner, PlanningFailed, collect_known_values
     from models import KeyStatus
 
     docs = _load_docs()
@@ -305,6 +305,7 @@ def meta_plan_eval(
     planner = LLMQueryPlanner(llm, compiler, clock)
     executor = PlanExecutor(store, compiler)
     keys = store.list_keys(DOC_TYPE, KeyStatus.APPROVED)
+    known_values = collect_known_values(store, keys)
 
     print(f"fixed today for this run: {fixed_today}")
     outcomes: dict[str, list[Score]] = defaultdict(list)
@@ -331,7 +332,9 @@ def meta_plan_eval(
             )
             continue
         try:
-            result = executor.execute(planner.plan(question, DOC_TYPE, keys))
+            result = executor.execute(
+                planner.plan(question, DOC_TYPE, keys, known_values)
+            )
         except (PlanningFailed, PlanError) as exc:
             outcomes[fact.template].append(Score(False, 0.0, 0.0))
             wrong.append(f"{question}\n    FAILED: {exc}")

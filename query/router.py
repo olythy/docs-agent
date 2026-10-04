@@ -35,7 +35,12 @@ from typing import Protocol
 from config import settings
 from metadata.executor import PlanExecutor, PlanResult
 from metadata.plan import Operation, QueryPlan
-from metadata.planner import PlanningFailed, QueryPlanner
+from metadata.planner import (
+    PlanningFailed,
+    QueryPlanner,
+    ValueSource,
+    collect_known_values,
+)
 from models import KeyStatus, MetaKey
 from store import extract_identifier_tokens
 
@@ -69,7 +74,7 @@ class Routing:
     note: str | None = None
 
 
-class KeySource(Protocol):
+class KeySource(ValueSource, Protocol):
     """The slice of :class:`document_store.DocumentStore` the router reads."""
 
     def list_keys(
@@ -227,7 +232,12 @@ class QueryRouter:
                 "keys; run `meta_cli.py load-catalog` and `extract-meta` first."
             )
         try:
-            plan = self._planner.plan(question, self._doc_type, keys)
+            plan = self._planner.plan(
+                question,
+                self._doc_type,
+                keys,
+                collect_known_values(self._keys, keys),
+            )
         except PlanningFailed as failure:
             logger.warning("[router] Could not plan %r: %s", question, failure.reason)
             return Routing(answer=COULD_NOT_INTERPRET_MESSAGE)

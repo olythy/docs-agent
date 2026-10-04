@@ -123,3 +123,24 @@ def test_the_doc_type_comes_from_the_caller_not_from_the_model():
     plan = _planner(ScriptedLLM(GOOD)).plan("q", DT, KEYS)
 
     assert plan.doc_type == DT
+
+
+def test_stored_values_of_a_free_text_key_are_shown_to_the_model():
+    llm = ScriptedLLM(GOOD)
+    known = {"issuing_body": ["Kúria", "Budapesti XVIII. és XIX. Kerületi Bíróság"]}
+
+    _planner(llm).plan("q", DT, KEYS, known)
+
+    prompt = llm.calls[0][0]["content"]
+    assert "a combined name is ONE value): Kúria; Budapesti XVIII. és XIX." in prompt
+
+
+def test_only_low_cardinality_free_text_keys_get_their_values_listed():
+    from metadata.planner import collect_known_values
+
+    class Source:
+        def distinct_text_values(self, key, limit):
+            return {"issuing_body": ["Kúria"]}.get(key)  # None = too many
+
+    assert collect_known_values(Source(), KEYS) == {"issuing_body": ["Kúria"]}
+    # decision_date is a date and document_kind has allowed values: neither is asked for

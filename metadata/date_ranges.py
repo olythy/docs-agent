@@ -112,7 +112,8 @@ class DateRangeResolver:
         handler = handlers.get(kind)  # type: ignore[arg-type]
         if handler is None:
             raise DateSpecError(
-                f"unknown date spec kind {kind!r}; use one of {sorted(handlers)}"
+                f"unknown date spec kind {kind!r} in {spec!r}; every spec needs a "
+                f"'kind', one of {sorted(handlers)}"
             )
         try:
             result = handler(spec)
