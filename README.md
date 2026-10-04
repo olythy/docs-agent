@@ -72,7 +72,8 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   └── init-test-db.sql      # Creates the "docs_agent_test" database on first startup
 ├── docs/
 │   ├── decisions.md          # Engineering decision & bug-log history (the "why" behind this README)
-│   └── architecture.md       # Pipeline diagrams, Strategy/Driver table, and the index of every switch + its measured effect (the "how it flows")
+│   ├── architecture.md       # Pipeline diagrams, Strategy/Driver table, and the index of every switch + its measured effect (the "how it flows")
+│   └── structured-metadata-design.md  # Agreed (not yet built) design: typed per-document metadata + query planner, for counting/listing questions
 ├── corpus/                  # The real-estate-law evaluation corpus "sub-app" — see corpus/cli.py
 │   ├── cli.py                # Thin Typer entrypoint: merges commands/ modules via add_typer()
 │   ├── commands/
