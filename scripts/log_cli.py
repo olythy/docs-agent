@@ -18,6 +18,12 @@ Commands:
                             --action <name>    Filter by action (e.g. fts_query_filtered).
                             --test             Watch logs/log-test.jsonl instead of log.jsonl.
                             --no-color         Disable ANSI terminal colors.
+                            --checkpoint-every <N>
+                                               Print a permanent running-total line every N
+                                               matched events (default: 20, 0 disables). Between
+                                               events, a self-overwriting heartbeat line shows
+                                               elapsed time and counts so far -- useful during a
+                                               long-running ingest, without needing to scroll back.
     tail [options]        Print recent formatted events and exit (same options as watch).
     stats [options]       Summarize telemetry events, top dropped stopwords, and rerank ratios.
                           Options:
@@ -182,8 +188,14 @@ def follow_log_file(
     initial_lines: int = 10,
     read_all: bool = False,
     poll_interval: float = 0.5,
-) -> Generator[str, None, None]:
+) -> Generator[str | None, None, None]:
     """Yield lines from ``file_path``, streaming new lines as they are appended.
+
+    Also yields ``None`` once per idle poll (no new line since the last
+    check) -- callers that want a live "still watching, nothing new yet"
+    heartbeat (see ``cmd_watch``) need this tick; callers that don't can
+    just skip ``None`` values, so this stays backward compatible with
+    simple "format every line" consumption.
 
     Args:
         file_path: Path to the log file.
@@ -224,6 +236,7 @@ def follow_log_file(
                     pass
 
                 time.sleep(poll_interval)
+                yield None
 
 
 def cmd_watch(argv: list[str]) -> int:
@@ -267,6 +280,12 @@ def cmd_watch(argv: list[str]) -> int:
         action="store_true",
         help="Disable ANSI color codes.",
     )
+    parser.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=20,
+        help="Print a permanent running-total line every N matched events (default: 20, 0 disables).",
+    )
     args = parser.parse_args(argv)
 
     log_path = resolve_log_path(is_test=args.test, explicit_path=args.path)
@@ -282,27 +301,71 @@ def cmd_watch(argv: list[str]) -> int:
         header = f"{COLOR_BOLD}{COLOR_CYAN}{header}{COLOR_RESET}"
     print(header)
 
+    start_time = time.time()
+    counts: collections.Counter[str] = collections.Counter()
+    heartbeat_shown = False
+
+    def _heartbeat_line() -> str:
+        elapsed = int(time.time() - start_time)
+        mins, secs = divmod(elapsed, 60)
+        total = sum(counts.values())
+        breakdown = ", ".join(f"{act}={n}" for act, n in counts.most_common(3))
+        suffix = f" ({breakdown})" if breakdown else ""
+        text = f"⏳ watching... {mins:02d}:{secs:02d} elapsed | {total} event(s){suffix}"
+        return f"{COLOR_DIM}{text}{COLOR_RESET}" if use_color else text
+
     try:
         for raw_line in follow_log_file(
             log_path,
             initial_lines=args.lines,
             read_all=args.all,
         ):
+            if raw_line is None:
+                # Idle tick: redraw the self-overwriting heartbeat line in
+                # place, same "stays put while nothing's happening" feel
+                # as a fixed header, without needing a curses screen.
+                sys.stdout.write("\r\033[K" + _heartbeat_line())
+                sys.stdout.flush()
+                heartbeat_shown = True
+                continue
+
             line = raw_line.strip()
             if not line:
                 continue
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
+                if heartbeat_shown:
+                    sys.stdout.write("\r\033[K")
+                    heartbeat_shown = False
                 print(f"[raw] {line}")
                 continue
 
             if args.action and entry.get("action") != args.action:
                 continue
 
+            if heartbeat_shown:
+                sys.stdout.write("\r\033[K")
+                heartbeat_shown = False
+
+            action = str(entry.get("action", "unknown"))
+            counts[action] += 1
+
             print(format_event(entry, color=use_color))
             print()
+
+            if args.checkpoint_every > 0 and sum(counts.values()) % args.checkpoint_every == 0:
+                elapsed = int(time.time() - start_time)
+                mins, secs = divmod(elapsed, 60)
+                breakdown = ", ".join(f"{act}={n}" for act, n in counts.most_common())
+                checkpoint = f"--- {sum(counts.values())} event(s) in {mins:02d}:{secs:02d} ({breakdown}) ---"
+                if use_color:
+                    checkpoint = f"{COLOR_BOLD}{COLOR_YELLOW}{checkpoint}{COLOR_RESET}"
+                print(checkpoint)
+                print()
     except KeyboardInterrupt:
+        if heartbeat_shown:
+            sys.stdout.write("\r\033[K")
         print("\nWatcher stopped.")
         return 0
 

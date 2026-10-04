@@ -30,8 +30,18 @@ Key exports:
 import subprocess
 import time
 
+from retry_policy import TransientAPIError
+
 _REFRESH_MARGIN_SECONDS = 300  # refresh 5 min before the ~1h expiry
 _TOKEN_LIFETIME_SECONDS = 3600
+#: Confirmed live during a real multi-hour bulk ingest: subprocess.run()
+#: here had no timeout at all, so a single hung `gcloud` invocation (the
+#: process went to 0% CPU and made zero progress for over an hour) froze
+#: the entire ingest with no way to recover automatically. Bounding it
+#: turns that into a TransientAPIError the caller's own
+#: @retry_on_transient_error already handles -- same backoff-and-retry
+#: path as a 401, not a new recovery mechanism.
+_GCLOUD_TIMEOUT_SECONDS = 15
 
 _cached_token: str | None = None
 _token_fetched_at: float = 0.0
@@ -46,18 +56,30 @@ def get_access_token() -> str:
 
     Raises:
         RuntimeError: If ``gcloud auth print-access-token`` fails (e.g.
-            not logged in).
+            not logged in) -- not retryable, since retrying a bad login
+            state would just fail identically.
+        TransientAPIError: If the ``gcloud`` subprocess doesn't finish
+            within ``_GCLOUD_TIMEOUT_SECONDS`` -- the caller's own
+            ``@retry_on_transient_error`` handles backoff and retry, same
+            as any other transient failure.
     """
     global _cached_token, _token_fetched_at
 
     age = time.monotonic() - _token_fetched_at
     if _cached_token is None or age > (_TOKEN_LIFETIME_SECONDS - _REFRESH_MARGIN_SECONDS):
-        result = subprocess.run(
-            ["gcloud", "auth", "print-access-token"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                ["gcloud", "auth", "print-access-token"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_GCLOUD_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise TransientAPIError(
+                f"gcloud auth print-access-token timed out after "
+                f"{_GCLOUD_TIMEOUT_SECONDS}s"
+            ) from exc
         if result.returncode != 0:
             raise RuntimeError(f"gcloud auth print-access-token failed: {result.stderr}")
         _cached_token = result.stdout.strip()

@@ -2,6 +2,12 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-04 — `gcloud auth print-access-token` had no subprocess timeout; a real multi-hour bulk ingest hung indefinitely
+
+Confirmed live: during the overnight full-corpus re-ingest, the ingest process went to ~0% CPU and made zero progress (no new `document_ingested` log entries, no new rows) for over an hour, after the user's terminal showed a 401 error. Diagnosed by checking `ps` (the process was alive, sleeping, not a crash) and the log timeline (real progress stopped abruptly, over an hour before the check). `drivers/gcloud_auth.py`'s `get_access_token()` calls `subprocess.run(["gcloud", "auth", "print-access-token"], ...)` with no `timeout` argument -- if that one subprocess call ever hangs (observed live, cause not fully isolated -- possibly a network hiccup mid-reauth after the preceding 401 invalidated the cached token), nothing bounds the wait, and every Vertex-backed driver's own `@retry_on_transient_error` never even gets a chance to fire, since it only retries on exceptions the decorated function actually raises -- an indefinitely blocked `subprocess.run()` call never returns at all.
+
+**Fix**: added `_GCLOUD_TIMEOUT_SECONDS = 15` to the `subprocess.run()` call; `subprocess.TimeoutExpired` is now caught and re-raised as `TransientAPIError`, so it flows through the exact same backoff-and-retry path every driver already has for a 401 -- not a new recovery mechanism, just closing the one gap that could still hang forever. A non-zero exit code (e.g. not logged in) still raises a plain `RuntimeError`, deliberately not retried, since retrying a bad login state would just fail identically.
+
 ## 2026-10-03 — CSLS hub-score re-ranking, document_summary enrichment, and listwise LLM rerank: three real techniques for the near-duplicate problem, plus the finding that q0030 itself wasn't fully a retrieval bug
 
 Follow-up to the rejected boilerplate-exclusion filter above: a subagent research pass (web search, see its full report for citations) proposed three alternatives, all tested live against the same hard case (q0030, 19 real near-duplicate administrative-review judgments competing with the correct target).

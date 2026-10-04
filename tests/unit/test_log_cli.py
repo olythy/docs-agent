@@ -7,6 +7,7 @@ from scripts.log_cli import (
     cmd_clear,
     cmd_stats,
     cmd_tail,
+    follow_log_file,
     format_event,
     format_timestamp,
     read_recent_lines,
@@ -161,3 +162,35 @@ def test_cmd_tail(tmp_path: Path, capsys):
     code = cmd_tail(["--path", str(log_file), "--no-color"])
     assert code == 0
     assert "Query: 'test query'" in capsys.readouterr().out
+
+
+def test_follow_log_file_yields_none_on_idle(tmp_path: Path):
+    """The watch heartbeat relies on an idle tick (None) between real
+    lines -- confirms follow_log_file still produces one, distinct from
+    an actual (even blank-looking) line."""
+    log_file = tmp_path / "test.jsonl"
+    log_file.write_text('{"action": "a"}\n')
+
+    gen = follow_log_file(log_file, initial_lines=1, poll_interval=0.01)
+    first = next(gen)
+    assert first == '{"action": "a"}\n'
+
+    second = next(gen)
+    assert second is None
+
+
+def test_follow_log_file_yields_each_new_line_then_resumes_idle_ticks(
+    tmp_path: Path,
+):
+    log_file = tmp_path / "test.jsonl"
+    log_file.write_text("")
+
+    gen = follow_log_file(log_file, initial_lines=0, poll_interval=0.01)
+    assert next(gen) is None  # idle: nothing written yet
+
+    with log_file.open("a") as f:
+        f.write('{"action": "b"}\n')
+
+    # May take a tick or two depending on OS buffering/poll timing.
+    results = [next(gen) for _ in range(5)]
+    assert '{"action": "b"}\n' in results
