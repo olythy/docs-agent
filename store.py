@@ -11,6 +11,7 @@ Key exports:
 """
 
 import json
+import re
 from collections.abc import Callable
 from contextlib import contextmanager
 from typing import ClassVar, Self
@@ -225,6 +226,44 @@ def prepare_fulltext_query(query_text: str) -> tuple[str, list[str], list[str]]:
         return " or ".join(fallback), fallback, []
 
     return " or ".join(kept), kept, dropped
+
+
+#: SQL fragment: does any of the chunk's ``document_identifiers`` match the
+#: regex parameter once separators are stripped? Both sides are reduced to
+#: lower-case letters and digits (see :func:`_identifier_regex`), so
+#: "P.20487.2020.221" and the stored "4.P.20.487/2020/221-ítélet" compare equal.
+_NORMALIZED_IDENTIFIER_MATCH = (
+    "EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+    "{metadata}->'document_identifiers') AS ident "
+    "WHERE lower(regexp_replace(ident, '[^a-zA-Z0-9]', '', 'g')) ~ {regex})"
+)
+_MIN_NORMALIZED_IDENTIFIER_LENGTH = 6
+
+
+def _identifier_regex(token: str) -> str | None:
+    """Build a separator-insensitive regex for ``token``, or ``None`` if too weak.
+
+    Strips everything but letters and digits and lower-cases, then requires a
+    non-digit (or the string edge) after it, so ``P.20487.2020.22`` cannot
+    match inside ``...2020.221``; and before it too, but only when the token
+    itself *starts* with a digit (a letter-initial token like ``P...`` must
+    still match inside the stored ``4p...``, where the digit ``4`` is the
+    court-number prefix). Confirmed live: a user typing
+    "P.20487.2020.221" never reached a document that writes the same case
+    number "4.P.20.487/2020/221", because the literal ``ILIKE`` needs the
+    exact punctuation.
+
+    Returns:
+        The regex, or ``None`` when the normalized token is too short or has
+        no digit -- matching that loosely would flood the results.
+    """
+    normalized = re.sub(r"[^a-z0-9]", "", token.lower())
+    if len(normalized) < _MIN_NORMALIZED_IDENTIFIER_LENGTH or not any(
+        ch.isdigit() for ch in normalized
+    ):
+        return None
+    lead = "(^|[^0-9])" if normalized[0].isdigit() else ""
+    return f"{lead}{normalized}([^0-9]|$)"
 
 
 def extract_identifier_tokens(query_text: str) -> list[str]:
@@ -829,9 +868,12 @@ class VectorStore:
     def search_by_identifier(
         self, tokens: list[str], top_k: int, per_token: bool = False
     ) -> list[RetrievedChunk]:
-        """Return chunks whose content directly contains any of ``tokens``.
+        """Return chunks whose content, or stored case-number, matches any of ``tokens``.
 
-        A direct ``ILIKE`` substring match, deliberately *not* ranked by
+        A direct ``ILIKE`` substring match on the content, **or** a
+        separator-insensitive match against the chunk's ``document_identifiers``
+        (see :func:`_identifier_regex`) so a case number typed with different
+        punctuation than the document uses still finds it. Deliberately *not* ranked by
         ``ts_rank`` like :meth:`search_fulltext` — see
         :func:`extract_identifier_tokens`'s docstring for why an exact
         identifier match (a case number, invoice number, ...) needs to
@@ -862,21 +904,38 @@ class VectorStore:
 
         if per_token:
             patterns = [f"%{token}%" for token in tokens]
+            regexes = [_identifier_regex(token) for token in tokens]
             per_token_limit = max(1, -(-top_k // len(tokens)))
-            sql = """
+            normalized_match = _NORMALIZED_IDENTIFIER_MATCH.format(
+                metadata="c.metadata", regex="t.r"
+            )
+            sql = f"""
                 SELECT id, content, metadata FROM (
                     SELECT c.id, c.content, c.metadata,
-                           ROW_NUMBER() OVER (PARTITION BY p ORDER BY c.id) AS rn
-                    FROM document_chunks c, unnest(%s::text[]) AS p
-                    WHERE c.content ILIKE p
+                           ROW_NUMBER() OVER (PARTITION BY t.p ORDER BY c.id) AS rn
+                    FROM document_chunks c,
+                         unnest(%s::text[], %s::text[]) AS t(p, r)
+                    WHERE c.content ILIKE t.p
+                       OR (t.r IS NOT NULL AND {normalized_match})
                 ) matched
                 WHERE rn <= %s
                 ORDER BY id;
             """
-            query_params: tuple = (patterns, per_token_limit)
+            query_params: tuple = (patterns, regexes, per_token_limit)
         else:
-            conditions = " OR ".join(["content ILIKE %s"] * len(tokens))
-            params: list = [f"%{token}%" for token in tokens]
+            params: list = []
+            condition_parts = []
+            for token in tokens:
+                regex = _identifier_regex(token)
+                part = "content ILIKE %s"
+                params.append(f"%{token}%")
+                if regex is not None:
+                    part += " OR " + _NORMALIZED_IDENTIFIER_MATCH.format(
+                        metadata="metadata", regex="%s"
+                    )
+                    params.append(regex)
+                condition_parts.append(f"({part})")
+            conditions = " OR ".join(condition_parts)
             params.append(top_k)
             sql = f"""
                 SELECT id, content, metadata

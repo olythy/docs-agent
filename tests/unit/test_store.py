@@ -231,7 +231,14 @@ def test_search_by_identifier_builds_ored_ilike_query(monkeypatch):
     sql_executed = cursor.execute.call_args[0][0]
     params_executed = cursor.execute.call_args[0][1]
     assert sql_executed.count("content ILIKE %s") == 2
-    assert params_executed == ("%4.P.20.409/2023/4%", "%HU001%", 5)
+    # "HU001" normalizes to only 5 characters -- too weak to match on loosely, so
+    # it gets no separator-insensitive regex, just the literal ILIKE.
+    assert params_executed == (
+        "%4.P.20.409/2023/4%",
+        "(^|[^0-9])4p2040920234([^0-9]|$)",
+        "%HU001%",
+        5,
+    )
 
 
 def test_search_fulltext_returns_empty_list_for_no_matches(monkeypatch):
@@ -583,7 +590,11 @@ def test_search_by_identifier_per_token_uses_a_partitioned_bounded_query(monkeyp
 
     sql, params = cursor.execute.call_args[0]
     assert "PARTITION BY" in sql
-    assert params == (["%P.1/2018%", "%K.2/2022%"], 10)
+    patterns, regexes, limit = params
+    assert patterns == ["%P.1/2018%", "%K.2/2022%"]
+    # letter-initial tokens need no leading digit boundary (see _identifier_regex)
+    assert regexes == ["p12018([^0-9]|$)", "k22022([^0-9]|$)"]
+    assert limit == 10
     assert [r.id for r in results] == [1, 2]
 
 
@@ -650,3 +661,42 @@ def test_search_without_years_does_not_touch_iterative_scan(monkeypatch):
 
     executed = [call[0][0] for call in cursor.execute.call_args_list]
     assert not any("iterative_scan" in sql for sql in executed)
+
+
+def _match(token: str, stored_identifier: str) -> bool:
+    """Apply store._identifier_regex(token) to a stored identifier the way the SQL does."""
+    import re
+
+    from store import _identifier_regex
+
+    regex = _identifier_regex(token)
+    assert regex is not None
+    normalized = re.sub(r"[^a-z0-9]", "", stored_identifier.lower())
+    return re.search(regex, normalized) is not None
+
+
+STORED = "4.P.20.487/2020/221-ítélet"
+
+
+def test_identifier_regex_ignores_separators_and_case():
+    """Regression: a user typing 'P.20487.2020.221' never reached a document
+    that writes the same case number '4.P.20.487/2020/221' (literal ILIKE)."""
+    assert _match("P.20487.2020.221", STORED)
+    assert _match("P.20.487/2020/221", STORED)
+    assert _match("p 20 487 2020 221", STORED)
+    assert _match("4.P.20.487/2020/221", STORED)
+
+
+def test_identifier_regex_does_not_match_a_longer_number_or_another_case():
+    assert not _match("P.20487.2020.22", STORED)
+    assert not _match("P.20487.2020.2210", STORED)
+    assert not _match("P.20488.2020.221", STORED)
+    # a digit-initial token must not start in the middle of a longer number
+    assert not _match("0.487/2020/221", STORED)
+
+
+def test_identifier_regex_refuses_tokens_too_weak_to_match_loosely():
+    from store import _identifier_regex
+
+    assert _identifier_regex("HU001") is None  # 5 characters
+    assert _identifier_regex("ABCDEFGH") is None  # no digit
