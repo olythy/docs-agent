@@ -16,7 +16,7 @@ Usage::
 
     uv run python corpus/cli.py download [options]
     uv run python corpus/cli.py generate-questions <persona_id> [--count N]
-    uv run python corpus/cli.py eval [--persona ID] [--strategy hybrid] [--only-covered] [--verbose]
+    uv run python corpus/cli.py eval [--persona ID] [--strategy hybrid] [--only-covered] [--verbose] [-q ID ...] [--repeat N]
     uv run python corpus/cli.py compute-hub-scores
     uv run python corpus/cli.py coverage
     uv run python corpus/cli.py compare-retrieval [--persona ID]

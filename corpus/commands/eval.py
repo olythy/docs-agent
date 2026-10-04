@@ -671,12 +671,100 @@ def _print_retrieval_miss_diagnostics(graded: list[dict]) -> None:
             print(f"  {r['question_id']} ({r['persona_id']}): {source_file} -- {where}")
 
 
+def select_questions(questions: list[dict], ids: list[str] | None) -> list[dict]:
+    """Keep only the questions whose ``id`` is in ``ids`` (all of them if ``ids`` is empty).
+
+    Args:
+        questions: Verified questions.json entries.
+        ids: Question ids such as ``["q0010", "q0012"]``.
+
+    Returns:
+        The selected questions, in the order ``ids`` lists them.
+
+    Raises:
+        typer.BadParameter: If an id is not among ``questions`` -- a typo, or a
+            question that isn't verified (or was filtered out by --persona).
+    """
+    if not ids:
+        return questions
+    by_id = {q["id"]: q for q in questions}
+    unknown = [i for i in ids if i not in by_id]
+    if unknown:
+        raise typer.BadParameter(
+            f"unknown question id(s) {unknown}; evaluable ids: {sorted(by_id)}"
+        )
+    return [by_id[i] for i in dict.fromkeys(ids)]
+
+
+def print_repeat_summary(results: list[dict], target: float = 0.95) -> None:
+    """Print, per question, in how many of its runs each check passed.
+
+    A single run of one question is either 0% or 100%, so "does this question
+    reach 95%?" only means something over repeated runs (the answer LLM and
+    the grader are not deterministic). Shown per grading strategy because a
+    persona can have two.
+
+    Args:
+        results: Every run's :func:`evaluate_one` result (a question appears
+            once per repeat).
+        target: Pass rate a question must reach to not be flagged.
+    """
+    from query.decline_detection import looks_like_a_decline
+
+    by_question: dict[str, list[dict]] = {}
+    for r in results:
+        by_question.setdefault(r["question_id"], []).append(r)
+
+    print("\n" + "=" * 90)
+    print(f"Per-question pass rate over repeated runs (target {target:.0%})")
+    print("=" * 90)
+    for qid, runs in by_question.items():
+        n = len(runs)
+        refused = sum(looks_like_a_decline(r["answer"]) for r in runs)
+        print(f"\n{qid} ({runs[0]['persona_id']}), {n} run(s); refused {refused}/{n}")
+        if "is_decline" in runs[0]:
+            passed = sum(r["is_decline"] for r in runs)
+            flag = "" if passed / n >= target else "   <-- below target"
+            print(f"  declined correctly: {passed}/{n}{flag}")
+            continue
+        for name in runs[0]["grades"]:
+            answer_ok = sum(r["grades"][name]["answer_correct"] for r in runs)
+            retrieval_ok = sum(r["grades"][name]["retrieval_hit"] for r in runs)
+            flag = "" if answer_ok / n >= target else "   <-- below target"
+            print(
+                f"  [{name}] answer correct {answer_ok}/{n} | "
+                f"retrieval hit {retrieval_ok}/{n}{flag}"
+            )
+
+
 @app.command()
 def eval(
     persona: Annotated[
         str | None,
         typer.Option(help="Only evaluate this persona_id (default: all)."),
     ] = None,
+    question: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--question",
+            "-q",
+            help=(
+                "Only evaluate this question id, e.g. -q q0010; repeat the option "
+                "for several (default: all)."
+            ),
+        ),
+    ] = None,
+    repeat: Annotated[
+        int,
+        typer.Option(
+            min=1,
+            help=(
+                "Run every selected question this many times and print a "
+                "per-question pass rate -- one run of one question is 0% or "
+                "100%, so a rate needs repetition (the LLM is not deterministic)."
+            ),
+        ),
+    ] = 1,
     strategy: Annotated[
         str,
         typer.Option(help="Retrieval strategy to evaluate: 'vector' or 'hybrid'."),
@@ -716,6 +804,7 @@ def eval(
     if not questions:
         print("No verified questions to evaluate. Run `generate-questions` first.")
         raise typer.Exit(code=1)
+    questions = select_questions(questions, question)
 
     if only_covered:
         from corpus.commands.coverage import (
@@ -735,8 +824,17 @@ def eval(
             raise typer.Exit(code=1)
 
     personas = load_personas()
-    print(f"Evaluating {len(questions)} question(s) with strategy={strategy} ...\n")
-    results = [_evaluate_one_with_retry(q, strategy, personas) for q in questions]
+    runs = f" x {repeat} run(s)" if repeat > 1 else ""
+    print(
+        f"Evaluating {len(questions)} question(s){runs} with strategy={strategy} ...\n"
+    )
+    results = [
+        _evaluate_one_with_retry(q, strategy, personas)
+        for q in questions
+        for _ in range(repeat)
+    ]
     print_report(results)
+    if repeat > 1:
+        print_repeat_summary(results)
     if verbose:
         print_verbose_cases(results)
