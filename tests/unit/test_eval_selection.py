@@ -66,3 +66,30 @@ def test_repeat_summary_reports_pass_counts_and_flags_a_question_below_target(ca
     assert "below target" in q0010
     assert "answer correct 2/2" in q0012
     assert "below target" not in q0012
+
+
+class _FakeStore:
+    """Stands in for store.VectorStore: only the ingested file names matter here."""
+
+    def get_all_source_files(self):
+        return {"A_P_1_2020_1.docx", "B_P_2_2021_2.docx"}
+
+    def search_by_identifier(self, tokens, top_k, per_token=False):
+        raise AssertionError("must not fall back to identifier search when files are named")
+
+
+def test_cited_documents_are_the_file_names_the_answer_names(monkeypatch):
+    """Regression: a fraction ('15/100-ad') and a statute fragment ('1)-(2') in
+    the answer were matched literally against document content, 'citing'
+    unrelated courts' documents the answer never mentioned."""
+    import store
+    from corpus.commands.eval import _resolve_cited_source_files
+
+    monkeypatch.setattr(store, "VectorStore", _FakeStore)
+    answer = (
+        "A felperes 15/100-ad tulajdoni illetősége (Ptk. 5:84. § (1)-(2)) "
+        "(A_P_1_2020_1.docx, 3. oldal) és (B_P_2_2021_2.docx, 2. oldal); "
+        "lásd még Nincs_Ilyen.docx."
+    )
+
+    assert _resolve_cited_source_files(answer) == ["A_P_1_2020_1.docx", "B_P_2_2021_2.docx"]

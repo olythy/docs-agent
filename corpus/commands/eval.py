@@ -32,6 +32,7 @@ account for -- confirmed live, see docs/decisions.md's 2026-10-03 entry.
 """
 
 import json
+import re
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -140,6 +141,28 @@ def grade_answer(question: dict, generated_answer: str) -> dict:
     return extract_json(response.content or "")
 
 
+_FILE_NAME_PATTERN = re.compile(r"[\w.\-]+\.(?:docx|pdf|md|rtf|txt)", re.IGNORECASE)
+
+
+def _file_names_cited(generated_answer: str) -> list[str]:
+    """File names written in ``generated_answer`` that are real ingested documents.
+
+    Args:
+        generated_answer: What query_knowledge_base() actually returned.
+
+    Returns:
+        Distinct source_file values, in the order first written. Empty if the
+        answer names no ingested file.
+    """
+    from store import VectorStore
+
+    written = list(dict.fromkeys(_FILE_NAME_PATTERN.findall(generated_answer)))
+    if not written:
+        return []
+    known = VectorStore().get_all_source_files()
+    return [name for name in written if name in known]
+
+
 def _resolve_cited_source_files(generated_answer: str) -> list[str]:
     """Find which real source_files the generated answer actually cites.
 
@@ -159,6 +182,17 @@ def _resolve_cited_source_files(generated_answer: str) -> list[str]:
         answer states no identifier, or none of them exist.
     """
     from store import VectorStore, extract_identifier_tokens
+
+    # An answer that names its sources by file name ("Source: X.docx, page 3")
+    # has told us exactly what it cites -- use that, exactly. Resolving by
+    # identifier-like tokens alone was confirmed noisy: a tolerated fraction
+    # ("15/100-ad"), a statute fragment ("(1)-(2)") or an amount in the answer
+    # text were matched literally against document *content*, "citing"
+    # unrelated courts' documents the answer never mentioned, which the
+    # grader then penalised (see docs/decisions.md).
+    named = _file_names_cited(generated_answer)
+    if named:
+        return named
 
     tokens = extract_identifier_tokens(generated_answer)
     if not tokens:
@@ -433,15 +467,23 @@ def _evaluate_one_with_retry(
     for attempt in range(1, _QUESTION_RETRIES + 1):
         try:
             return evaluate_one(question, strategy_name, personas)
-        except TransientAPIError as exc:
+        except (TransientAPIError, json.JSONDecodeError) as exc:
             if attempt == _QUESTION_RETRIES:
                 raise
-            print(
-                f"  [{question['id']}] transient API error ({exc}); waiting "
-                f"{_QUESTION_RETRY_WAIT_SECONDS}s before retry {attempt + 1}/"
-                f"{_QUESTION_RETRIES} ..."
+            # A grader reply that is not JSON even after extract_json's repairs
+            # is a one-off of a non-deterministic LLM: asking again is enough, no
+            # need to wait. An API rate limit does need a pause.
+            wait = (
+                _QUESTION_RETRY_WAIT_SECONDS
+                if isinstance(exc, TransientAPIError)
+                else 0
             )
-            time.sleep(_QUESTION_RETRY_WAIT_SECONDS)
+            print(
+                f"  [{question['id']}] {type(exc).__name__} ({exc}); retry "
+                f"{attempt + 1}/{_QUESTION_RETRIES}"
+                + (f" after {wait}s ..." if wait else " ...")
+            )
+            time.sleep(wait)
     raise AssertionError("unreachable")
 
 
