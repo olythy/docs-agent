@@ -559,6 +559,16 @@ def eval(
         str,
         typer.Option(help="Retrieval strategy to evaluate: 'vector' or 'hybrid'."),
     ] = "hybrid",
+    only_covered: Annotated[
+        bool,
+        typer.Option(
+            help=(
+                "Skip questions whose cited source_file(s) aren't all ingested "
+                "yet (see `coverage`) -- during a partial ingest, those would "
+                "show up as retrieval misses that are really just missing data."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Run the golden-set evaluation: persona-bucketed accuracy + citation correctness.
 
@@ -574,6 +584,23 @@ def eval(
     if not questions:
         print("No verified questions to evaluate. Run `generate-questions` first.")
         raise typer.Exit(code=1)
+
+    if only_covered:
+        from corpus.commands.coverage import (
+            _ingested_source_files,
+            _is_fully_covered,
+        )
+
+        ingested = _ingested_source_files()
+        total = len(questions)
+        questions = [q for q in questions if _is_fully_covered(q, ingested)]
+        print(
+            f"--only-covered: kept {len(questions)} of {total} question(s) "
+            f"({total - len(questions)} skipped, cited document(s) not ingested yet).\n"
+        )
+        if not questions:
+            print("No fully-covered questions to evaluate yet.")
+            raise typer.Exit(code=1)
 
     personas = load_personas()
     print(f"Evaluating {len(questions)} question(s) with strategy={strategy} ...\n")
