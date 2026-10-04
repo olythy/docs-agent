@@ -115,6 +115,7 @@ Defaults are `config.py`'s (this project's own `.env` overrides some, e.g. Verte
 | Prompt (always on) | -- | Strictly grounded; may answer partially and say what is missing; refuses with a fixed sentence when the excerpts don't answer; best excerpt placed last. | Reordering against "lost in the middle" (2026-10-03). |
 | `ANSWER_PARTIAL_COVERAGE` | `False` | Refuse only when *no* excerpt is relevant; otherwise answer with what the excerpts show and say what they do not cover, and tell the model the excerpts are a *sample* of a larger collection. The exact refusal sentence is kept. | The strict wording refused broad questions with partial context every time (q0010: 5/5); a sentence appended to it did not help, rewriting the rule plus the sample note did (0/5 refusals). Full eval 2026-10-04: precedent_seeker 67 -> 92%, synthesizer 36 -> 100%, adversarial and single-document personas unchanged. `independent_fact` rewards accurate partial answers, not completeness; one run per arm. |
 | `EXPOSE_DOCUMENT_DATE` | `False` | Adds `date: YYYY-MM-DD` to each excerpt's header so a date range in the question can be checked. | Part of the run that did not improve the weak personas (above). Off. |
+| `QUERY_ROUTER` (+ `QUERY_ROUTER_DOC_TYPE`) | `False` | Asks the query planner first: count / list / sum / overview questions are answered exactly from the structured metadata (stating the executed filter and how many documents could not be decided); content questions run the normal retrieval inside the documents the planner's filters select; a question naming an identifier skips the planner. A question the planner cannot interpret gets a plain "could not interpret". | Off until `meta-plan-eval` has measured the planner. Needs the catalog and extracted values. |
 
 ### Measuring (`corpus/cli.py`, the golden-set sub-app)
 
@@ -149,7 +150,7 @@ flowchart LR
     subgraph DataAccess["Data access (all SQL lives here)"]
         db["db.py — connection factory"]
         store["store.py — VectorStore"]
-        docstore["document_store.py — DocumentStore<br/>(structured metadata; not yet wired into retrieval)"]
+        docstore["document_store.py — DocumentStore<br/>(structured metadata; read by the opt-in query router)"]
         metadata["metadata/ — catalog, evidence selection,<br/>LLM / adapter sources, verification, runner"]
     end
     subgraph Shapes["Core data shapes"]

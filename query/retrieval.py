@@ -42,6 +42,7 @@ from logger import LogAction, get_logger
 from models import RetrievalTrace, RetrievedChunk
 from query.hybrid import reciprocal_rank_fusion
 from query.listwise_rerank import listwise_rerank
+from query.router import get_query_router
 from query.time_filter import extract_years
 from store import VectorStore, extract_identifier_tokens
 
@@ -730,6 +731,30 @@ def query_knowledge_base(
         RuntimeError: If the active embedding driver's dimension doesn't
             match the existing document_chunks.embedding column.
     """
+    note = None
+    if settings.QUERY_ROUTER:
+        routing = get_query_router().route(question)
+        if routing.answer is not None:
+            return routing.answer
+        if routing.content_hashes is not None:
+            store = (store or VectorStore()).restricted_to(routing.content_hashes)
+        note = routing.note
+
+    answer = _answer_from_documents(
+        question, top_k, min_score, strategy, metadata_filter, store
+    )
+    return f"{answer}\n\n{note}" if note else answer
+
+
+def _answer_from_documents(
+    question: str,
+    top_k: int | None,
+    min_score: float | None,
+    strategy: RetrievalStrategy | None,
+    metadata_filter: dict | None,
+    store: VectorStore | None,
+) -> str:
+    """Retrieve chunks and generate the grounded answer (the lookup path)."""
     chunks = retrieve_chunks(
         question,
         top_k=top_k,

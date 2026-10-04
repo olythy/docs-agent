@@ -2,6 +2,16 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-04 — Milestone 5: the router, and what it does when it is unsure
+
+`query_knowledge_base` can now ask the planner first (`QUERY_ROUTER`, off by default; `query/router.py`). Unit-tested with fakes and the document restriction tested on a real Postgres; **not yet measured end to end**.
+
+- **Restricting the retriever by document set is a property of the store, not a new parameter on every function.** `VectorStore(content_hashes=...)` applies `content_hash = ANY(...)` (the indexed generated column) in the vector, full-text and both identifier searches, so the strategies, the reranker and the answer step are untouched. An *empty* restriction sees nothing (it must never mean "everything"), and a restricted vector search turns on `hnsw.iterative_scan`, for the same reason the year filter does (HNSW applies WHERE after its nearest neighbours).
+- **An identifier in the question skips the planner.** A case number is a pinpoint lookup the pipeline already does well; asking a model to plan it would add latency and a way to go wrong. Count questions that name an identifier are therefore not counted; accepted.
+- **Exact answers are phrased by an LLM that may not change a figure.** The count, the unknown count, group counts and the sum's integer part must appear in the phrased answer (thousands separators ignored); if one is missing the plain facts are returned and a warning is logged. The executed filter is always echoed.
+- **Nothing is hidden.** "+K unknown" is stated; a lookup restricted by a filter says how many documents could not be checked; a part of the question no key covers is named "not applied" (the result is not narrowed by it); more than `LOOKUP_SET_CAP` matches is reported instead of silently truncating the document set; zero matches says so instead of reading everything.
+- **A question the planner cannot interpret is refused plainly, not answered by plain retrieval.** This follows the earlier agreement (no silent fallback). The cost is real: if the planner fails on an ordinary content question the user gets "could not interpret" instead of the pre-router answer. The planner prompt makes `lookup` the natural class for content questions, and `meta-plan-eval` plus real use will show how often that happens; revisit with data (a disclosed fallback to retrieval is the likely alternative).
+
 ## 2026-10-04 — Milestone 4 of the structured-metadata layer: the planner fails loudly, and its eval is a measurement tool, not a feature
 
 Built `LLMQueryPlanner` (`metadata/planner.py`) and `meta-plan-eval` (`corpus/commands/meta_plan_eval.py`); **not yet measured** against a model.

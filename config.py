@@ -378,6 +378,27 @@ class Settings:
                               exact refusal sentence is kept. Off by default
                               pending a regression check on the personas that
                               are at 100% (see docs/decisions.md).
+        QUERY_ROUTER          Whether ``query_knowledge_base`` first asks the
+                              query planner what kind of question this is
+                              (default: ``False``). Counting, listing and
+                              summing questions ("how many ... last
+                              October") are then answered exactly from the
+                              structured metadata; content questions run
+                              the normal retrieval, restricted to the
+                              documents the planner's filters select. A
+                              question naming a case/document identifier
+                              always runs the normal retrieval without
+                              asking the planner. Needs the metadata
+                              catalog and extracted values (see
+                              docs/structured-metadata-design.md). Off by
+                              default pending the planner's measurement.
+        QUERY_ROUTER_DOC_TYPE
+                              Which document type's key catalog the router
+                              plans over (default: empty). Required when
+                              ``QUERY_ROUTER`` is on: the generic core
+                              names no corpus, so the deployment says which
+                              catalog applies (e.g. the doc type passed to
+                              ``meta_cli.py load-catalog``).
         EXPOSE_DOCUMENT_DATE  Whether each excerpt's document date is shown to
                               the answer LLM (default: ``False``). When
                               ``True``, the excerpt header gets
@@ -526,6 +547,8 @@ class Settings:
     ANSWER_PARTIAL_COVERAGE: bool = (
         os.getenv("ANSWER_PARTIAL_COVERAGE", "false").lower() == "true"
     )
+    QUERY_ROUTER: bool = os.getenv("QUERY_ROUTER", "false").lower() == "true"
+    QUERY_ROUTER_DOC_TYPE: str = os.getenv("QUERY_ROUTER_DOC_TYPE", "")
     EXPOSE_DOCUMENT_DATE: bool = (
         os.getenv("EXPOSE_DOCUMENT_DATE", "false").lower() == "true"
     )

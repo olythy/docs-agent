@@ -67,6 +67,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── retrieval.py          # query_knowledge_base: hybrid retrieval + answer generation
 │   ├── hybrid.py             # reciprocal_rank_fusion: pure RRF fusion logic
 │   ├── listwise_rerank.py    # Optional final LLM disambiguation pass over near-duplicate candidates
+│   ├── router.py             # QueryRouter (opt-in QUERY_ROUTER): exact answers for count/list/sum questions, restricted lookup otherwise
 │   ├── time_filter.py        # extract_years(): the years a question names (for the opt-in period-aware retrieval)
 │   └── decline_detection.py  # Shared "did the model honestly decline" heuristic (eval + scripts/eval_cli.py)
 ├── migrations/              # Python migrations (Laravel-artisan-style runner)
