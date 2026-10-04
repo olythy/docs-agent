@@ -35,6 +35,11 @@ jobs:
       # DATABASE_URL is accepted even without a .env.test file.
       AGENT_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/docs_agent_test
+      # Same override .env.test carries locally: tests/db/ call the real
+      # add_document(), and the default (true) would make an LLM call per
+      # document -- CI has no LLM credentials, and that step isn't what
+      # those tests check.
+      GENERATE_DOCUMENT_SUMMARY: "false"
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
