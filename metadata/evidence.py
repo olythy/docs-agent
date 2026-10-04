@@ -18,18 +18,31 @@ from models import MetaKey, RetrievedChunk
 class EvidenceSelector:
     """Selects the chunks of one document that best match a set of catalog keys.
 
+    The first and last chunk are always included: in documents of almost every
+    kind the heading (what the document *is*, who issued it) is at the start and
+    the signature or closing block (dates, signatories) at the end, and a
+    reranker steered by key descriptions can miss them. The remaining budget goes
+    to the chunks that rank best for each key.
+
     Args:
         reranker: Scores chunks against a query.
-        per_key: How many chunks to keep for each key.
-        max_chunks: Upper bound on the chunks returned overall (the prompt budget).
+        per_key: How many ranked chunks to keep for each key.
+        max_chunks: Upper bound on the chunks returned overall (the prompt budget),
+            including the two edge chunks.
+        always_edges: Include the first and last chunk regardless of rank.
     """
 
     def __init__(
-        self, reranker: RerankerDriver, per_key: int = 2, max_chunks: int = 6
+        self,
+        reranker: RerankerDriver,
+        per_key: int = 2,
+        max_chunks: int = 6,
+        always_edges: bool = True,
     ) -> None:
         self._reranker = reranker
         self._per_key = per_key
         self._max_chunks = max_chunks
+        self._always_edges = always_edges
 
     def select(
         self, chunks: list[RetrievedChunk], keys: list[MetaKey]
@@ -42,16 +55,19 @@ class EvidenceSelector:
             keys: The keys about to be extracted.
 
         Returns:
-            At most ``max_chunks`` chunks: the union of each key's best
-            ``per_key`` chunks, ordered by ``chunk_index``. A document that is
-            short enough is returned whole.
+            At most ``max_chunks`` chunks: the document's first and last chunk,
+            then the best-ranked chunks per key until the budget is used, ordered
+            by ``chunk_index``. A document short enough is returned whole.
         """
         if len(chunks) <= self._max_chunks:
             return list(chunks)
         chosen: dict[int, RetrievedChunk] = {}
+        if self._always_edges:
+            for edge in (chunks[0], chunks[-1]):
+                chosen[edge.id] = edge
         for key in keys:
             ranked = self._reranker.rerank(f"{key.key}: {key.description}", chunks)
             for chunk in ranked[: self._per_key]:
-                chosen[chunk.id] = chunk
-        ordered = sorted(chosen.values(), key=lambda c: c.metadata.chunk_index)
-        return ordered[: self._max_chunks]
+                if len(chosen) < self._max_chunks:
+                    chosen[chunk.id] = chunk
+        return sorted(chosen.values(), key=lambda c: c.metadata.chunk_index)

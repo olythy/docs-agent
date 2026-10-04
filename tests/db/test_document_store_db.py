@@ -567,3 +567,31 @@ def test_list_values_returns_every_value_of_a_key_with_its_file_name(db_conn):
     rows = store.list_values("court")
 
     assert [(f, v.value_text) for f, v in rows] == [("a.docx", "A court"), ("b.docx", "B court")]
+
+
+def test_a_seeded_sample_is_random_across_files_yet_reproducible(db_conn):
+    store = DocumentStore()
+    for i in range(12):
+        store.upsert_document(Document(f"{i:064x}", f"court_{i // 4}__doc_{i:02d}.docx"))
+    keys = [_key("court")]
+
+    by_name = [d.source_file for d in store.documents_needing(keys, limit=4)]
+    seeded = [d.source_file for d in store.documents_needing(keys, limit=4, seed=7)]
+    again = [d.source_file for d in store.documents_needing(keys, limit=4, seed=7)]
+    other_seed = [d.source_file for d in store.documents_needing(keys, limit=4, seed=8)]
+
+    assert by_name == sorted(by_name) and len({f.split("__")[0] for f in by_name}) == 1
+    assert seeded == again  # reproducible
+    assert seeded != other_seed  # a different seed, a different sample
+    assert len({f.split("__")[0] for f in seeded}) > 1  # spread over the courts
+
+
+def test_a_proposed_key_can_be_approved_or_retired(db_conn):
+    store = DocumentStore()
+    store.upsert_key(MetaKey("court_decision", "date_of_issue", ValueType.DATE, "A duplicate."))
+
+    assert store.set_key_status("court_decision", "date_of_issue", KeyStatus.APPROVED)
+    assert [k.key for k in store.list_keys("court_decision", KeyStatus.APPROVED)] == ["date_of_issue"]
+    assert store.set_key_status("court_decision", "date_of_issue", KeyStatus.RETIRED)
+    assert store.list_keys("court_decision", KeyStatus.APPROVED) == []
+    assert not store.set_key_status("court_decision", "no_such_key", KeyStatus.APPROVED)

@@ -4,7 +4,7 @@
     {
       "key": "issuing_body",
       "value_type": "text",
-      "description": "Name of the court that issued this decision, exactly as written in the document.",
+      "description": "Name of the court that issued THIS decision, exactly as written: the court named in the document's heading and in its signature line. Do NOT use a court that is only mentioned in the text as an earlier, lower or higher instance.",
       "example": "Budapest Környéki Törvényszék"
     },
     {
@@ -16,9 +16,15 @@
     {
       "key": "document_kind",
       "value_type": "text",
-      "description": "The kind of court document. judgment = a final decision on the merits (ítélet); partial_judgment = a decision on part of the claims (részítélet); interim_judgment = a preliminary decision on a point of principle (közbenső ítélet); order = a procedural or non-merits decision (végzés); other = anything else.",
+      "description": "The kind of court document. judgment = a final decision on the merits (ítélet); partial_judgment = a decision on part of the claims (részítélet); interim_judgment = a preliminary decision on a point of principle (közbenső ítélet); order = a procedural or non-merits decision (végzés); other = anything else. The kind is normally stated in the document's heading in capital letters (for example ÍTÉLETET, RÉSZÍTÉLETET, KÖZBENSŐ ÍTÉLETET, VÉGZÉST): decide by that heading, not by words elsewhere in the text.",
       "example": "judgment",
-      "allowed_values": ["judgment", "partial_judgment", "interim_judgment", "order", "other"]
+      "allowed_values": [
+        "judgment",
+        "partial_judgment",
+        "interim_judgment",
+        "order",
+        "other"
+      ]
     }
   ]
 }

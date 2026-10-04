@@ -221,6 +221,20 @@ class DocumentStore:
                 )
             conn.commit()
 
+    def set_key_status(self, doc_type: str, key: str, status: KeyStatus) -> bool:
+        """Change a catalog key's lifecycle status (approve a proposal, retire a key).
+
+        Returns:
+            Whether the key exists.
+        """
+        sql = "UPDATE meta_keys SET status = %s WHERE doc_type = %s AND key = %s;"
+        with self._scope.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (status.value, doc_type, key))
+                found = cur.rowcount == 1
+            conn.commit()
+        return found
+
     def list_keys(
         self, doc_type: str, status: KeyStatus | None = None
     ) -> list[MetaKey]:
@@ -338,7 +352,7 @@ class DocumentStore:
         }
 
     def documents_needing(
-        self, keys: list[MetaKey], limit: int | None = None
+        self, keys: list[MetaKey], limit: int | None = None, seed: int | None = None
     ) -> list[Document]:
         """Return documents for which at least one of ``keys`` still has to be extracted.
 
@@ -349,7 +363,10 @@ class DocumentStore:
 
         Args:
             keys: The catalog keys to consider (their ``version`` is the bar).
-            limit: Return at most this many documents (ordered by file name).
+            limit: Return at most this many documents.
+            seed: If given, the documents are taken in a random order that is
+                fixed by this seed (so a trial sample is representative yet
+                reproducible); otherwise in file-name order.
         """
         if not keys:
             return []
@@ -364,10 +381,18 @@ class DocumentStore:
                       AND s.key = k.key AND s.key_version >= k.version
                 )
             )
-            ORDER BY d.source_file
+            ORDER BY CASE WHEN %s::text IS NULL THEN d.source_file
+                          ELSE md5(%s::text || d.content_hash) END
             LIMIT %s;
         """
-        params = ([k.key for k in keys], [k.version for k in keys], limit)
+        seed_text = None if seed is None else str(seed)
+        params = (
+            [k.key for k in keys],
+            [k.version for k in keys],
+            seed_text,
+            seed_text,
+            limit,
+        )
         with self._scope.connection() as conn, conn.cursor() as cur:
             cur.execute(sql, params)
             rows = cur.fetchall()

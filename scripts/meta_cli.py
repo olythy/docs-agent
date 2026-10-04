@@ -24,13 +24,21 @@ Commands:
                       recognisably stale); a key that already matches is left alone.
                       Example: corpus/data/meta_catalog.json.
 
-    extract-meta [--doc-type T] [--limit N]
+    extract-meta [--doc-type T] [--limit N [--seed S]]
                       Extract every pending approved key of up to N documents (default:
                       all that still need it). Idempotent and resumable: it only does
                       (document, key) pairs with no status at the key's current version,
                       so an interrupted run continues where it stopped and a changed key
                       definition refreshes only that key. Costs one LLM call per
-                      document for the LLM-sourced keys. Start with --limit 50.
+                      document for the LLM-sourced keys. Start with --limit 50. Without --seed the first
+                      N by file name are taken (files are named by court, so that is one
+                      court's sample); with --seed S, a random, reproducible sample.
+    keys [--doc-type T]
+                      List the catalog's keys with their status. A key the extractor
+                      proposed stays 'proposed' (unusable in queries) until approved.
+    set-key-status <doc_type> <key> <approved|retired|proposed>
+                      Approve a proposed key, or retire one (e.g. a duplicate of an
+                      existing key). Takes effect on the next extract-meta run.
     coverage [--doc-type T]
                       For every approved key: how many documents have a verified value,
                       are confirmed absent, are unverified or were never attempted. A
@@ -108,6 +116,12 @@ def _parse(args: list[str], description: str, with_limit: bool) -> argparse.Name
         parser.add_argument(
             "--limit", type=int, default=None, help="process at most N documents"
         )
+        parser.add_argument(
+            "--seed",
+            type=int,
+            default=None,
+            help="with --limit: a random sample fixed by this seed (default: the first N by file name)",
+        )
     return parser.parse_args(args)
 
 
@@ -134,7 +148,7 @@ def cmd_extract_meta(args: list[str]) -> int:
         ],
         on_progress=progress,
     )
-    report = runner.run(options.doc_type, limit=options.limit)
+    report = runner.run(options.doc_type, limit=options.limit, seed=options.seed)
     print(
         f"\nextracted for {report.documents} document(s): {report.present} values present, "
         f"{report.confirmed_absent} confirmed absent, {report.unverified} unverified, "
@@ -170,11 +184,48 @@ def cmd_coverage(args: list[str]) -> int:
     return 0
 
 
+def cmd_keys(args: list[str]) -> int:
+    """List the catalog's keys with status and version."""
+    options = _parse(args, "List the catalog's keys.", with_limit=False)
+    keys = DocumentStore().list_keys(options.doc_type)
+    if not keys:
+        print(f"No keys for doc_type {options.doc_type!r}.")
+        return 1
+    print(f"{'key':<24}{'type':<8}{'status':<10}{'v':>3}  description")
+    for key in keys:
+        print(
+            f"{key.key:<24}{key.value_type.value:<8}{key.status.value:<10}{key.version:>3}  {key.description[:70]}"
+        )
+    return 0
+
+
+def cmd_set_key_status(args: list[str]) -> int:
+    """Approve, retire or re-propose one catalog key."""
+    if len(args) != 3:
+        print(
+            "Usage: meta_cli.py set-key-status <doc_type> <key> <approved|retired|proposed>"
+        )
+        return 2
+    doc_type, key, status = args
+    try:
+        new_status = KeyStatus(status)
+    except ValueError:
+        print(f"Unknown status {status!r}; use approved, retired or proposed.")
+        return 2
+    if not DocumentStore().set_key_status(doc_type, key, new_status):
+        print(f"No key {key!r} for doc_type {doc_type!r}.")
+        return 1
+    print(f"{doc_type}.{key} is now {new_status.value}.")
+    return 0
+
+
 COMMANDS = {
     "sync-documents": lambda args: cmd_sync_documents(),
     "load-catalog": cmd_load_catalog,
     "extract-meta": cmd_extract_meta,
     "coverage": cmd_coverage,
+    "keys": cmd_keys,
+    "set-key-status": cmd_set_key_status,
 }
 
 

@@ -69,7 +69,7 @@ class FakeDocuments:
     def list_keys(self, doc_type, status=None):
         return [k for k in self.keys.values() if status is None or k.status == status]
 
-    def documents_needing(self, keys, limit=None):
+    def documents_needing(self, keys, limit=None, seed=None):
         out = [
             d
             for d in self.documents
@@ -371,23 +371,29 @@ def test_conversion_types_each_value_and_rejects_text_that_is_not_one():
     assert convert(ValueType.BOOL, "maybe") is None
 
 
-def test_the_selector_returns_a_short_document_whole_and_reranks_a_long_one_by_key_description():
+def test_the_selector_returns_a_short_document_whole_and_always_includes_the_edges_of_a_long_one():
     chunks = [_chunk(i, f"c{i}") for i in range(10)]
     reranker = MagicMock()
+    # the reranker likes the middle of the document best
     reranker.rerank.side_effect = lambda query, cs: sorted(
-        cs, key=lambda c: -c.metadata.chunk_index
+        cs, key=lambda c: abs(c.metadata.chunk_index - 5)
     )
-    selector = EvidenceSelector(reranker, per_key=2, max_chunks=3)
+    selector = EvidenceSelector(reranker, per_key=2, max_chunks=4)
 
-    assert [c.id for c in selector.select(chunks[:3], [_key("court")])] == [
-        0,
-        1,
-        2,
-    ]  # short: untouched
+    assert [c.id for c in selector.select(chunks[:4], [_key("court")])] == [0, 1, 2, 3]  # short: whole
     picked = selector.select(chunks, [_key("court"), _key("decision_date")])
 
-    assert [c.metadata.chunk_index for c in picked] == [
-        8,
-        9,
-    ]  # best two per key, document order
-    assert "court: desc of court" == reranker.rerank.call_args_list[0].args[0]
+    assert [c.metadata.chunk_index for c in picked] == [0, 4, 5, 9]  # edges + the best two, in order
+    assert reranker.rerank.call_args_list[0].args[0] == "court: desc of court"
+
+
+def test_the_edges_can_be_switched_off():
+    chunks = [_chunk(i, f"c{i}") for i in range(10)]
+    reranker = MagicMock()
+    reranker.rerank.side_effect = lambda query, cs: sorted(cs, key=lambda c: abs(c.metadata.chunk_index - 5))
+
+    picked = EvidenceSelector(reranker, per_key=2, max_chunks=4, always_edges=False).select(
+        chunks, [_key("court")]
+    )
+
+    assert [c.metadata.chunk_index for c in picked] == [4, 5]

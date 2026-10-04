@@ -67,8 +67,8 @@ db-refresh: db-flush db-migrate ## Empty the table, then re-apply pending migrat
 documents-sync: ## Sync the documents table from the ingested chunks (idempotent)
 	uv run python scripts/meta_cli.py sync-documents
 
-extract-meta: ## Extract catalog metadata (LLM calls!) — usage: make extract-meta limit=50
-	uv run python scripts/meta_cli.py extract-meta $(if $(limit),--limit $(limit),)
+extract-meta: ## Extract catalog metadata (LLM calls!) — usage: make extract-meta limit=50 [seed=7]
+	uv run python scripts/meta_cli.py extract-meta $(if $(limit),--limit $(limit),) $(if $(seed),--seed $(seed),)
 
 meta-coverage: ## Per-key metadata coverage (verified / absent / unverified / not tried)
 	uv run python scripts/meta_cli.py coverage
