@@ -10,9 +10,11 @@ the project's linear pipeline doesn't need (see AGENTS.md).
 Key exports:
     ChunkMetadata  -- Everything stored in document_chunks.metadata (JSONB).
     Chunk          -- One chunk before storage: content + ChunkMetadata.
+    RetrievedChunk -- One chunk returned by a search, with its id and score.
+    RetrievalTrace -- Optional recorder of every retrieval stage's candidates.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -192,3 +194,27 @@ class RetrievedChunk:
             "metadata": self.metadata.to_dict(),
             "score": self.score,
         }
+
+
+@dataclass
+class RetrievalTrace:
+    """Optional recorder of what each retrieval stage produced, for diagnostics.
+
+    Pass one to :func:`query.retrieval.retrieve_chunks` and it fills ``stages``
+    with the candidate chunks as they stood after each stage (insertion order =
+    pipeline order), so a diagnostic can see *where* a document that ought to be
+    retrieved drops out: candidate generation, fusion, reranking or the final
+    ``top_k`` cut. Production callers never pass one, so it costs nothing there.
+
+    Attributes:
+        stages: Stage name -> the chunks after that stage, in that stage's order.
+        notes: Small facts about the run (e.g. whether the relevance gate passed,
+            which years were read from the question).
+    """
+
+    stages: dict[str, list["RetrievedChunk"]] = field(default_factory=dict)
+    notes: dict[str, object] = field(default_factory=dict)
+
+    def record(self, stage: str, chunks: list["RetrievedChunk"]) -> None:
+        """Store a copy of ``chunks`` as the outcome of ``stage``."""
+        self.stages[stage] = list(chunks)

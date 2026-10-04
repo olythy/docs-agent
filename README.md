@@ -81,7 +81,8 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   │   ├── eval.py            # `eval` command: persona-bucketed golden-set accuracy + citation correctness
 │   │   ├── compute_hub_scores.py  # `compute-hub-scores` command (CSLS hub_score batch pass)
 │   │   ├── coverage.py        # `coverage` command: how much of the golden set is answerable now; flags missing hub scores
-│   │   └── compare_retrieval.py  # `compare-retrieval` command: retrieval-only A/B of identifier-guarantee / period options
+│   │   ├── compare_retrieval.py  # `compare-retrieval` command: retrieval-only A/B of identifier-guarantee / period options
+│   │   └── funnel.py          # `funnel` command: per-stage retrieval trace -- where a golden/valid document drops out
 │   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/

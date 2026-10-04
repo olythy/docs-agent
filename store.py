@@ -992,6 +992,24 @@ class VectorStore:
             cur.execute(sql, (source, source))
             return cur.fetchone() is not None
 
+    def get_document_dates(self) -> dict[str, str | None]:
+        """Return each ingested document's ``document_date`` (or ``None``).
+
+        Used by ``corpus.commands.funnel`` to say how many documents in the
+        whole corpus satisfy a question's year constraint -- the ceiling the
+        retrieval stages are measured against.
+
+        Returns:
+            ``{source_file: "YYYY-MM-DD" | None}``, one entry per document.
+        """
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT ON (metadata->>'source_file') "
+                "metadata->>'source_file', metadata->>'document_date' "
+                "FROM document_chunks ORDER BY metadata->>'source_file', id;"
+            )
+            return {row[0]: row[1] for row in cur.fetchall()}
+
     def get_all_source_files(self) -> set[str]:
         """Return every distinct ``source_file`` currently in document_chunks.
 

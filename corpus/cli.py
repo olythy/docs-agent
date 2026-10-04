@@ -20,6 +20,7 @@ Usage::
     uv run python corpus/cli.py compute-hub-scores
     uv run python corpus/cli.py coverage
     uv run python corpus/cli.py compare-retrieval [--persona ID]
+    uv run python corpus/cli.py funnel -q ID [-q ID ...]
 """
 
 import sys
@@ -37,6 +38,7 @@ from corpus.commands import (
     coverage,
     download,
     eval,
+    funnel,
     generate_questions,
 )
 
@@ -47,6 +49,7 @@ app.add_typer(eval.app)
 app.add_typer(compute_hub_scores.app)
 app.add_typer(coverage.app)
 app.add_typer(compare_retrieval.app)
+app.add_typer(funnel.app)
 
 if __name__ == "__main__":
     app()

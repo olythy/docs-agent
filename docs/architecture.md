@@ -122,6 +122,7 @@ Defaults are `config.py`'s (this project's own `.env` overrides some, e.g. Verte
 | `coverage` | Per persona, how many golden questions have every cited document ingested -- and, in red, how many chunks lack a `hub_score`. Run it before trusting any eval. |
 | `eval [--only-covered] [--verbose] [--persona P] [--strategy S]` | Persona-bucketed retrieval / answer / citation accuracy, with a legend printed under the table. `--verbose` adds, per question, the answer, retrieved and cited documents, whether it refused, and the grader's reason. Costs LLM calls. |
 | `compare-retrieval [--top-k N]` | Retrieval-only A/B (identifier guarantees off / on / on + period): strict `all` hit, loose `any` proxy, document recall, in-period share. No LLM calls. |
+| `funnel -q ID [-q ID ...]` | Follows a question through every retrieval stage (vector, full-text, fusion, rerank, final `top_k`) and shows, per stage, how many chunks and distinct documents there are, where each golden document ranks, and how many documents meet the court/year the question names -- so you can see *where* a document drops out. Retrieval only, no LLM calls; honours the environment's switches. |
 | `compute-hub-scores` | (Re)computes every chunk's `hub_score`. |
 | `generate-questions` / `download` | Golden-question drafting and verification; corpus acquisition. |
 
@@ -154,7 +155,7 @@ flowchart LR
         timefilter["query/time_filter.py<br/>extract_years"]
     end
     subgraph Measuring["Golden-set sub-app (not part of the agent)"]
-        corpus["corpus/cli.py<br/>eval · coverage · compare-retrieval · compute-hub-scores"]
+        corpus["corpus/cli.py<br/>eval · coverage · compare-retrieval · funnel · compute-hub-scores"]
     end
 
     Orchestrators --> Strategies

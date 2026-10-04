@@ -39,7 +39,7 @@ from drivers.embedding import get_embedding_driver
 from drivers.llm import get_answer_driver
 from drivers.reranker import CrossEncoderRerankerDriver, get_reranker_driver
 from logger import LogAction, get_logger
-from models import RetrievedChunk
+from models import RetrievalTrace, RetrievedChunk
 from query.hybrid import reciprocal_rank_fusion
 from query.listwise_rerank import listwise_rerank
 from query.time_filter import extract_years
@@ -81,6 +81,7 @@ class RetrievalStrategy(ABC):
         min_score: float,
         metadata_filter: dict | None = None,
         years: list[int] | None = None,
+        trace: RetrievalTrace | None = None,
     ) -> list[RetrievedChunk]:
         """Turn an already-fetched vector candidate pool into final chunks.
 
@@ -103,6 +104,8 @@ class RetrievalStrategy(ABC):
                 ``vector_results`` already includes candidates from those
                 years; a strategy that runs its own secondary searches
                 should do the same.
+            trace: Optional :class:`models.RetrievalTrace` to record each
+                stage's candidates into (diagnostics only).
 
         Returns:
             The final, ordered list of at most ``top_k`` chunks.
@@ -127,6 +130,7 @@ class VectorRetrievalStrategy(RetrievalStrategy):
         min_score: float,
         metadata_filter: dict | None = None,
         years: list[int] | None = None,
+        trace: RetrievalTrace | None = None,
     ) -> list[RetrievedChunk]:
         """Filter ``vector_results`` by ``min_score`` and truncate to ``top_k``.
 
@@ -348,6 +352,7 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         min_score: float,
         metadata_filter: dict | None = None,
         years: list[int] | None = None,
+        trace: RetrievalTrace | None = None,
     ) -> list[RetrievedChunk]:
         """Fuse ``vector_results`` with a keyword search, then rerank.
 
@@ -358,6 +363,8 @@ class HybridRetrievalStrategy(RetrievalStrategy):
         instead, before this strategy ever sees them.
         """
         vector_results = _csls_rerank(vector_results)
+        if trace is not None:
+            trace.record("vector_csls", vector_results)
         candidate_k = len(vector_results)
         logger.info(
             "[query] Keyword-searching the same candidate pool (%d) ...", candidate_k
@@ -368,21 +375,23 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             )
         else:
             fulltext_results = store.search_fulltext(question, top_k=candidate_k)
+        if trace is not None:
+            trace.record("fulltext", fulltext_results)
 
         if years:
             # Same widening as the vector side (see retrieve_chunks): also
             # pull keyword candidates from the question's years, so a pool
             # dominated by other years can't crowd them out. Unfiltered
             # candidates stay, so a wrongly-read year only adds candidates.
-            fulltext_results = _merge_unique(
-                fulltext_results,
-                store.search_fulltext(
-                    question,
-                    top_k=candidate_k,
-                    years=years,
-                    **({"metadata_filter": metadata_filter} if metadata_filter else {}),
-                ),
+            year_fulltext = store.search_fulltext(
+                question,
+                top_k=candidate_k,
+                years=years,
+                **({"metadata_filter": metadata_filter} if metadata_filter else {}),
             )
+            if trace is not None:
+                trace.record("fulltext_years", year_fulltext)
+            fulltext_results = _merge_unique(fulltext_results, year_fulltext)
 
         fused = reciprocal_rank_fusion(vector_results, fulltext_results)
         logger.info(
@@ -406,6 +415,8 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                 top_k=candidate_k,
                 per_token=self._diversify_guarantees,
             )
+            if trace is not None:
+                trace.record("identifier", identifier_results)
             identifier_chunk_ids = {c.id for c in identifier_results}
             fused_ids = {c.id for c in fused}
             new_matches = [c for c in identifier_results if c.id not in fused_ids]
@@ -416,9 +427,13 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                     len(new_matches),
                 )
             fused = new_matches + fused
+        if trace is not None:
+            trace.record("fused", fused)
 
         reranker = get_reranker_driver(self._reranker_driver_name)
         reranked = reranker.rerank(question, fused)
+        if trace is not None:
+            trace.record("reranked", reranked)
 
         if isinstance(reranker, CrossEncoderRerankerDriver):
             threshold = settings.RERANKER_MIN_SCORE
@@ -453,6 +468,8 @@ class HybridRetrievalStrategy(RetrievalStrategy):
                 )
                 return []
             valid_chunks = self._maybe_listwise_rerank(question, valid_chunks)
+            if trace is not None:
+                trace.record("listwise", valid_chunks)
             return _apply_top_k_with_guarantees(
                 valid_chunks,
                 identifier_chunk_ids,
@@ -462,6 +479,8 @@ class HybridRetrievalStrategy(RetrievalStrategy):
             )
 
         reranked = self._maybe_listwise_rerank(question, reranked)
+        if trace is not None:
+            trace.record("listwise", reranked)
         return _apply_top_k_with_guarantees(
             reranked,
             identifier_chunk_ids,
@@ -525,6 +544,7 @@ def retrieve_chunks(
     query_vector: list[float] | None = None,
     metadata_filter: dict | None = None,
     store: VectorStore | None = None,
+    trace: RetrievalTrace | None = None,
 ) -> list[RetrievedChunk]:
     """Retrieve the final context chunks for ``question``.
 
@@ -549,6 +569,11 @@ def retrieve_chunks(
             retrieval to matching chunk metadata (JSONB containment).
         store: Optional :class:`store.VectorStore` instance. If omitted,
             instantiates a fresh one.
+        trace: Optional :class:`models.RetrievalTrace` that records the
+            candidates after every stage (``vector``, ``vector_years``,
+            ``vector_csls``, ``fulltext``, ``fulltext_years``, ``identifier``,
+            ``fused``, ``reranked``, ``listwise``, ``final``) -- diagnostics
+            only; production callers leave it ``None``.
 
     Returns:
         The final list of chunks, already ranked/truncated to ``top_k``, or
@@ -592,6 +617,11 @@ def retrieve_chunks(
             vector_results, top_k=k, min_score=threshold
         )
         top_score = vector_results[0].score if vector_results else None
+        if trace is not None:
+            trace.record("vector", vector_results)
+            trace.notes["gate_passed"] = gate_passed
+            trace.notes["gate_top_score"] = top_score
+            trace.notes["gate_min_score"] = threshold
         get_logger().log(
             LogAction.RELEVANCE_GATE_CHECKED,
             {
@@ -636,12 +666,17 @@ def retrieve_chunks(
                 years=years,
                 **({"metadata_filter": metadata_filter} if metadata_filter else {}),
             )
+            if trace is not None:
+                trace.record("vector_years", year_results)
+                trace.notes["years"] = years
             vector_results = sorted(
                 _merge_unique(vector_results, year_results),
                 key=lambda c: c.score,
                 reverse=True,
             )
             select_kwargs["years"] = years
+        if trace is not None:
+            select_kwargs["trace"] = trace
         chunks = active_strategy.select_chunks(
             question,
             vector_results,
@@ -651,6 +686,8 @@ def retrieve_chunks(
             **select_kwargs,
         )
 
+        if trace is not None:
+            trace.record("final", chunks)
         scores_str = ", ".join(f"{c.score:.4f}" for c in chunks)
         logger.info(
             "[query] Using %d chunk(s) as context. Scores: %s", len(chunks), scores_str
