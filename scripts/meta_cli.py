@@ -39,6 +39,25 @@ Commands:
     set-key-status <doc_type> <key> <approved|retired|proposed>
                       Approve a proposed key, or retire one (e.g. a duplicate of an
                       existing key). Takes effect on the next extract-meta run.
+    classify-documents [--limit N [--seed S]]
+                      Give each document that has no type one: an LLM reads the document's
+                      summary and opening and picks a known type (approved or already
+                      proposed) or proposes a new one, with a verbatim quote as evidence
+                      that the code verifies. A proposed type is stored as 'proposed' and
+                      cannot be used in queries until you approve it. A document whose
+                      answer is unusable or whose quote is not in the text stays
+                      unclassified (and is retried next run). One LLM call per document;
+                      start with --limit 20 --seed 1.
+    types
+                      List the document types with their status and how many documents
+                      each has, and how many documents have no type yet.
+    set-type-status <type> <approved|retired|proposed>
+                      Approve a proposed type, or retire one.
+    assign-type <type> [--yes]
+                      Manual shortcut: give EVERY document that has no type this (approved)
+                      type, without an LLM call. Meant for a corpus that has one kind of
+                      document. Prints how many documents it would change; changes them
+                      only with --yes.
     coverage [--doc-type T]
                       For every approved key: how many documents have a verified value,
                       are confirmed absent, are unverified or were never attempted. A
@@ -62,10 +81,12 @@ from document_store import DocumentStore
 from drivers.llm import get_answer_driver
 from drivers.reranker import get_reranker_driver
 from metadata.catalog import KeyCatalog, load_catalog_seed
+from metadata.classification_runner import ClassificationRunner
+from metadata.classifier import LLMTypeClassifier
 from metadata.evidence import EvidenceSelector
 from metadata.runner import MetaExtractionRunner
 from metadata.sources import ChunkMetadataSource, LLMMetaSource
-from models import KeyStatus
+from models import KeyStatus, TypeStatus
 from store import VectorStore
 
 
@@ -225,6 +246,94 @@ def cmd_set_key_status(args: list[str]) -> int:
     return 0
 
 
+def cmd_classify_documents(args: list[str]) -> int:
+    """Classify the documents that have no type yet."""
+    options = _parse(args, "Classify documents by type.", with_limit=True)
+    store = DocumentStore()
+    if not store.list_types():
+        print("No document types. Run load-catalog first.")
+        return 1
+
+    def progress(done: int, total: int) -> None:
+        print(f"  ... {done}/{total} documents", flush=True)
+
+    runner = ClassificationRunner(
+        documents=store,
+        chunks=VectorStore(),
+        classifier=LLMTypeClassifier(get_answer_driver()),
+        on_progress=progress,
+    )
+    report = runner.run(limit=options.limit, seed=options.seed)
+    print(
+        f"\nclassified {report.documents} document(s): {report.classified} with an "
+        f"approved type, {report.proposed} with a proposed type "
+        f"({report.new_types} new type(s) proposed), {report.failed} left unclassified."
+    )
+    for reason, count in report.reasons:
+        print(f"  {count} x {reason}")
+    return cmd_types([])
+
+
+def cmd_types(args: list[str]) -> int:
+    """List the document types with their status and document counts."""
+    counts = DocumentStore().count_by_type()
+    types = DocumentStore().list_types()
+    print(f"{'type':<24}{'status':<10}{'documents':>10}  name")
+    for doc_type in types:
+        print(
+            f"{doc_type.type:<24}{doc_type.status.value:<10}"
+            f"{counts.get(doc_type.type, 0):>10}  {doc_type.name}"
+        )
+    unclassified = counts.get(None, 0)
+    shown = f"{_RED}{unclassified}{_RESET}" if unclassified else str(unclassified)
+    print(f"\nno type yet: {shown} document(s)")
+    return 0
+
+
+def cmd_set_type_status(args: list[str]) -> int:
+    """Approve, retire or re-propose one document type."""
+    if len(args) != 2:
+        print("Usage: meta_cli.py set-type-status <type> <approved|retired|proposed>")
+        return 2
+    type_name, status = args
+    try:
+        new_status = TypeStatus(status)
+    except ValueError:
+        print(f"Unknown status {status!r}; use approved, retired or proposed.")
+        return 2
+    if not DocumentStore().set_type_status(type_name, new_status):
+        print(f"No document type {type_name!r}.")
+        return 1
+    print(f"{type_name} is now {new_status.value}.")
+    return 0
+
+
+def cmd_assign_type(args: list[str]) -> int:
+    """Give every document without a type one approved type (a manual shortcut)."""
+    confirmed = "--yes" in args
+    names = [a for a in args if a != "--yes"]
+    if len(names) != 1:
+        print("Usage: meta_cli.py assign-type <type> [--yes]")
+        return 2
+    store = DocumentStore()
+    doc_type = store.get_type(names[0])
+    if doc_type is None or doc_type.status is not TypeStatus.APPROVED:
+        print(
+            f"{names[0]!r} is not an approved document type (see: meta_cli.py types)."
+        )
+        return 1
+    waiting = store.count_by_type().get(None, 0)
+    if not confirmed:
+        print(
+            f"{waiting} document(s) have no type; this would give them all "
+            f"{doc_type.type!r}. Run again with --yes to do it."
+        )
+        return 0
+    changed = store.assign_type_to_unclassified(doc_type.type)
+    print(f"{changed} document(s) are now {doc_type.type!r}.")
+    return 0
+
+
 COMMANDS = {
     "sync-documents": lambda args: cmd_sync_documents(),
     "load-catalog": cmd_load_catalog,
@@ -232,6 +341,10 @@ COMMANDS = {
     "coverage": cmd_coverage,
     "keys": cmd_keys,
     "set-key-status": cmd_set_key_status,
+    "classify-documents": cmd_classify_documents,
+    "types": cmd_types,
+    "set-type-status": cmd_set_type_status,
+    "assign-type": cmd_assign_type,
 }
 
 

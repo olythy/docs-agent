@@ -84,6 +84,16 @@ class EvidenceVerifier:
         self._alnum = _alnum(text)
         self._dates = date_parser or HungarianDateParser()
 
+    def contains(self, evidence: str | None) -> bool:
+        """Whether a quote appears in the text (whitespace/case-insensitive, then loose).
+
+        For a decision that has no typed value to derive (such as a document's
+        type): the quote is the only evidence.
+        """
+        if not evidence or not evidence.strip():
+            return False
+        return _squash(evidence) in self._squashed or _alnum(evidence) in self._alnum
+
     def verify(
         self, key: MetaKey, value: str | None, evidence: str | None
     ) -> VerificationResult:

@@ -211,6 +211,78 @@ class DocumentStore:
             conn.commit()
         return SyncResult(upserted=upserted, removed=removed, linked=linked)
 
+    # ------------------------------------------------------ classification
+
+    def unclassified_documents(
+        self, limit: int | None = None, seed: int | None = None
+    ) -> list[Document]:
+        """Return documents that have no document type yet.
+
+        Args:
+            limit: Return at most this many.
+            seed: If given, the documents are taken in a random order fixed by this
+                seed (a representative, reproducible trial sample); otherwise in
+                file-name order.
+        """
+        sql = """
+            SELECT d.content_hash, d.source_file, d.summary, d.ingested_at
+            FROM documents d
+            WHERE d.document_type IS NULL
+            ORDER BY CASE WHEN %s::text IS NULL THEN d.source_file
+                          ELSE md5(%s::text || d.content_hash) END
+            LIMIT %s;
+        """
+        seed_text = None if seed is None else str(seed)
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (seed_text, seed_text, limit))
+            return [Document(*row) for row in cur.fetchall()]
+
+    def set_document_type(self, content_hash: str, type_name: str) -> bool:
+        """Give one document its type. Returns whether the document exists.
+
+        Raises:
+            ValueError: If the type is not registered.
+        """
+        sql = "UPDATE documents SET document_type = %s WHERE content_hash = %s;"
+        with self._scope.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (type_name, content_hash))
+                    changed = cur.rowcount == 1
+            except psycopg2.errors.ForeignKeyViolation:
+                conn.rollback()
+                raise ValueError(f"unknown document type {type_name!r}") from None
+            conn.commit()
+        return changed
+
+    def assign_type_to_unclassified(self, type_name: str) -> int:
+        """Give every document that has no type this type. Returns how many.
+
+        A manual shortcut for a corpus that has only one kind of document; the
+        classifier is the general route.
+
+        Raises:
+            ValueError: If the type is not registered.
+        """
+        sql = "UPDATE documents SET document_type = %s WHERE document_type IS NULL;"
+        with self._scope.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (type_name,))
+                    changed = cur.rowcount
+            except psycopg2.errors.ForeignKeyViolation:
+                conn.rollback()
+                raise ValueError(f"unknown document type {type_name!r}") from None
+            conn.commit()
+        return changed
+
+    def count_by_type(self) -> dict[str | None, int]:
+        """Return how many documents each type has; the key ``None`` is "no type yet"."""
+        sql = "SELECT document_type, count(*) FROM documents GROUP BY 1;"
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql)
+            return {row[0]: row[1] for row in cur.fetchall()}
+
     # --------------------------------------------------------------- catalog
 
     def upsert_type(self, doc_type: DocumentType) -> None:

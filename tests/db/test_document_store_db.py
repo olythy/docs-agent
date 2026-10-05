@@ -811,3 +811,69 @@ def test_a_changed_type_description_is_updated_by_the_next_import(db_conn):
 
     assert (result.types_added, result.types_updated) == (0, 1)
     assert DocumentStore().get_type("invoice").description == "A bill for goods."  # type: ignore[union-attr]
+
+
+def _register(store, *hashes):
+    for index, content_hash in enumerate(hashes):
+        store.upsert_document(Document(content_hash, f"{index}.docx", None))
+
+
+def test_new_documents_have_no_type_and_are_found_as_unclassified(db_conn):
+    store = DocumentStore()
+    _register(store, HASH_A, HASH_B)
+
+    assert {d.content_hash for d in store.unclassified_documents()} == {HASH_A, HASH_B}
+    assert store.count_by_type() == {None: 2}
+
+
+def test_setting_a_document_type_removes_it_from_the_unclassified(db_conn):
+    store = DocumentStore()
+    _register(store, HASH_A, HASH_B)
+    store.ensure_type("court_decision")
+
+    assert store.set_document_type(HASH_A, "court_decision") is True
+
+    assert [d.content_hash for d in store.unclassified_documents()] == [HASH_B]
+    assert store.count_by_type() == {"court_decision": 1, None: 1}
+    assert (
+        store.set_document_type("f" * 64, "court_decision") is False
+    )  # no such document
+
+
+def test_an_unknown_type_cannot_be_given_to_a_document(db_conn):
+    store = DocumentStore()
+    _register(store, HASH_A)
+
+    with pytest.raises(ValueError, match="unknown document type 'spaceship'"):
+        store.set_document_type(HASH_A, "spaceship")
+    with pytest.raises(ValueError, match="unknown document type 'spaceship'"):
+        store.assign_type_to_unclassified("spaceship")
+
+    assert store.count_by_type() == {None: 1}  # nothing half-applied
+
+
+def test_assigning_a_type_to_the_unclassified_touches_only_those(db_conn):
+    store = DocumentStore()
+    _register(store, HASH_A, HASH_B)
+    store.ensure_type("court_decision")
+    store.upsert_type(
+        DocumentType("invoice", "Invoice", "A bill.", TypeStatus.APPROVED)
+    )
+    store.set_document_type(HASH_A, "invoice")
+
+    changed = store.assign_type_to_unclassified("court_decision")
+
+    assert changed == 1
+    assert store.count_by_type() == {"invoice": 1, "court_decision": 1}
+    assert store.assign_type_to_unclassified("court_decision") == 0  # idempotent
+
+
+def test_a_seeded_sample_of_the_unclassified_is_reproducible_and_limited(db_conn):
+    store = DocumentStore()
+    _register(store, *[f"{n:064d}" for n in range(12)])
+
+    one = [d.content_hash for d in store.unclassified_documents(limit=4, seed=7)]
+    again = [d.content_hash for d in store.unclassified_documents(limit=4, seed=7)]
+    other = [d.content_hash for d in store.unclassified_documents(limit=4, seed=8)]
+
+    assert len(one) == 4 and one == again and one != other

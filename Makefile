@@ -4,7 +4,7 @@
 COMPOSE_DB_CONTAINER ?= docs-agent-postgres-1
 
 .PHONY: help docker-up docker-down docker-down-clean doctor \
-        db-migrate db-migrate-test db-flush db-refresh db-dump setup documents-sync extract-meta meta-coverage \
+        db-migrate db-migrate-test db-flush db-refresh db-dump setup documents-sync extract-meta meta-coverage classify-documents meta-types \
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
         make-migration add-document add-directory delete-document query chat \
         inspect-chunks extract-text eval eval-rerank eval-llm eval-all \
@@ -80,6 +80,12 @@ documents-sync: ## Sync the documents table from the ingested chunks (idempotent
 
 extract-meta: ## Extract catalog metadata (LLM calls!) — usage: make extract-meta limit=50 [seed=7]
 	uv run python scripts/meta_cli.py extract-meta $(if $(limit),--limit $(limit),) $(if $(seed),--seed $(seed),)
+
+classify-documents: ## Classify documents by type (LLM calls!) — usage: make classify-documents limit=20 [seed=1]
+	uv run python scripts/meta_cli.py classify-documents $(if $(limit),--limit $(limit),) $(if $(seed),--seed $(seed),)
+
+meta-types: ## List the document types with status and document counts
+	uv run python scripts/meta_cli.py types
 
 meta-coverage: ## Per-key metadata coverage (verified / absent / unverified / not tried)
 	uv run python scripts/meta_cli.py coverage
