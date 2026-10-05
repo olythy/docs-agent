@@ -11,3 +11,6 @@ logs/
 corpus/raw/
 corpus/meta.csv
 .claude/skills
+
+# Database dumps (large, and they hold the paid-for embeddings; restore with pg_restore)
+*.dump

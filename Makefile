@@ -1,7 +1,10 @@
 .DEFAULT_GOAL := help
 
+# The Postgres container started by docker-compose.yml (see `make docker-up`).
+COMPOSE_DB_CONTAINER ?= docs-agent-postgres-1
+
 .PHONY: help docker-up docker-down docker-down-clean doctor \
-        db-migrate db-migrate-test db-flush db-refresh setup documents-sync extract-meta meta-coverage \
+        db-migrate db-migrate-test db-flush db-refresh db-dump setup documents-sync extract-meta meta-coverage \
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
         make-migration add-document add-directory delete-document query chat \
         inspect-chunks extract-text eval eval-rerank eval-llm eval-all \
@@ -62,6 +65,14 @@ db-flush: ## Truncate document_chunks and documents (rows only, keeps the schema
 	uv run python scripts/db_cli.py flush
 
 db-refresh: db-flush db-migrate ## Empty the table, then re-apply pending migrations
+
+# Back up the local Docker database (the chunks and embeddings were paid for with
+# Vertex calls). Written to ./docs_agent_<date>.dump, which .gitignore excludes.
+# Restore into an EMPTY database -- this overwrites it, so it is not a make target:
+#   docker exec -i docs-agent-postgres-1 pg_restore -U postgres -d <empty_db> --no-owner < docs_agent_<date>.dump
+db-dump: ## Dump the local Docker database to ./docs_agent_<date>.dump (before risky migrations)
+	docker exec $(COMPOSE_DB_CONTAINER) pg_dump -U postgres -Fc docs_agent > docs_agent_$$(date +%Y-%m-%d).dump
+	@ls -lh docs_agent_$$(date +%Y-%m-%d).dump
 
 # --- Structured metadata (scripts/meta_cli.py) ---
 documents-sync: ## Sync the documents table from the ingested chunks (idempotent)
