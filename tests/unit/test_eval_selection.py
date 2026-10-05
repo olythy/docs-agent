@@ -75,7 +75,9 @@ class _FakeStore:
         return {"A_P_1_2020_1.docx", "B_P_2_2021_2.docx"}
 
     def search_by_identifier(self, tokens, top_k, per_token=False):
-        raise AssertionError("must not fall back to identifier search when files are named")
+        raise AssertionError(
+            "must not fall back to identifier search when files are named"
+        )
 
 
 def test_cited_documents_are_the_file_names_the_answer_names(monkeypatch):
@@ -92,4 +94,35 @@ def test_cited_documents_are_the_file_names_the_answer_names(monkeypatch):
         "lásd még Nincs_Ilyen.docx."
     )
 
-    assert _resolve_cited_source_files(answer) == ["A_P_1_2020_1.docx", "B_P_2_2021_2.docx"]
+    assert _resolve_cited_source_files(answer) == [
+        "A_P_1_2020_1.docx",
+        "B_P_2_2021_2.docx",
+    ]
+
+
+def test_the_grader_reads_only_a_few_cited_documents_and_says_so(monkeypatch):
+    """An answer listing ~50 documents must not send them all in one request."""
+    from types import SimpleNamespace
+
+    import corpus.commands.eval as eval_module
+
+    sent: list[str] = []
+
+    class Driver:
+        def run_tool_calling_turn(self, messages):
+            sent.append(messages[0]["content"])
+            return SimpleNamespace(content='{"verdict": "SUPPORTED", "reason": "fine"}')
+
+    monkeypatch.setattr(
+        eval_module, "fetch_full_content", lambda f: f + ":" + "x" * 200_000
+    )
+    monkeypatch.setattr("drivers.llm.get_answer_driver", lambda: Driver())
+    files = [f"doc{i}.docx" for i in range(50)]
+
+    verdict, reason = eval_module._verify_answer_claim_support("q", "a", files)
+
+    prompt = sent[0]
+    assert verdict == "SUPPORTED"
+    assert reason == "[graded on the first 5 of 50 cited documents] fine"
+    assert "doc4.docx" in prompt and "doc5.docx" not in prompt
+    assert len(prompt) < 5 * 61_000 + 5_000  # each document is cut, too

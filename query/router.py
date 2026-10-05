@@ -5,7 +5,9 @@ The router sits in front of ``query_knowledge_base``. It asks the query planner
 
 * a **count / list / sum / overview** question is answered *exactly* from the
   structured metadata and never reaches the retriever (top-k chunk retrieval
-  cannot count);
+  cannot count), but only when the plan covers the whole question: a plan with
+  a *residual* (a condition no key covers) cannot be exact and is read like a
+  lookup instead;
 * a **lookup** question ("what did the court decide in ...") still goes to the
   normal retrieval pipeline, restricted to the documents the planner's filters
   select (no filters: unrestricted);
@@ -29,7 +31,7 @@ Key exports:
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from config import settings
@@ -242,6 +244,19 @@ class QueryRouter:
             logger.warning("[router] Could not plan %r: %s", question, failure.reason)
             return Routing(answer=COULD_NOT_INTERPRET_MESSAGE)
 
+        if plan.residual and plan.operation is not Operation.LOOKUP:
+            # Part of the question is covered by no key, so a count/list/sum over
+            # the keys alone would answer a different, easier question, and
+            # present it as exact. The documents have to be read; the filters
+            # still narrow which ones.
+            logger.info(
+                "[router] %s plan has a residual (%r): reading the filtered documents instead.",
+                plan.operation.value,
+                plan.residual,
+            )
+            plan = replace(
+                plan, operation=Operation.LOOKUP, group_by=None, sum_key=None
+            )
         if plan.operation is Operation.LOOKUP:
             return self._restricted_lookup(plan)
         result = self._executor.execute(plan)

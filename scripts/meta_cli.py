@@ -102,7 +102,10 @@ def cmd_load_catalog(args: list[str]) -> int:
 #: Catalog keys that this project's ingestion already extracts deterministically
 #: into the chunk metadata (chunker.extract_document_date). Configuration of the
 #: *court-decision corpus*, not of the generic core: another corpus passes none.
-_DETERMINISTIC_FIELDS = {"decision_date": "document_date"}
+_DETERMINISTIC_FIELDS = {
+    "decision_date": "document_date",
+    "document_identifier": "document_identifiers",
+}
 
 _RED = "\033[31;1m"
 _GREEN = "\033[32m"

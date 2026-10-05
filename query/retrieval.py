@@ -42,7 +42,7 @@ from logger import LogAction, get_logger
 from models import RetrievalTrace, RetrievedChunk
 from query.hybrid import reciprocal_rank_fusion
 from query.listwise_rerank import listwise_rerank
-from query.router import get_query_router
+from query.router import Routing, get_query_router
 from query.time_filter import extract_years
 from store import VectorStore, extract_identifier_tokens
 
@@ -703,6 +703,7 @@ def query_knowledge_base(
     strategy: RetrievalStrategy | None = None,
     metadata_filter: dict | None = None,
     store: VectorStore | None = None,
+    routing: Routing | None = None,
 ) -> str:
     """Answer a question using the RAG knowledge base.
 
@@ -722,6 +723,10 @@ def query_knowledge_base(
         metadata_filter: Optional dict of key-value pairs to restrict
             retrieval to matching chunk metadata (JSONB containment).
         store: Optional :class:`store.VectorStore` instance.
+        routing: A router decision already made for this question (see
+            :func:`apply_routing`), so a caller that needs the decision itself
+            (the eval) does not plan twice. ``None`` asks the router when
+            ``settings.QUERY_ROUTER`` is on.
 
     Returns:
         A string answer grounded in the retrieved chunks, or
@@ -731,19 +736,35 @@ def query_knowledge_base(
         RuntimeError: If the active embedding driver's dimension doesn't
             match the existing document_chunks.embedding column.
     """
-    note = None
-    if settings.QUERY_ROUTER:
+    if routing is None and settings.QUERY_ROUTER:
         routing = get_query_router().route(question)
+    note = None
+    if routing is not None:
         if routing.answer is not None:
             return routing.answer
-        if routing.content_hashes is not None:
-            store = (store or VectorStore()).restricted_to(routing.content_hashes)
+        store = apply_routing(routing, store)
         note = routing.note
 
     answer = _answer_from_documents(
         question, top_k, min_score, strategy, metadata_filter, store
     )
     return f"{answer}\n\n{note}" if note else answer
+
+
+def apply_routing(routing: Routing, store: VectorStore | None) -> VectorStore | None:
+    """The store a routed retrieval should use (restricted to the routed documents).
+
+    Args:
+        routing: The router's decision.
+        store: The caller's store, if any.
+
+    Returns:
+        ``store`` unchanged when the routing does not restrict the documents,
+        otherwise a store that only sees them.
+    """
+    if routing.content_hashes is None:
+        return store
+    return (store or VectorStore()).restricted_to(routing.content_hashes)
 
 
 def _answer_from_documents(

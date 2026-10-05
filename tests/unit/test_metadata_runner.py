@@ -245,6 +245,43 @@ def test_each_key_goes_to_the_first_source_that_supports_it():
     assert report.present == 1 and report.confirmed_absent == 1
 
 
+def test_a_list_valued_chunk_field_becomes_one_value_per_distinct_element():
+    docs = FakeDocuments([_key("document_identifier", multi_valued=True)])
+    source = ChunkMetadataSource({"document_identifier": "document_identifiers"})
+    chunks = [
+        _chunk(
+            0,
+            "text",
+            document_identifiers=(
+                "27.P.20.093/2020/13-II",
+                "27.P.20.093/2020/13",
+                "27.P.20.093/2020/13",
+            ),
+        )
+    ]
+
+    report = _runner(docs, chunks, [source]).run("court_decision")
+
+    stored = docs.values[(HASH, "document_identifier")]
+    assert [(v.ordinal, v.value_text) for v in stored] == [
+        (0, "27.P.20.093/2020/13-II"),
+        (1, "27.P.20.093/2020/13"),
+    ]
+    assert stored[0].source is Kind.DETERMINISTIC and report.present == 1
+
+
+def test_a_document_without_identifiers_is_confirmed_absent():
+    docs = FakeDocuments([_key("document_identifier", multi_valued=True)])
+    source = ChunkMetadataSource({"document_identifier": "document_identifiers"})
+
+    report = _runner(docs, [_chunk(0, "text")], [source]).run("court_decision")
+
+    assert (
+        report.confirmed_absent == 1
+        and (HASH, "document_identifier") not in docs.values
+    )
+
+
 def test_a_single_valued_key_keeps_only_the_first_candidate_a_multi_valued_one_keeps_all():
     one = FakeDocuments([_key("a")])
     many = FakeDocuments([_key("a", multi_valued=True)])
@@ -380,20 +417,32 @@ def test_the_selector_returns_a_short_document_whole_and_always_includes_the_edg
     )
     selector = EvidenceSelector(reranker, per_key=2, max_chunks=4)
 
-    assert [c.id for c in selector.select(chunks[:4], [_key("court")])] == [0, 1, 2, 3]  # short: whole
+    assert [c.id for c in selector.select(chunks[:4], [_key("court")])] == [
+        0,
+        1,
+        2,
+        3,
+    ]  # short: whole
     picked = selector.select(chunks, [_key("court"), _key("decision_date")])
 
-    assert [c.metadata.chunk_index for c in picked] == [0, 4, 5, 9]  # edges + the best two, in order
+    assert [c.metadata.chunk_index for c in picked] == [
+        0,
+        4,
+        5,
+        9,
+    ]  # edges + the best two, in order
     assert reranker.rerank.call_args_list[0].args[0] == "court: desc of court"
 
 
 def test_the_edges_can_be_switched_off():
     chunks = [_chunk(i, f"c{i}") for i in range(10)]
     reranker = MagicMock()
-    reranker.rerank.side_effect = lambda query, cs: sorted(cs, key=lambda c: abs(c.metadata.chunk_index - 5))
-
-    picked = EvidenceSelector(reranker, per_key=2, max_chunks=4, always_edges=False).select(
-        chunks, [_key("court")]
+    reranker.rerank.side_effect = lambda query, cs: sorted(
+        cs, key=lambda c: abs(c.metadata.chunk_index - 5)
     )
+
+    picked = EvidenceSelector(
+        reranker, per_key=2, max_chunks=4, always_edges=False
+    ).select(chunks, [_key("court")])
 
     assert [c.metadata.chunk_index for c in picked] == [4, 5]

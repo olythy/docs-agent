@@ -210,6 +210,14 @@ def _resolve_cited_source_files(generated_answer: str) -> list[str]:
     return seen
 
 
+#: The grader reads at most this many cited documents, and at most this many
+#: characters of each. Confirmed live: an answer that listed ~50 documents made
+#: the grader send all their full texts in one request, which exceeded the
+#: model's 1,048,576-token limit and aborted the whole run.
+_MAX_GRADED_DOCUMENTS = 5
+_MAX_GRADED_CHARS = 60_000
+
+
 def _verify_answer_claim_support(
     question_text: str, generated_answer: str, cited_source_files: list[str]
 ) -> tuple[str, str]:
@@ -229,7 +237,9 @@ def _verify_answer_claim_support(
             stated criteria -- topic, outcome type, legal principle --
             is what the cited content must actually satisfy).
         generated_answer: What query_knowledge_base() actually returned.
-        cited_source_files: What :func:`_resolve_cited_source_files` found.
+        cited_source_files: What :func:`_resolve_cited_source_files` found. Only
+            the first ``_MAX_GRADED_DOCUMENTS`` are read (and ``_MAX_GRADED_CHARS``
+            of each); the reason says so when others were left out.
 
     Returns:
         A ``(verdict, reason)`` tuple, verdict one of
@@ -237,7 +247,8 @@ def _verify_answer_claim_support(
     """
     from drivers.llm import get_answer_driver
 
-    full_contents = {f: fetch_full_content(f) for f in cited_source_files}
+    graded_files = cited_source_files[:_MAX_GRADED_DOCUMENTS]
+    full_contents = {f: fetch_full_content(f)[:_MAX_GRADED_CHARS] for f in graded_files}
 
     prompt = (
         "You are verifying a RAG system's answer against real source "
@@ -264,7 +275,15 @@ def _verify_answer_claim_support(
     driver = get_answer_driver()
     response = driver.run_tool_calling_turn([{"role": "user", "content": prompt}])
     result = extract_json(response.content or "")
-    return result["verdict"], result["reason"]
+    reason = result["reason"]
+    if len(cited_source_files) > len(graded_files):
+        # Said openly: a verdict on a few of many cited documents is not a
+        # verdict on all of them.
+        reason = (
+            f"[graded on the first {len(graded_files)} of "
+            f"{len(cited_source_files)} cited documents] {reason}"
+        )
+    return result["verdict"], reason
 
 
 class GradingStrategy(ABC):
@@ -503,13 +522,16 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
         ``{strategy_name: grade_dict}``, one entry per strategy the
         persona configures in ``grading_strategies``.
     """
+    from config import settings
     from query.decline_detection import looks_like_a_decline
     from query.retrieval import (
         HybridRetrievalStrategy,
         VectorRetrievalStrategy,
+        apply_routing,
         query_knowledge_base,
         retrieve_chunks,
     )
+    from query.router import get_query_router
 
     strategy = (
         HybridRetrievalStrategy()
@@ -517,10 +539,25 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
         else VectorRetrievalStrategy()
     )
 
-    retrieved = retrieve_chunks(question["question"], strategy=strategy)
+    # With the router on, decide once: the answer and the retrieved documents
+    # must come from the same decision (a count answered from metadata has no
+    # retrieved chunks, so the retrieval/citation columns do not apply to it).
+    routing = None
+    retrieval_store = None
+    if settings.QUERY_ROUTER:
+        routing = get_query_router().route(question["question"])
+        retrieval_store = apply_routing(routing, None)
+    if routing is not None and routing.answer is not None:
+        retrieved = []
+    else:
+        retrieved = retrieve_chunks(
+            question["question"], strategy=strategy, store=retrieval_store
+        )
     retrieved_source_files = {c.metadata.source_file for c in retrieved}
 
-    answer = query_knowledge_base(question["question"], strategy=strategy)
+    answer = query_knowledge_base(
+        question["question"], strategy=strategy, routing=routing
+    )
 
     result: dict = {
         "persona_id": question["persona_id"],

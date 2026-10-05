@@ -100,8 +100,10 @@ class ChunkMetadataSource(MetaSource):
     """Copies a field that ingestion already extracted into the chunks' metadata.
 
     An adapter for the corpora where a deterministic extractor exists (this
-    project's regex date extractor writes ``document_date`` onto every chunk).
-    The value is trusted as extracted, so no quote is required.
+    project's regex extractors write ``document_date`` and
+    ``document_identifiers`` onto every chunk). The value is trusted as
+    extracted, so no quote is required. A list-valued field (the identifiers)
+    becomes one candidate per distinct element, for a multi-valued key.
 
     Args:
         mapping: Catalog key -> chunk-metadata field it is copied from.
@@ -125,9 +127,16 @@ class ChunkMetadataSource(MetaSource):
             for chunk in chunks:
                 value = getattr(chunk.metadata, field_name, None)
                 if value:
-                    candidates.append(Candidate(key.key, str(value)))
+                    candidates += [Candidate(key.key, text) for text in _texts(value)]
                     break
         return SourceResult(candidates=candidates)
+
+
+def _texts(value: object) -> list[str]:
+    """A metadata field as candidate texts: a list/tuple gives one per distinct element."""
+    if isinstance(value, (list, tuple)):
+        return list(dict.fromkeys(str(item) for item in value if item))
+    return [str(value)]
 
 
 class LLMMetaSource(MetaSource):

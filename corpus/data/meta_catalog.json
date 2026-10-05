@@ -25,6 +25,13 @@
         "order",
         "other"
       ]
+    },
+    {
+      "key": "document_identifier",
+      "value_type": "text",
+      "multi_valued": true,
+      "description": "Identifier(s) of this document, such as its case number, exactly as written in the document. A document often carries several written variants of the same number (with or without a suffix); all are stored. Filter with eq or in for one known number, or contains for a part (for example a case-type prefix).",
+      "example": "27.P.20.093/2020/13"
     }
   ]
 }

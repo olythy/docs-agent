@@ -143,6 +143,33 @@ def test_too_many_matches_to_restrict_is_reported_not_truncated_silently():
     assert "9000 documents match" in (router.route("q").answer or "")
 
 
+def test_a_count_with_a_residual_is_not_answered_exactly_it_is_read_like_a_lookup():
+    """A count over the keys alone would answer an easier question than the one asked."""
+    plan = QueryPlan(
+        DT,
+        Operation.COUNT,
+        FILTER,
+        residual="where the claim was dismissed on limitation",
+    )
+    lookup = PlanResult(
+        Operation.LOOKUP, "issuing_body = 'X'", 1, 0, documents=(("h1", "a.docx"),)
+    )
+    router, _, executor = _router(plan, lookup)
+
+    routing = router.route("how many X decisions dismissed the claim on limitation?")
+
+    assert routing == Routing(content_hashes=("h1",))
+    assert routing.answer is None and executor.calls == 1
+
+
+def test_a_listing_with_a_residual_and_no_filters_reads_everything_not_a_list():
+    plan = QueryPlan(DT, Operation.LIST, residual="that discuss limitation")
+    router, _, executor = _router(plan)
+
+    assert router.route("which decisions discuss limitation?") == Routing()
+    assert executor.calls == 0
+
+
 def test_an_uninterpretable_question_is_said_plainly_not_guessed():
     router, _, executor = _router(fail=True)
 
