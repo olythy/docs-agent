@@ -2,6 +2,14 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-05 — The document-type classifier: it proposes, a person approves, and the existing corpus was typed by hand
+
+`classify-documents` reads each untyped document's summary and first ~2,000 characters and asks an LLM to pick a known type or propose a new one, always with a verbatim quote. The code verifies the quote (`EvidenceVerifier.contains`: whitespace/case-insensitive, then loose); a quote that is not in the text, an unusable answer, an unknown or retired type, or a non-English type name leaves the document **unclassified and counted by reason**, so the next run retries it. A proposed type is stored `proposed` and the document points at it, but queries cannot use it until `set-type-status ... approved`. The classifier is shown the existing proposed types as well, so it reuses them instead of minting near-duplicates; a proposal may not revive a retired type. Two mutation checks (no quote check; retired types offered) each broke the tests that guard them.
+
+**Tried:** 10 random court documents: 10 of 10 `court_decision`, none failed, 18 s (~1.8 s each; the full corpus would take about an hour and cost, by estimate only, well under a dollar). On three texts that are not in the database (a court heading, the IT-policy sample, an invented invoice): `court_decision`, a proposed `company_policy` and a proposed `invoice`, every quote found in its text. The propose path therefore works on real model output, but only on three examples, and the corpus has no second document type to test it against.
+
+**The existing 2,235 documents were typed with `assign-type court_decision --yes`**, a manual shortcut (dry run first; changes only documents with no type), not by the classifier: the corpus has one kind of document, so an LLM call each would only have confirmed it. This is a stopgap for that corpus; the classifier is the general route and is to be developed further when a second kind of document arrives (accuracy on near-miss types, how many documents of a proposed type before it is worth approving, merging two proposed types).
+
 ## 2026-10-05 — The router on the full content set (26 questions x 3 runs, both arms): 38 -> 47 correct runs of 78
 
 The end-of-work-sized run the earlier 8-question sample pointed at: the 26 content questions of the golden set (the 7 single-document ones carry a case number, skip the planner and were not re-run here), each 3 times, with `QUERY_ROUTER` off and on, the same code, the same (document-capped) grader, the two arms running in parallel. No crash, no API error.

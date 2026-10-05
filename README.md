@@ -42,6 +42,8 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── conversion.py        # Candidate text -> typed MetaValue
 │   ├── verification.py      # EvidenceVerifier: does an extracted value really exist in the text?
 │   ├── date_parsers.py      # Language-specific date readers the verifier is given (Hungarian today)
+│   ├── classifier.py        # TypeClassifier ABC + LLMTypeClassifier: pick or propose a document type, with a quote
+│   ├── classification_runner.py  # ClassificationRunner: classify the untyped documents, verify the quote, never hide a failure
 │   ├── runner.py            # MetaExtractionRunner: idempotent, resumable extraction + statuses
 │   ├── clock.py             # Clock / SystemClock (time-zone aware) / FixedClock: the injected "today"
 │   ├── date_ranges.py       # DateRangeResolver: "last October", "next week" -> a concrete range, deterministically
@@ -240,6 +242,9 @@ Typed per-document facts for counting/listing questions -- see `docs/structured-
 | `make documents-sync` | `uv run python scripts/meta_cli.py sync-documents` — make the `documents` table match the ingested chunks (idempotent) |
 | `uv run python scripts/meta_cli.py load-catalog corpus/data/meta_catalog.json` | validate a catalog file (`{"types": [{type, name, description, keys}]}`, many types allowed) and import its types and keys into `document_types` and `meta_keys` (a changed key definition bumps its version) |
 | `make extract-meta limit=50 [seed=7]` | `uv run python scripts/meta_cli.py extract-meta --limit 50 [--seed 7]` — extract the catalog's keys (**one LLM call per document**); idempotent and resumable; start small; `--seed` takes a random, reproducible sample instead of the first N by file name |
+| `make classify-documents limit=20 seed=1` | give each document that has no type one: an LLM picks a known type or proposes a new one (stored `proposed`, unusable until approved), with a quote the code verifies; **LLM calls** |
+| `make meta-types` / `uv run python scripts/meta_cli.py set-type-status <type> <approved\|retired\|proposed>` | list the document types with status and document counts; approve or retire one |
+| `uv run python scripts/meta_cli.py assign-type <type> [--yes]` | manual shortcut for a one-type corpus: give every untyped document an approved type (dry run without `--yes`) |
 | `uv run python scripts/meta_cli.py keys` / `set-key-status <doc_type> <key> <approved\|retired\|proposed>` | list the catalog with statuses; approve a key the extractor proposed or retire a duplicate |
 | `make meta-coverage` | `uv run python scripts/meta_cli.py coverage` — per key: verified / confirmed absent / unverified / not tried (red when anything is unknown) |
 
