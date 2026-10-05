@@ -2,6 +2,22 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-05 — The router on the full content set (26 questions x 3 runs, both arms): 38 -> 47 correct runs of 78
+
+The end-of-work-sized run the earlier 8-question sample pointed at: the 26 content questions of the golden set (the 7 single-document ones carry a case number, skip the planner and were not re-run here), each 3 times, with `QUERY_ROUTER` off and on, the same code, the same (document-capped) grader, the two arms running in parallel. No crash, no API error.
+
+| | router off | router on |
+|---|---|---|
+| precedent_seeker, independent_fact (36 runs) | 61% | 64% |
+| synthesizer, independent_fact (42 runs) | 38% | **57%** |
+| all content questions (78 runs) | 38 correct (49%) | **47 correct (60%)** |
+
+Per question: **6 better, 16 the same, 4 worse**. The gains are the questions that name a court and a period (q0031, q0037, q0039, q0040 went from refused 3/3 to answered; q0013, q0024 also up): the restriction keeps the retrieval from diluting across the whole corpus. The four "worse" are small drops of the 3/3 -> 2/3 kind (q0011, q0019, q0030) and q0028 (1/3 -> 0/3); at 3 runs each that is within what a re-run changes, and the net across the 26 is clearly positive.
+
+**What the router does not fix, and why that matters for the next step:** seven questions are 0/3 in both arms and mostly refused 3/3 (q0010, q0016, q0020, q0022, q0025, q0033, q0036). They are the broad "how did the practice develop ..." questions, or ones that name no court or period, so there is nothing to restrict on and the top-k retrieval still has to find a few passages among thousands. That is the case for the residual evaluation by map-reduce over the filtered documents (design doc, "residual"), not for tuning the router. It is also why `ANSWER_PARTIAL_COVERAGE` looked helpful on q0010 earlier.
+
+Limits: 3 runs per question; the planner is not deterministic (the same question can be planned differently on two calls); the grader is an LLM; the gate for removing the `QUERY_ROUTER` switch also needed the single-document personas not to regress, which holds by construction (the identifier path skips the planner) and was seen at 100% in the earlier router-on run, but was not re-run in this one.
+
 ## 2026-10-05 — Restricted retrieval is a sub-select on a numeric document id, not a list of hashes (and the planner picks the right scan by itself)
 
 The router restricted a retrieval with a *list* of up to 5,000 content hashes (`LOOKUP_SET_CAP`); more matches were refused ("too many, narrow the question"). A list cannot express "the 800,000 invoices of 2024", and it shipped ~320 KB with every query. Now the plan compiler also emits the matching documents as a sub-select (`models.DocumentSelection`: `SELECT d.id FROM documents d WHERE <the filters>` plus bound parameters) and `VectorStore(selection=...)` puts `document_id IN (<sub-select>)` in the vector, full-text and identifier searches. The cap and the refusal are gone; a `lookup` plan only counts its documents (for the "+K unknown" note and the "no documents match" answer). Built on the numeric `documents.id` / `document_chunks.document_id` of migration 0005 and the ingest change that sets it (commit 875ae62); the earlier entries about `content_hashes` describe the superseded form.
