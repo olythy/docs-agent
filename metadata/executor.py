@@ -17,7 +17,7 @@ from typing import Any, Protocol
 
 from metadata.compiler import PlanCompiler
 from metadata.plan import Operation, QueryPlan
-from models import KeyStatus, MetaKey
+from models import DocumentSelection, KeyStatus, MetaKey
 
 
 class PlanStore(Protocol):
@@ -49,6 +49,9 @@ class PlanResult:
         total: The sum, for ``sum``.
         sum_documents: How many documents contributed to the sum.
         truncated: The list holds fewer documents than ``count``.
+        selection: For ``lookup``, the matching documents as a sub-select to restrict
+            a retrieval to (see :class:`models.DocumentSelection`); ``count`` is how
+            many they are. The documents themselves are not fetched.
     """
 
     operation: Operation
@@ -60,6 +63,7 @@ class PlanResult:
     total: Decimal | None = None
     sum_documents: int | None = None
     truncated: bool = False
+    selection: DocumentSelection | None = None
 
 
 class PlanExecutor:
@@ -104,6 +108,14 @@ class PlanExecutor:
                 count=total_documents,
                 unknown=unknown,
                 groups=groups,
+            )
+        if op is Operation.LOOKUP:
+            return PlanResult(
+                op,
+                query.explanation,
+                count=rows[0][0],
+                unknown=unknown,
+                selection=query.selection,
             )
         if op is Operation.SUM:
             total, contributing = rows[0]

@@ -26,10 +26,7 @@ from typing import Any
 
 from metadata.date_ranges import DateRange, DateRangeResolver, DateSpecError
 from metadata.plan import Filter, FilterOp, Operation, PlanError, QueryPlan
-from models import KeyStatus, MetaKey, ValueType
-
-#: How many documents a ``lookup`` (a set to restrict retrieval to) may return.
-LOOKUP_SET_CAP = 5000
+from models import DocumentSelection, KeyStatus, MetaKey, ValueType
 
 _VALUE_COLUMN = {
     ValueType.TEXT: "value_text",
@@ -90,6 +87,8 @@ class CompiledQuery:
             when the plan has no filters.
         unknown_params: Parameters of ``unknown_sql``.
         explanation: The filter in words, to show the user what was actually asked.
+        selection: The matching documents as a sub-select, for restricting a
+            retrieval to them (see :class:`models.DocumentSelection`).
     """
 
     operation: Operation
@@ -100,6 +99,7 @@ class CompiledQuery:
     unknown_sql: str | None
     unknown_params: tuple[Any, ...]
     explanation: str
+    selection: DocumentSelection
 
 
 class PlanCompiler:
@@ -165,6 +165,9 @@ class PlanCompiler:
             unknown_sql=unknown_sql,
             unknown_params=unknown_params,
             explanation=explanation,
+            selection=DocumentSelection(
+                f"SELECT d.id FROM documents d WHERE {match_sql}", match_params
+            ),
         )
 
     # -------------------------------------------------------------- operations
@@ -209,8 +212,13 @@ class PlanCompiler:
             )
             return sql, (key.key, *match_params), False
         if op is Operation.LOOKUP:
-            sql = f"SELECT d.content_hash FROM documents d WHERE {match_sql} ORDER BY d.source_file LIMIT %s"
-            return sql, (*match_params, LOOKUP_SET_CAP), True
+            # The documents themselves are not fetched: a retrieval is restricted
+            # with the compiled selection, so only their number is needed.
+            return (
+                f"SELECT count(*) FROM documents d WHERE {match_sql}",
+                match_params,
+                False,
+            )
         columns = "d.content_hash, d.source_file" + (
             ", d.summary" if op is Operation.OVERVIEW else ""
         )

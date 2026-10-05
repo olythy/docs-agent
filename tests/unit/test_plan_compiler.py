@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 
 from metadata.clock import FixedClock
-from metadata.compiler import LOOKUP_SET_CAP, PlanCompiler
+from metadata.compiler import PlanCompiler
 from metadata.date_ranges import DateRangeResolver
 from metadata.plan import Filter, FilterOp, Operation, PlanError, QueryPlan, parse_plan
 from models import KeyStatus, MetaKey, ValueType
@@ -119,18 +119,20 @@ def test_the_known_check_follows_the_keys_version():
     assert 3 in compiled.unknown_params
 
 
-def test_list_and_overview_and_lookup_return_documents_with_a_total(compiler):
+def test_list_and_overview_return_documents_with_a_total_and_lookup_only_counts(
+    compiler,
+):
     listed = compiler.compile(_plan(operation="list", limit=7), KEYS)
     overview = compiler.compile(_plan(operation="overview"), KEYS)
     lookup = compiler.compile(_plan(operation="lookup"), KEYS)
 
     assert "d.content_hash, d.source_file FROM" in listed.sql and listed.params[-1] == 7
     assert "d.summary" in overview.sql and "d.summary" not in listed.sql
-    assert (
-        lookup.sql.startswith("SELECT d.content_hash FROM")
-        and lookup.params[-1] == LOOKUP_SET_CAP
-    )
-    assert all(c.count_sql for c in (listed, overview, lookup))
+    # a lookup does not fetch documents: a retrieval is restricted with the
+    # selection instead, so there is no list to cap
+    assert lookup.sql == "SELECT count(*) FROM documents d WHERE TRUE"
+    assert lookup.count_sql is None
+    assert all(c.count_sql for c in (listed, overview))
     assert compiler.compile(_plan(), KEYS).count_sql is None  # a count is its own total
 
 
@@ -153,7 +155,9 @@ def test_a_grouped_count_breaks_down_by_a_text_key(compiler):
 
     assert "GROUP BY 1 ORDER BY 2 DESC" in compiled.sql
     assert compiled.params == ("document_kind", 5)
-    assert compiled.count_sql is not None  # the groups need not add up to the number of documents
+    assert (
+        compiled.count_sql is not None
+    )  # the groups need not add up to the number of documents
 
 
 def test_text_operators(compiler):
@@ -324,3 +328,23 @@ def test_a_hand_built_plan_with_a_raw_operator_value_is_still_checked(compiler):
 
     with pytest.raises(PlanError, match="non-empty string"):
         compiler.compile(plan, KEYS)
+
+
+def test_every_plan_carries_its_documents_as_a_sub_select_for_restricting_retrieval(
+    compiler,
+):
+    plan = _plan(
+        operation="lookup",
+        filters=[{"key": "issuing_body", "op": "eq", "value": "Kúria"}],
+    )
+
+    selection = compiler.compile(plan, KEYS).selection
+
+    assert selection.sql.startswith("SELECT d.id FROM documents d WHERE EXISTS")
+    assert (
+        "Kúria" not in selection.sql and "Kúria" in selection.params
+    )  # bound, never spliced
+    assert selection.sql.count("%s") == len(selection.params)
+    assert compiler.compile(_plan(), KEYS).selection.sql == (
+        "SELECT d.id FROM documents d WHERE TRUE"
+    )

@@ -12,14 +12,14 @@ Key exports:
 
 import json
 import re
-from collections.abc import Callable, Collection
+from collections.abc import Callable
 from contextlib import contextmanager
 from typing import ClassVar, Self
 
 from config import settings
 from db import get_connection
 from logger import get_logger
-from models import Chunk, ChunkMetadata, RetrievedChunk
+from models import Chunk, ChunkMetadata, DocumentSelection, RetrievedChunk
 
 #: Technical acronyms and terms of 2-3 characters that should NOT be filtered out.
 PRESERVED_SHORT_TERMS: frozenset[str] = frozenset(
@@ -375,11 +375,12 @@ class VectorStore:
     Args:
         conn: Optional active psycopg connection. If provided, callers are
             responsible for closing it.
-        content_hashes: Optional document restriction: when given, every
-            search (vector, full-text, identifier) only sees chunks of these
-            documents (the indexed ``content_hash`` column). Used to run a
-            normal retrieval inside the document set a structured filter
-            selected; an empty collection restricts to nothing.
+        selection: Optional document restriction: when given, every search
+            (vector, full-text, identifier) only sees chunks whose
+            ``document_id`` is in the sub-select (see
+            :class:`models.DocumentSelection`). Used to run a normal retrieval
+            inside the documents a structured filter selected; the database
+            does the filtering, so no list of documents is shipped.
     """
 
     _validated_dimensions: ClassVar[set[int]] = set()
@@ -389,13 +390,11 @@ class VectorStore:
         """Clear cached dimension validations. Useful in test fixtures."""
         cls._validated_dimensions.clear()
 
-    def __init__(
-        self, conn=None, content_hashes: Collection[str] | None = None
-    ) -> None:
+    def __init__(self, conn=None, selection: DocumentSelection | None = None) -> None:
         self._conn = conn
         self._managed_conn = None
         self._conn_depth = 0
-        self._scope = None if content_hashes is None else sorted(content_hashes)
+        self._selection = selection
 
     def __enter__(self) -> Self:
         """Enter the connection context, opening a reusable connection if none exists."""
@@ -429,20 +428,24 @@ class VectorStore:
             finally:
                 conn.close()
 
-    def restricted_to(self, content_hashes: Collection[str]) -> "VectorStore":
-        """A store over the same connection that only sees the given documents."""
-        return VectorStore(conn=self._conn, content_hashes=content_hashes)
+    def restricted_to(self, selection: DocumentSelection) -> "VectorStore":
+        """A store over the same connection that only sees the selected documents."""
+        return VectorStore(conn=self._conn, selection=selection)
 
-    def _scope_condition(self, column: str = "content_hash") -> tuple[str, list]:
+    def _scope_condition(self, column: str = "document_id") -> tuple[str, list]:
         """The SQL condition and parameters for the document restriction.
 
         Returns:
             ``("", [])`` when unrestricted, otherwise a condition (starting
-            with `` AND ``) and its parameter list.
+            with `` AND ``) that puts the selection's sub-select on ``column``,
+            and its parameter list.
         """
-        if self._scope is None:
+        if self._selection is None:
             return "", []
-        return f" AND {column} = ANY(%s)", [self._scope]
+        return (
+            f" AND {column} IN ({self._selection.sql})",
+            list(self._selection.params),
+        )
 
     def delete_chunks_by_hash(self, content_hash: str) -> int:
         """Delete all document_chunks rows matching the given SHA-256 content hash.
@@ -651,9 +654,9 @@ class VectorStore:
         if years:
             conditions.append(_YEAR_CONDITION)
             params.append([str(y) for y in years])
-        if self._scope is not None:
-            conditions.append("content_hash = ANY(%s)")
-            params.append(self._scope)
+        if self._selection is not None:
+            conditions.append(f"document_id IN ({self._selection.sql})")
+            params.extend(self._selection.params)
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.extend([vector_literal, top_k])
 
@@ -669,7 +672,7 @@ class VectorStore:
             LIMIT %s;
         """
         with self._connection() as conn, conn.cursor() as cur:
-            if years or self._scope is not None:
+            if years or self._selection is not None:
                 # pgvector's HNSW index applies a WHERE clause *after* it has
                 # found its ef_search nearest neighbours, so a selective filter
                 # (a year with ~90 of ~2,200 documents) can leave few or no
@@ -694,7 +697,7 @@ class VectorStore:
                     score=score,
                 )
             )
-        if years or self._scope is not None:
+        if years or self._selection is not None:
             # relaxed_order can return rows slightly out of distance order.
             results.sort(key=lambda c: c.score, reverse=True)
         return results
@@ -940,7 +943,7 @@ class VectorStore:
         if not tokens:
             return []
 
-        scope_sql, scope_params = self._scope_condition("c.content_hash")
+        scope_sql, scope_params = self._scope_condition("c.document_id")
         if per_token:
             patterns = [f"%{token}%" for token in tokens]
             regexes = [_identifier_regex(token) for token in tokens]

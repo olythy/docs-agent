@@ -153,14 +153,20 @@ def test_overview_carries_the_summaries(world):
     assert result.documents == ((_h(4), "Egri__doc_4.docx", "summary 4"),)
 
 
-def test_lookup_returns_the_document_set_to_restrict_retrieval_to(world):
+def test_lookup_returns_the_documents_as_a_selection_to_restrict_retrieval_to(world):
     result = _run(
         world,
         operation="lookup",
         filters=[{"key": "document_kind", "op": "eq", "value": "order"}],
     )
 
-    assert result.documents == ((_h(2),),)
+    assert result.count == 1 and result.documents == ()  # counted, not fetched
+    assert result.selection is not None
+    selected = world.execute_query(result.selection.sql, result.selection.params)
+    ids = world.execute_query(
+        "SELECT id FROM documents WHERE content_hash = %s", (_h(2),)
+    )
+    assert selected == ids  # the sub-select yields exactly document 2's id
 
 
 def test_a_sum_over_the_matching_documents(world):

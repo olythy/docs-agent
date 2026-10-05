@@ -285,6 +285,24 @@ class Document:
     ingested_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class DocumentSelection:
+    """The documents a structured filter selects, as a sub-select (not a list).
+
+    A restricted search puts ``document_id IN (<sql>)`` in its WHERE clause, so the
+    database does the filtering and no list of documents ever travels: a list
+    capped at a few thousand hashes cannot express "the 800,000 invoices of 2024".
+
+    Attributes:
+        sql: A ``SELECT d.id FROM documents d WHERE ...`` query with ``%s``
+            placeholders, built by the plan compiler (never from user text).
+        params: Its bound parameters, in order.
+    """
+
+    sql: str
+    params: tuple = ()
+
+
 class TypeStatus(StrEnum):
     """Whether a document type may be used.
 

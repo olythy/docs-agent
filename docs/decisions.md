@@ -2,6 +2,22 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-05 — Restricted retrieval is a sub-select on a numeric document id, not a list of hashes (and the planner picks the right scan by itself)
+
+The router restricted a retrieval with a *list* of up to 5,000 content hashes (`LOOKUP_SET_CAP`); more matches were refused ("too many, narrow the question"). A list cannot express "the 800,000 invoices of 2024", and it shipped ~320 KB with every query. Now the plan compiler also emits the matching documents as a sub-select (`models.DocumentSelection`: `SELECT d.id FROM documents d WHERE <the filters>` plus bound parameters) and `VectorStore(selection=...)` puts `document_id IN (<sub-select>)` in the vector, full-text and identifier searches. The cap and the refusal are gone; a `lookup` plan only counts its documents (for the "+K unknown" note and the "no documents match" answer). Built on the numeric `documents.id` / `document_chunks.document_id` of migration 0005 and the ingest change that sets it (commit 875ae62); the earlier entries about `content_hashes` describe the superseded form.
+
+**Measured on the real data (2,235 documents, 55,038 chunks; the query vector is a real chunk's own embedding; read-only):**
+
+| filter | documents | database's plan | time |
+|---|---|---|---|
+| none / one large court | 2,235 / 629 | HNSW index (approximate) | 4-5 ms |
+| court + one year | 183 | `document_id` index + exact sort | 48 ms |
+| court + one month | 19 | same, exact | 3.5 ms |
+| case-number prefix | 140 | same, exact | 23 ms |
+
+- **Same results, or better.** On four of five filters the top 10 was identical to the old list-based search. On the fifth the two differed, and against a brute-force exact search (index off) the *new* one matched 10 of 10 and the *old* one 8 of 10: the old form always went through the approximate HNSW index with a filter and missed two. The reason is not something we wrote: for a selective filter the database chooses the `document_id` index and an exact sort over just the selected chunks, and for a broad one the HNSW index. (An earlier hunch that the sub-select might push the database onto a slow sequential scan was wrong for this data; it was worth measuring.)
+- **Caveats that must not be forgotten.** (1) The planner decides from statistics, so run `ANALYZE` after a bulk load or the migration back-fill (done here). (2) At much larger scale a "selective" filter can still mean hundreds of thousands of chunks, and an exact sort of those is slow; the choice between exact and approximate then needs re-measuring. (3) The match and unknown queries still join `document_meta` by `content_hash`; they move to `document_id` in the contract migration. (4) One query vector and five filters is a sanity check, not a benchmark.
+
 ## 2026-10-05 — The router on the golden set: it first failed, was fixed, and then helped (reproducibly, on a biased sample)
 
 The gate before the router can lose its switch (see the removal note in the working notes): run the golden set with `QUERY_ROUTER=true` and show the single-document personas do not regress, because `meta-plan-eval` only measured count/list questions.

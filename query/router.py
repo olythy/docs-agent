@@ -43,7 +43,7 @@ from metadata.planner import (
     ValueSource,
     collect_known_values,
 )
-from models import KeyStatus, MetaKey
+from models import DocumentSelection, KeyStatus, MetaKey
 from store import extract_identifier_tokens
 
 logger = logging.getLogger(__name__)
@@ -65,14 +65,15 @@ class Routing:
     Attributes:
         answer: The complete answer, when the question was answered exactly from
             the metadata. ``None`` means "read documents".
-        content_hashes: The documents the normal retrieval is restricted to;
-            ``None`` means unrestricted.
+        selection: The documents the normal retrieval is restricted to, as a
+            sub-select (see :class:`models.DocumentSelection`); ``None`` means
+            unrestricted.
         note: A caveat to append to whatever answer the retrieval produces
             (e.g. how many documents could not be checked against the filter).
     """
 
     answer: str | None = None
-    content_hashes: tuple[str, ...] | None = None
+    selection: DocumentSelection | None = None
     note: str | None = None
 
 
@@ -271,29 +272,20 @@ class QueryRouter:
         if not plan.filters:
             return Routing()
         result = self._executor.execute(plan)
-        if result.truncated:
-            return Routing(
-                answer=(
-                    f"{result.count} documents match the filter ({result.explanation}), "
-                    "too many to read through together; please narrow the question."
-                )
-            )
         note = (
             f"Note: {result.unknown} document(s) could not be checked against the "
             f"filter ({result.explanation}) and were not read."
             if result.unknown
             else None
         )
-        if not result.documents:
+        if not result.count:
             return Routing(
                 answer=(
                     f"No documents match the filter ({result.explanation})."
                     + (f" {note}" if note else "")
                 )
             )
-        return Routing(
-            content_hashes=tuple(str(row[0]) for row in result.documents), note=note
-        )
+        return Routing(selection=result.selection, note=note)
 
 
 def get_query_router() -> QueryRouter:

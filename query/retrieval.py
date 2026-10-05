@@ -762,9 +762,9 @@ def apply_routing(routing: Routing, store: VectorStore | None) -> VectorStore | 
         ``store`` unchanged when the routing does not restrict the documents,
         otherwise a store that only sees them.
     """
-    if routing.content_hashes is None:
+    if routing.selection is None:
         return store
-    return (store or VectorStore()).restricted_to(routing.content_hashes)
+    return (store or VectorStore()).restricted_to(routing.selection)
 
 
 def _answer_from_documents(

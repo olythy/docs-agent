@@ -10,7 +10,7 @@ import query.retrieval as retrieval_module
 from metadata.executor import PlanResult
 from metadata.plan import Filter, FilterOp, Operation, QueryPlan
 from metadata.planner import PlanningFailed, QueryPlanner
-from models import KeyStatus, MetaKey, ValueType
+from models import DocumentSelection, KeyStatus, MetaKey, ValueType
 from query.router import (
     COULD_NOT_INTERPRET_MESSAGE,
     QueryRouter,
@@ -22,6 +22,9 @@ from query.router import (
 DT = "court_decision"
 KEY = MetaKey(DT, "issuing_body", ValueType.TEXT, "d", status=KeyStatus.APPROVED)
 FILTER = (Filter("issuing_body", FilterOp.EQ, "X"),)
+SELECTION = DocumentSelection(
+    "SELECT d.id FROM documents d WHERE d.source_file = %s", ("x",)
+)
 
 
 class FakePlanner(QueryPlanner):
@@ -103,19 +106,18 @@ def test_a_lookup_without_filters_is_unrestricted():
 
 def test_a_lookup_with_filters_is_restricted_to_the_selected_documents():
     result = PlanResult(
-        Operation.LOOKUP, "issuing_body = 'X'", 2, 0,
-        documents=(("h1", "a.docx"), ("h2", "b.docx")),
-    )  # fmt: skip
+        Operation.LOOKUP, "issuing_body = 'X'", 2, 0, selection=SELECTION
+    )
     router, _, _ = _router(QueryPlan(DT, Operation.LOOKUP, FILTER), result)
 
     assert router.route("what did X decide about costs?") == Routing(
-        content_hashes=("h1", "h2")
+        selection=SELECTION
     )
 
 
 def test_a_restricted_lookup_says_how_many_documents_it_could_not_check():
     result = PlanResult(
-        Operation.LOOKUP, "issuing_body = 'X'", 1, 4, documents=(("h1", "a.docx"),)
+        Operation.LOOKUP, "issuing_body = 'X'", 1, 4, selection=SELECTION
     )
     router, _, _ = _router(QueryPlan(DT, Operation.LOOKUP, FILTER), result)
 
@@ -130,17 +132,16 @@ def test_a_filter_that_matches_nothing_says_so_instead_of_reading_everything():
 
     routing = router.route("what did X decide?")
 
-    assert routing.content_hashes is None
+    assert routing.selection is None
     assert routing.answer is not None and "No documents match" in routing.answer
 
 
-def test_too_many_matches_to_restrict_is_reported_not_truncated_silently():
-    result = PlanResult(
-        Operation.LOOKUP, "f", 9000, 0, documents=(("h", "a"),), truncated=True
-    )
+def test_a_huge_match_is_restricted_to_not_refused_because_no_list_travels():
+    """The restriction is a sub-select the database evaluates: there is no cap."""
+    result = PlanResult(Operation.LOOKUP, "f", 800_000, 0, selection=SELECTION)
     router, _, _ = _router(QueryPlan(DT, Operation.LOOKUP, FILTER), result)
 
-    assert "9000 documents match" in (router.route("q").answer or "")
+    assert router.route("q") == Routing(selection=SELECTION)
 
 
 def test_a_count_with_a_residual_is_not_answered_exactly_it_is_read_like_a_lookup():
@@ -152,13 +153,13 @@ def test_a_count_with_a_residual_is_not_answered_exactly_it_is_read_like_a_looku
         residual="where the claim was dismissed on limitation",
     )
     lookup = PlanResult(
-        Operation.LOOKUP, "issuing_body = 'X'", 1, 0, documents=(("h1", "a.docx"),)
+        Operation.LOOKUP, "issuing_body = 'X'", 1, 0, selection=SELECTION
     )
     router, _, executor = _router(plan, lookup)
 
     routing = router.route("how many X decisions dismissed the claim on limitation?")
 
-    assert routing == Routing(content_hashes=("h1",))
+    assert routing == Routing(selection=SELECTION)
     assert routing.answer is None and executor.calls == 1
 
 
@@ -261,8 +262,8 @@ def test_query_knowledge_base_restricts_retrieval_and_appends_the_note(monkeypat
     seen = {}
 
     class Store:
-        def restricted_to(self, hashes):
-            seen["hashes"] = tuple(hashes)
+        def restricted_to(self, selection):
+            seen["selection"] = selection
             return "scoped"
 
     monkeypatch.setattr(
@@ -274,7 +275,7 @@ def test_query_knowledge_base_restricts_retrieval_and_appends_the_note(monkeypat
         retrieval_module,
         "get_query_router",
         lambda: SimpleNamespace(
-            route=lambda q: Routing(content_hashes=("h1",), note="NOTE")
+            route=lambda q: Routing(selection=SELECTION, note="NOTE")
         ),
     )
     monkeypatch.setattr(
@@ -285,5 +286,5 @@ def test_query_knowledge_base_restricts_retrieval_and_appends_the_note(monkeypat
 
     out = retrieval_module.query_knowledge_base("q", store=Store())  # type: ignore[arg-type]
 
-    assert seen["hashes"] == ("h1",)
+    assert seen["selection"] == SELECTION
     assert out == "ANSWER from scoped\n\nNOTE"
