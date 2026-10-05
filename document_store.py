@@ -46,10 +46,12 @@ class SyncResult:
         upserted: Documents inserted or refreshed from their chunks.
         removed: Documents deleted because no chunk carries their hash any more
             (their extracted values and status rows go with them, by cascade).
+        linked: Chunks that had no ``document_id`` and were given their document's.
     """
 
     upserted: int
     removed: int
+    linked: int = 0
 
 
 @dataclass(frozen=True)
@@ -101,25 +103,32 @@ class DocumentStore:
 
     # ------------------------------------------------------------- documents
 
-    def upsert_document(self, document: Document) -> None:
+    def upsert_document(self, document: Document) -> int:
         """Insert a document, or refresh its file name and summary if it exists.
 
         Args:
             document: The document. ``ingested_at`` is set by the database on
                 insert and left untouched on update.
+
+        Returns:
+            The document's numeric id (stable across refreshes).
         """
         sql = """
             INSERT INTO documents (content_hash, source_file, summary)
             VALUES (%s, %s, %s)
             ON CONFLICT (content_hash) DO UPDATE
-            SET source_file = EXCLUDED.source_file, summary = EXCLUDED.summary;
+            SET source_file = EXCLUDED.source_file, summary = EXCLUDED.summary
+            RETURNING id;
         """
         with self._scope.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     sql, (document.content_hash, document.source_file, document.summary)
                 )
+                row = cur.fetchone()
             conn.commit()
+        assert row is not None  # RETURNING always yields the row
+        return row[0]
 
     def get_document(self, content_hash: str) -> Document | None:
         """Return the document with this hash, or ``None``."""
@@ -160,11 +169,13 @@ class DocumentStore:
 
         Registers (or refreshes) one document per distinct chunk
         ``content_hash`` -- taking the file name and the summary from its first
-        chunk -- and removes documents whose chunks are gone, which is what a
-        re-ingest that replaced a document leaves behind. Idempotent.
+        chunk -- removes documents whose chunks are gone (what a re-ingest that
+        replaced a document leaves behind), and gives every chunk that has no
+        ``document_id`` the id of its document. Idempotent.
 
         Returns:
-            How many documents were upserted and how many removed.
+            How many documents were upserted and removed, and how many chunks
+            were linked.
         """
         upsert_sql = """
             INSERT INTO documents (content_hash, source_file, summary)
@@ -184,14 +195,21 @@ class DocumentStore:
                 SELECT 1 FROM document_chunks c WHERE c.content_hash = d.content_hash
             );
         """
+        link_sql = """
+            UPDATE document_chunks c SET document_id = d.id
+            FROM documents d
+            WHERE d.content_hash = c.content_hash AND c.document_id IS NULL;
+        """
         with self._scope.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(upsert_sql)
                 upserted = cur.rowcount
                 cur.execute(remove_sql)
                 removed = cur.rowcount
+                cur.execute(link_sql)
+                linked = cur.rowcount
             conn.commit()
-        return SyncResult(upserted=upserted, removed=removed)
+        return SyncResult(upserted=upserted, removed=removed, linked=linked)
 
     # --------------------------------------------------------------- catalog
 
@@ -375,15 +393,17 @@ class DocumentStore:
         """Insert one value row on ``conn`` without committing."""
         sql = """
             INSERT INTO document_meta
-                (content_hash, key, key_version, value_text, value_number,
-                 value_date, value_bool, unit, ordinal, qualifiers, evidence,
-                 evidence_chunk_index, page, source)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s);
+                (content_hash, document_id, key, key_version, value_text,
+                 value_number, value_date, value_bool, unit, ordinal, qualifiers,
+                 evidence, evidence_chunk_index, page, source)
+            VALUES (%s, (SELECT id FROM documents WHERE content_hash = %s),
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s);
         """
         with conn.cursor() as cur:
             cur.execute(
                 sql,
                 (
+                    value.content_hash,
                     value.content_hash,
                     value.key,
                     value.key_version,
@@ -655,9 +675,11 @@ class DocumentStore:
     def set_status(self, status: MetaStatus) -> None:
         """Record (or replace) what is known about a (document, key) pair."""
         sql = """
-            INSERT INTO document_meta_status (content_hash, key, state, key_version)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO document_meta_status
+                (content_hash, document_id, key, state, key_version)
+            VALUES (%s, (SELECT id FROM documents WHERE content_hash = %s), %s, %s, %s)
             ON CONFLICT (content_hash, key) DO UPDATE SET
+                document_id = EXCLUDED.document_id,
                 state = EXCLUDED.state,
                 key_version = EXCLUDED.key_version,
                 attempted_at = now();
@@ -667,6 +689,7 @@ class DocumentStore:
                 cur.execute(
                     sql,
                     (
+                        status.content_hash,
                         status.content_hash,
                         status.key,
                         status.state.value,

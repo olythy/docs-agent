@@ -230,12 +230,15 @@ def test_main_delete_by_hash(monkeypatch):
     fake_store = MagicMock()
     fake_store.delete_chunks_by_hash.return_value = 3
     monkeypatch.setattr("store.VectorStore", lambda: fake_store)
+    fake_documents = MagicMock()
+    monkeypatch.setattr("document_store.DocumentStore", lambda: fake_documents)
 
     target_hash = "a" * 64
     exit_code = cmd_ingest(["--delete", target_hash])
 
     assert exit_code == 0
     fake_store.delete_chunks_by_hash.assert_called_once_with(target_hash)
+    fake_documents.delete_document.assert_called_once_with(target_hash)
 
 
 def test_main_delete_by_file(tmp_path, monkeypatch):
@@ -245,6 +248,7 @@ def test_main_delete_by_file(tmp_path, monkeypatch):
     fake_store = MagicMock()
     fake_store.delete_chunks_by_hash.return_value = 2
     monkeypatch.setattr("store.VectorStore", lambda: fake_store)
+    monkeypatch.setattr("document_store.DocumentStore", lambda: MagicMock())
 
     exit_code = cmd_ingest(["--delete", str(f)])
 
@@ -255,12 +259,16 @@ def test_main_delete_by_file(tmp_path, monkeypatch):
 def test_main_delete_by_missing_source_path(monkeypatch):
     fake_store = MagicMock()
     fake_store.delete_chunks_from_source.return_value = 1
+    fake_store.get_hash_by_source.return_value = "c" * 64
     monkeypatch.setattr("store.VectorStore", lambda: fake_store)
+    fake_documents = MagicMock()
+    monkeypatch.setattr("document_store.DocumentStore", lambda: fake_documents)
 
     exit_code = cmd_ingest(["--delete", "nonexistent/doc.md"])
 
     assert exit_code == 0
     fake_store.delete_chunks_from_source.assert_called_once_with("nonexistent/doc.md")
+    fake_documents.delete_document.assert_called_once_with("c" * 64)
 
 
 def test_resolve_input_paths_reconstructs_spaces(tmp_path):

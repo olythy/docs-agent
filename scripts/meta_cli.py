@@ -75,7 +75,8 @@ def cmd_sync_documents() -> int:
     result = store.sync_from_chunks()
     print(
         f"documents synced: {result.upserted} registered/refreshed, "
-        f"{result.removed} removed (no chunks left). "
+        f"{result.removed} removed (no chunks left), "
+        f"{result.linked} chunk(s) linked to their document. "
         f"Total now: {store.count_documents()}."
     )
     return 0

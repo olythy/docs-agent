@@ -570,19 +570,27 @@ class VectorStore:
             conn.commit()
             return updated
 
-    def save(self, chunks: list[Chunk], embeddings: list[list[float]]) -> int:
+    def save(
+        self,
+        chunks: list[Chunk],
+        embeddings: list[list[float]],
+        document_id: int | None = None,
+    ) -> int:
         """Insert chunk rows into document_chunks.
 
         Args:
             chunks: One :class:`models.Chunk` per row to insert.
             embeddings: Parallel list of float vectors, one per chunk.
+            document_id: The numeric id of the document the chunks belong to
+                (see :meth:`document_store.DocumentStore.upsert_document`).
+                ``None`` leaves the link empty; ``sync-documents`` fills it later.
 
         Returns:
             The number of rows inserted.
         """
         insert_sql = """
-            INSERT INTO document_chunks (content, metadata, embedding)
-            VALUES (%s, %s, %s);
+            INSERT INTO document_chunks (content, metadata, embedding, document_id)
+            VALUES (%s, %s, %s, %s);
         """
         with self._connection() as conn:
             with conn.cursor() as cur:
@@ -593,6 +601,7 @@ class VectorStore:
                             chunk.content,
                             json.dumps(chunk.metadata.to_dict()),
                             _to_pgvector_literal(embedding),
+                            document_id,
                         ),
                     )
             conn.commit()

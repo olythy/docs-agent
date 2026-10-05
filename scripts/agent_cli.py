@@ -272,14 +272,17 @@ def cmd_ingest(argv: list[str]) -> int:
     )
 
     if args.delete:
+        from document_store import DocumentStore
         from ingestion.hash import compute_file_hash
         from store import VectorStore
 
         store = VectorStore()
+        documents = DocumentStore()
         for target in resolved_paths:
             target_path = Path(target)
             if len(target) == 64 and all(c in "0123456789abcdefABCDEF" for c in target):
-                deleted = store.delete_chunks_by_hash(target.lower())
+                content_hash = target.lower()
+                deleted = store.delete_chunks_by_hash(content_hash)
                 print(f"[ingest] Deleted {deleted} chunk(s) for hash {target[:8]}.")
             elif target_path.exists() and target_path.is_file():
                 content_hash = compute_file_hash(target_path)
@@ -288,8 +291,12 @@ def cmd_ingest(argv: list[str]) -> int:
                     f"[ingest] Deleted {deleted} chunk(s) for file '{target}' (hash {content_hash[:8]})."
                 )
             else:
+                # The chunks go first, so look the hash up before they do.
+                content_hash = store.get_hash_by_source(target)
                 deleted = store.delete_chunks_from_source(target)
                 print(f"[ingest] Deleted {deleted} chunk(s) for source '{target}'.")
+            if content_hash and documents.delete_document(content_hash):
+                print("[ingest] Removed the document's metadata (values, statuses).")
         return 0
 
     has_errors = False

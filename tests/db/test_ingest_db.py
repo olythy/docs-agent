@@ -234,3 +234,100 @@ def test_delete_chunks_by_hash_in_real_db(db_conn):
     deleted = store.delete_chunks_by_hash(content_hash)
     assert deleted > 0
     assert store.has_content_hash(content_hash) is False
+
+
+def _extracted_value_count(db_conn) -> int:
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM document_meta;")
+        return cur.fetchone()[0]
+
+
+def _give_the_document_an_extracted_value(db_conn, source_file: str) -> None:
+    """Store one extracted value for a just-ingested document, as extract-meta would."""
+    from document_store import DocumentStore
+    from models import MetaKey, MetaSource, MetaValue, ValueType
+
+    store = DocumentStore()
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT content_hash FROM documents WHERE source_file = %s;", (source_file,)
+        )
+        content_hash = cur.fetchone()[0]
+    store.ensure_type("note")
+    store.upsert_key(MetaKey("note", "topic", ValueType.TEXT, "The topic."))
+    store.replace_values(
+        content_hash,
+        "topic",
+        [
+            MetaValue(
+                content_hash, "topic", 1, MetaSource.LLM, value_text="x", evidence="x"
+            )
+        ],
+    )
+
+
+def test_ingest_registers_the_document_and_links_every_chunk_to_its_id(db_conn):
+    add_document("tests/data/sample.md")
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id, content_hash, source_file FROM documents;")
+        (doc_id, content_hash, source_file) = cur.fetchone()
+        cur.execute(
+            "SELECT count(*), count(document_id), count(*) FILTER (WHERE document_id = %s) "
+            "FROM document_chunks;",
+            (doc_id,),
+        )
+        total, linked, to_this_document = cur.fetchone()
+
+    assert source_file == "sample.md" and len(content_hash) == 64
+    assert total > 0 and total == linked == to_this_document
+
+
+def test_forcing_a_reindex_keeps_the_document_id_and_its_extracted_values(db_conn):
+    add_document("tests/data/sample.md")
+    _give_the_document_an_extracted_value(db_conn, "sample.md")
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id FROM documents;")
+        first_id = cur.fetchone()[0]
+
+    add_document("tests/data/sample.md", force=True)
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id FROM documents;")
+        assert cur.fetchall() == [(first_id,)]
+        cur.execute("SELECT count(*) FROM document_chunks WHERE document_id IS NULL;")
+        assert cur.fetchone()[0] == 0
+    assert _extracted_value_count(db_conn) == 1  # the paid-for value survived
+
+
+def test_a_new_version_of_a_document_drops_the_old_versions_extracted_values(
+    tmp_path, db_conn
+):
+    doc = tmp_path / "evolving.md"
+    doc.write_text("# Notes\nThe first version of this note.")
+    add_document(doc)
+    _give_the_document_an_extracted_value(db_conn, "evolving.md")
+    assert _extracted_value_count(db_conn) == 1
+
+    doc.write_text("# Notes\nA completely different second version.")
+    add_document(doc)
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM documents;")
+        assert cur.fetchone()[0] == 1  # the old version's row is gone
+    assert _extracted_value_count(db_conn) == 0
+
+
+def test_deleting_by_hash_cli_path_removes_the_metadata_too(db_conn):
+    from document_store import DocumentStore
+
+    add_document("tests/data/sample.md")
+    _give_the_document_an_extracted_value(db_conn, "sample.md")
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT content_hash FROM documents;")
+        content_hash = cur.fetchone()[0]
+
+    VectorStore().delete_chunks_by_hash(content_hash)
+    assert DocumentStore().delete_document(content_hash) == 1
+
+    assert _extracted_value_count(db_conn) == 0

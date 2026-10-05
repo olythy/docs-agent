@@ -21,6 +21,7 @@ from enum import Enum
 from pathlib import Path
 
 from config import settings
+from document_store import DocumentStore
 from drivers.embedding import get_embedding_driver
 from drivers.llm import get_answer_driver
 from ingestion.chunker import chunk_document, get_chunk_overflow_strategy
@@ -32,6 +33,7 @@ from ingestion.extractors import (
 from ingestion.hash import compute_file_hash
 from ingestion.summarize import generate_document_summary
 from logger import LogAction, get_logger
+from models import Document
 from store import VectorStore
 
 # Progress logging, not print(): add_document() is called from mcp_server.py
@@ -115,6 +117,7 @@ def add_document(
     force: bool = False,
     store: VectorStore | None = None,
     source_path: str | None = None,
+    documents: DocumentStore | None = None,
 ) -> None:
     """Ingest a document into the RAG knowledge base.
 
@@ -140,6 +143,9 @@ def add_document(
             instantiates a fresh one.
         source_path: Optional logical path identity of the document (e.g.
             relative path in a directory tree). Defaults to ``str(file_path)``.
+        documents: Optional :class:`document_store.DocumentStore`. The document
+            is registered there (and its numeric id put on every chunk) before
+            the chunks are saved. If omitted, instantiates a fresh one.
 
     Raises:
         FileNotFoundError: If the file does not exist at ``file_path``.
@@ -170,6 +176,7 @@ def add_document(
     # (token limit/counting) *during* chunking, not just for embedding after.
     driver = get_embedding_driver()
     store = store if store is not None else VectorStore()
+    documents = documents if documents is not None else DocumentStore()
 
     with store:
         store.assert_dimension_matches(driver.dimension)
@@ -210,6 +217,13 @@ def add_document(
                     deleted,
                     decision.hash_to_delete[:8],
                 )
+
+            if decision.hash_to_delete != content_hash:
+                # A new *version*: what was extracted from the old content no
+                # longer describes the document, so its row, values and statuses
+                # go too (by cascade). A forced re-index of identical content
+                # keeps them: they cost LLM calls and are still valid.
+                documents.delete_document(decision.hash_to_delete)
 
         # Step 3: Concatenate the whole document, then chunk it document-wide
         try:
@@ -264,8 +278,13 @@ def add_document(
         embeddings = driver.embed_documents(texts)
         logger.info("[ingest] Embeddings ready. Dimension: %d.", len(embeddings[0]))
 
-        # Step 5: Store in Postgres
-        inserted = store.save(chunks, embeddings)
+        # Step 5: Register the document, then store its chunks under its id.
+        # (Two commits: if saving fails the document row is left without chunks,
+        # which `sync-documents` removes.)
+        document_id = documents.upsert_document(
+            Document(content_hash, source_file, document_summary)
+        )
+        inserted = store.save(chunks, embeddings, document_id=document_id)
         logger.info("[ingest] Stored %d row(s) in document_chunks. Done! ✅", inserted)
         get_logger().log(
             LogAction.DOCUMENT_INGESTED,

@@ -10,6 +10,7 @@ from datetime import date
 from decimal import Decimal
 
 import psycopg2
+import psycopg2.errors
 import pytest
 
 from config import settings
@@ -679,3 +680,73 @@ def test_deleting_a_document_removes_its_chunks_values_and_status_by_cascade(db_
         )
         assert cur.fetchone()[0] == 0
     db_conn.commit()
+
+
+def test_upsert_document_returns_its_numeric_id_and_keeps_it_on_a_refresh(db_conn):
+    store = DocumentStore()
+
+    first = store.upsert_document(Document(HASH_A, "a.docx", "summary"))
+    again = store.upsert_document(Document(HASH_A, "a.docx", "new summary"))
+    other = store.upsert_document(Document(HASH_B, "b.docx", None))
+
+    assert isinstance(first, int)
+    assert again == first and other != first
+
+
+def test_values_and_statuses_are_stored_with_the_numeric_document_id(db_conn):
+    store = DocumentStore()
+    doc_id = store.upsert_document(Document(HASH_A, "a.docx", None))
+    assert isinstance(doc_id, int)  # else a NULL column would "match" None
+    store.ensure_type("court_decision")
+    store.upsert_key(MetaKey("court_decision", "court", ValueType.TEXT, "The court."))
+
+    store.replace_values(
+        HASH_A,
+        "court",
+        [
+            MetaValue(
+                HASH_A,
+                "court",
+                1,
+                MetaSource.LLM,
+                value_text="Kúria",
+                evidence="Kúria",
+            )
+        ],
+    )
+    store.set_status(MetaStatus(HASH_A, "court", MetaState.PRESENT, key_version=1))
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT document_id FROM document_meta WHERE key = 'court';")
+        assert cur.fetchall() == [(doc_id,)]
+        cur.execute("SELECT document_id FROM document_meta_status WHERE key = 'court';")
+        assert cur.fetchall() == [(doc_id,)]
+
+
+def test_a_value_for_an_unregistered_document_still_fails_loudly(db_conn):
+    store = DocumentStore()
+    store.ensure_type("court_decision")
+    store.upsert_key(MetaKey("court_decision", "court", ValueType.TEXT, "The court."))
+
+    with pytest.raises(psycopg2.errors.ForeignKeyViolation):
+        store.add_value(
+            MetaValue(
+                "f" * 64, "court", 1, MetaSource.LLM, value_text="x", evidence="x"
+            )
+        )
+
+
+def test_sync_links_chunks_that_were_saved_without_a_document_id(db_conn):
+    """What the ingest leaves behind until it sets the id itself."""
+    _save_chunks(HASH_A, "a.docx", None, n=3)
+
+    result = DocumentStore().sync_from_chunks()
+
+    assert result.linked == 3
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM document_chunks c JOIN documents d "
+            "ON d.id = c.document_id AND d.content_hash = c.content_hash;"
+        )
+        assert cur.fetchone() == (3,)
+    assert DocumentStore().sync_from_chunks().linked == 0  # nothing left to link

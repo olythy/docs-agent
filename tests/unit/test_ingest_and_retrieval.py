@@ -81,6 +81,11 @@ def _mock_ingest_pipeline(monkeypatch, *, already_present: bool):
     fake_store.add_source_alias.return_value = 1
     monkeypatch.setattr("ingestion.ingest.VectorStore", lambda: fake_store)
 
+    fake_documents = MagicMock()
+    fake_documents.upsert_document.return_value = 42
+    monkeypatch.setattr("ingestion.ingest.DocumentStore", lambda: fake_documents)
+    fake_store.documents = fake_documents  # for the tests that look at it
+
     return fake_store
 
 
@@ -431,3 +436,56 @@ class TestResolveIngestAction:
         )
         assert decision.action is IngestAction.INSERT_NEW
         assert decision.hash_to_delete is None
+
+
+def test_add_document_registers_the_document_and_saves_chunks_under_its_id(
+    tmp_path, monkeypatch
+):
+    doc_path = tmp_path / "notes.md"
+    doc_path.write_text("hello")
+    fake_store = _mock_ingest_pipeline(monkeypatch, already_present=False)
+    order: list[str] = []
+    fake_store.documents.upsert_document.side_effect = lambda doc: (
+        order.append("register"),
+        42,
+    )[1]
+    fake_store.save.side_effect = lambda *a, **k: (order.append("save"), 1)[1]
+
+    add_document(doc_path)
+
+    registered = fake_store.documents.upsert_document.call_args.args[0]
+    assert registered.source_file == "notes.md" and len(registered.content_hash) == 64
+    assert fake_store.save.call_args.kwargs["document_id"] == 42
+    assert order == ["register", "save"]  # registered *before* the chunks are saved
+
+
+def test_a_new_version_removes_the_old_documents_metadata(tmp_path, monkeypatch):
+    from ingestion.hash import compute_file_hash
+
+    doc_path = tmp_path / "notes.md"
+    doc_path.write_text("version two")
+    fake_store = _mock_ingest_pipeline(monkeypatch, already_present=True)
+    fake_store.get_hash_by_source.return_value = "old" * 21 + "x"  # a different hash
+    fake_store.has_content_hash.return_value = False
+
+    add_document(doc_path)
+
+    fake_store.documents.delete_document.assert_called_once_with("old" * 21 + "x")
+    assert compute_file_hash(doc_path) != "old" * 21 + "x"
+
+
+def test_forcing_a_reindex_of_identical_content_keeps_its_extracted_metadata(
+    tmp_path, monkeypatch
+):
+    """Extracted values cost LLM calls and are still valid for the same content."""
+    from ingestion.hash import compute_file_hash
+
+    doc_path = tmp_path / "notes.md"
+    doc_path.write_text("hello")
+    fake_store = _mock_ingest_pipeline(monkeypatch, already_present=True)
+    fake_store.get_hash_by_source.return_value = compute_file_hash(doc_path)
+
+    add_document(doc_path, force=True)
+
+    fake_store.delete_chunks_by_hash.assert_called_once()
+    fake_store.documents.delete_document.assert_not_called()
