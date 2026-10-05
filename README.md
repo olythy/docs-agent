@@ -108,7 +108,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/
-│       ├── meta_catalog.json  # Key catalog for the court-decision corpus (data, loaded by `meta_cli.py load-catalog`)
+│       ├── meta_catalog.json  # Types and key catalog for the court-decision corpus (data, loaded by `meta_cli.py load-catalog`)
 │       ├── personas.json    # 5 user-profile definitions driving golden-question style
 │       └── questions.json   # Golden-set questions (question/answer/citation/verification_status)
 ├── skills/                  # Claude Code skills (canonical source — `make skills-install` symlinks into .claude/skills/)
@@ -238,7 +238,7 @@ Typed per-document facts for counting/listing questions -- see `docs/structured-
 | Command | Equivalent / Description |
 |---|---|
 | `make documents-sync` | `uv run python scripts/meta_cli.py sync-documents` — make the `documents` table match the ingested chunks (idempotent) |
-| `uv run python scripts/meta_cli.py load-catalog corpus/data/meta_catalog.json` | validate a key catalog and import it into `meta_keys` (a changed key definition bumps its version) |
+| `uv run python scripts/meta_cli.py load-catalog corpus/data/meta_catalog.json` | validate a catalog file (`{"types": [{type, name, description, keys}]}`, many types allowed) and import its types and keys into `document_types` and `meta_keys` (a changed key definition bumps its version) |
 | `make extract-meta limit=50 [seed=7]` | `uv run python scripts/meta_cli.py extract-meta --limit 50 [--seed 7]` — extract the catalog's keys (**one LLM call per document**); idempotent and resumable; start small; `--seed` takes a random, reproducible sample instead of the first N by file name |
 | `uv run python scripts/meta_cli.py keys` / `set-key-status <doc_type> <key> <approved\|retired\|proposed>` | list the catalog with statuses; approve a key the extractor proposed or retire a duplicate |
 | `make meta-coverage` | `uv run python scripts/meta_cli.py coverage` — per key: verified / confirmed absent / unverified / not tried (red when anything is unknown) |

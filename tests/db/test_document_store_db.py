@@ -750,3 +750,64 @@ def test_sync_links_chunks_that_were_saved_without_a_document_id(db_conn):
         )
         assert cur.fetchone() == (3,)
     assert DocumentStore().sync_from_chunks().linked == 0  # nothing left to link
+
+
+def test_importing_a_catalog_writes_its_types_then_its_keys_and_is_idempotent(db_conn):
+    from metadata.catalog import Catalog, KeyCatalog
+
+    catalog = Catalog(
+        types=[
+            DocumentType("invoice", "Invoice", "A bill.", TypeStatus.APPROVED),
+            DocumentType("contract", "Contract", "An agreement.", TypeStatus.APPROVED),
+        ],
+        keys=[
+            MetaKey(
+                "invoice",
+                "total",
+                ValueType.NUMBER,
+                "Total.",
+                status=KeyStatus.APPROVED,
+            ),
+            MetaKey(
+                "contract",
+                "total",
+                ValueType.NUMBER,
+                "Value.",
+                status=KeyStatus.APPROVED,
+            ),
+        ],
+    )
+    importer = KeyCatalog(DocumentStore())
+
+    first = importer.import_catalog(catalog)
+    second = importer.import_catalog(catalog)
+
+    assert (first.types_added, first.types_updated, first.added) == (2, 0, 2)
+    assert (second.types_added, second.types_updated, second.unchanged) == (0, 0, 2)
+    store = DocumentStore()
+    assert store.get_type("contract") == catalog.types[1]
+    assert (
+        len(store.list_keys("invoice")) == 1 and len(store.list_keys("contract")) == 1
+    )
+
+
+def test_a_changed_type_description_is_updated_by_the_next_import(db_conn):
+    from metadata.catalog import Catalog, KeyCatalog
+
+    importer = KeyCatalog(DocumentStore())
+    old = DocumentType("invoice", "Invoice", "A bill.", TypeStatus.APPROVED)
+    importer.import_catalog(Catalog(types=[old], keys=[]))
+
+    result = importer.import_catalog(
+        Catalog(
+            types=[
+                DocumentType(
+                    "invoice", "Invoice", "A bill for goods.", TypeStatus.APPROVED
+                )
+            ],
+            keys=[],
+        )
+    )
+
+    assert (result.types_added, result.types_updated) == (0, 1)
+    assert DocumentStore().get_type("invoice").description == "A bill for goods."  # type: ignore[union-attr]

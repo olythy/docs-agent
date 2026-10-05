@@ -88,14 +88,16 @@ def cmd_load_catalog(args: list[str]) -> int:
         print("Usage: meta_cli.py load-catalog <file>")
         return 2
     try:
-        keys = load_catalog_seed(Path(args[0]))
+        catalog = load_catalog_seed(Path(args[0]))
     except (OSError, ValueError) as exc:
         print(f"ERROR: {exc}")
         return 1
-    result = KeyCatalog(DocumentStore()).import_seed(keys)
+    result = KeyCatalog(DocumentStore()).import_catalog(catalog)
     print(
-        f"catalog loaded ({keys[0].doc_type if keys else 'empty'}): "
-        f"{result.added} added, {result.revised} revised, {result.unchanged} unchanged."
+        f"catalog loaded ({', '.join(t.type for t in catalog.types)}): "
+        f"types {result.types_added} added, {result.types_updated} updated; "
+        f"keys {result.added} added, {result.revised} revised, "
+        f"{result.unchanged} unchanged."
     )
     return 0
 
