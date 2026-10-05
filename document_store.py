@@ -15,18 +15,27 @@ import json
 from dataclasses import dataclass
 from typing import Self
 
+import psycopg2.errors
+
 from connection_scope import ConnectionScope
 from db import get_connection
 from models import (
     Document,
+    DocumentType,
     KeyStatus,
     MetaKey,
     MetaSource,
     MetaState,
     MetaStatus,
     MetaValue,
+    TypeStatus,
     ValueType,
 )
+
+
+def _to_type(row: tuple) -> DocumentType:
+    """Build a :class:`DocumentType` from a ``document_types`` row."""
+    return DocumentType(row[0], row[1], row[2], TypeStatus(row[3]))
 
 
 @dataclass(frozen=True)
@@ -186,8 +195,79 @@ class DocumentStore:
 
     # --------------------------------------------------------------- catalog
 
+    def upsert_type(self, doc_type: DocumentType) -> None:
+        """Insert a document type, or replace its name, description and status."""
+        sql = """
+            INSERT INTO document_types (type, name, description, status)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (type) DO UPDATE SET
+                name = EXCLUDED.name,
+                description = EXCLUDED.description,
+                status = EXCLUDED.status;
+        """
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                sql,
+                (
+                    doc_type.type,
+                    doc_type.name,
+                    doc_type.description,
+                    doc_type.status.value,
+                ),
+            )
+            conn.commit()
+
+    def ensure_type(self, type_name: str) -> None:
+        """Make sure a type exists, registering it as ``approved`` if it does not.
+
+        A bridge for catalogs that only name their type (the multi-type catalog
+        format carries a name and description and uses :meth:`upsert_type`). An
+        existing type is left untouched.
+        """
+        sql = """
+            INSERT INTO document_types (type, name, description, status)
+            VALUES (%s, %s, '', 'approved')
+            ON CONFLICT (type) DO NOTHING;
+        """
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (type_name, type_name))
+            conn.commit()
+
+    def get_type(self, type_name: str) -> DocumentType | None:
+        """Return one document type, or ``None`` if it is not registered."""
+        sql = "SELECT type, name, description, status FROM document_types WHERE type = %s;"
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (type_name,))
+            row = cur.fetchone()
+        return None if row is None else _to_type(row)
+
+    def list_types(self, status: TypeStatus | None = None) -> list[DocumentType]:
+        """Return the registered types, optionally only those with one status."""
+        sql = "SELECT type, name, description, status FROM document_types"
+        params: tuple = ()
+        if status is not None:
+            sql += " WHERE status = %s"
+            params = (status.value,)
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql + " ORDER BY type;", params)
+            return [_to_type(row) for row in cur.fetchall()]
+
+    def set_type_status(self, type_name: str, status: TypeStatus) -> bool:
+        """Approve, retire or re-propose a type. Returns whether it exists."""
+        sql = "UPDATE document_types SET status = %s WHERE type = %s;"
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (status.value, type_name))
+            changed = cur.rowcount == 1
+            conn.commit()
+        return changed
+
     def upsert_key(self, key: MetaKey) -> None:
-        """Insert a catalog key, or replace its definition if (doc_type, key) exists."""
+        """Insert a catalog key, or replace its definition if (doc_type, key) exists.
+
+        Raises:
+            ValueError: If the key's document type is not registered (register it
+                first with :meth:`upsert_type` or :meth:`ensure_type`).
+        """
         sql = """
             INSERT INTO meta_keys
                 (doc_type, key, value_type, description, example,
@@ -203,22 +283,27 @@ class DocumentStore:
                 version = EXCLUDED.version;
         """
         allowed = None if key.allowed_values is None else list(key.allowed_values)
+        params = (
+            key.doc_type,
+            key.key,
+            key.value_type.value,
+            key.description,
+            key.example,
+            allowed,
+            key.multi_valued,
+            key.status.value,
+            key.version,
+        )
         with self._scope.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    sql,
-                    (
-                        key.doc_type,
-                        key.key,
-                        key.value_type.value,
-                        key.description,
-                        key.example,
-                        allowed,
-                        key.multi_valued,
-                        key.status.value,
-                        key.version,
-                    ),
-                )
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+            except psycopg2.errors.ForeignKeyViolation:
+                conn.rollback()
+                raise ValueError(
+                    f"unknown document type {key.doc_type!r}; register it first "
+                    "(upsert_type or ensure_type)"
+                ) from None
             conn.commit()
 
     def set_key_status(self, doc_type: str, key: str, status: KeyStatus) -> bool:

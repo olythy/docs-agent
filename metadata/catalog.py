@@ -125,6 +125,8 @@ class KeyCatalog:
         that already matches is left alone, which makes re-importing a no-op.
         """
         added = revised = unchanged = 0
+        for doc_type in dict.fromkeys(key.doc_type for key in keys):
+            self._store.ensure_type(doc_type)
         for key in keys:
             existing = {k.key: k for k in self._store.list_keys(key.doc_type)}.get(
                 key.key

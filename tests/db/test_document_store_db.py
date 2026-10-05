@@ -18,12 +18,14 @@ from models import (
     Chunk,
     ChunkMetadata,
     Document,
+    DocumentType,
     KeyStatus,
     MetaKey,
     MetaSource,
     MetaState,
     MetaStatus,
     MetaValue,
+    TypeStatus,
     ValueType,
 )
 from store import VectorStore
@@ -134,6 +136,7 @@ def test_sync_removes_a_document_whose_chunks_are_gone_and_cascades(db_conn):
 
 def test_catalog_round_trips_and_filters_by_status(db_conn):
     store = DocumentStore()
+    store.ensure_type("court_decision")
     store.upsert_key(
         MetaKey(
             doc_type="court_decision",
@@ -165,6 +168,7 @@ def test_catalog_round_trips_and_filters_by_status(db_conn):
 
 def test_upserting_a_key_replaces_its_definition(db_conn):
     store = DocumentStore()
+    store.ensure_type("invoice")
     key = MetaKey("invoice", "total", ValueType.NUMBER, "Total amount.", version=1)
     store.upsert_key(key)
     store.upsert_key(
@@ -562,17 +566,24 @@ def test_list_values_returns_every_value_of_a_key_with_its_file_name(db_conn):
     store.upsert_document(Document(HASH_B, "b.docx"))
     store.add_value(MetaValue(HASH_B, "court", 1, MetaSource.LLM, value_text="B court"))
     store.add_value(MetaValue(HASH_A, "court", 1, MetaSource.LLM, value_text="A court"))
-    store.add_value(MetaValue(HASH_A, "kind", 1, MetaSource.LLM, value_text="other key"))
+    store.add_value(
+        MetaValue(HASH_A, "kind", 1, MetaSource.LLM, value_text="other key")
+    )
 
     rows = store.list_values("court")
 
-    assert [(f, v.value_text) for f, v in rows] == [("a.docx", "A court"), ("b.docx", "B court")]
+    assert [(f, v.value_text) for f, v in rows] == [
+        ("a.docx", "A court"),
+        ("b.docx", "B court"),
+    ]
 
 
 def test_a_seeded_sample_is_random_across_files_yet_reproducible(db_conn):
     store = DocumentStore()
     for i in range(12):
-        store.upsert_document(Document(f"{i:064x}", f"court_{i // 4}__doc_{i:02d}.docx"))
+        store.upsert_document(
+            Document(f"{i:064x}", f"court_{i // 4}__doc_{i:02d}.docx")
+        )
     keys = [_key("court")]
 
     by_name = [d.source_file for d in store.documents_needing(keys, limit=4)]
@@ -588,10 +599,83 @@ def test_a_seeded_sample_is_random_across_files_yet_reproducible(db_conn):
 
 def test_a_proposed_key_can_be_approved_or_retired(db_conn):
     store = DocumentStore()
-    store.upsert_key(MetaKey("court_decision", "date_of_issue", ValueType.DATE, "A duplicate."))
+    store.ensure_type("court_decision")
+    store.upsert_key(
+        MetaKey("court_decision", "date_of_issue", ValueType.DATE, "A duplicate.")
+    )
 
     assert store.set_key_status("court_decision", "date_of_issue", KeyStatus.APPROVED)
-    assert [k.key for k in store.list_keys("court_decision", KeyStatus.APPROVED)] == ["date_of_issue"]
+    assert [k.key for k in store.list_keys("court_decision", KeyStatus.APPROVED)] == [
+        "date_of_issue"
+    ]
     assert store.set_key_status("court_decision", "date_of_issue", KeyStatus.RETIRED)
     assert store.list_keys("court_decision", KeyStatus.APPROVED) == []
     assert not store.set_key_status("court_decision", "no_such_key", KeyStatus.APPROVED)
+
+
+def test_a_key_needs_a_registered_document_type(db_conn):
+    store = DocumentStore()
+
+    with pytest.raises(ValueError, match="unknown document type 'invoice'"):
+        store.upsert_key(MetaKey("invoice", "total", ValueType.NUMBER, "Total."))
+
+    store.upsert_type(
+        DocumentType("invoice", "Invoice", "A bill for goods.", TypeStatus.APPROVED)
+    )
+    store.upsert_key(
+        MetaKey("invoice", "total", ValueType.NUMBER, "Total.")
+    )  # now fine
+
+
+def test_types_round_trip_and_their_status_can_change(db_conn):
+    store = DocumentStore()
+    store.upsert_type(
+        DocumentType("invoice", "Invoice", "A bill.", TypeStatus.PROPOSED)
+    )
+    store.ensure_type("court_decision")
+
+    assert store.get_type("invoice") == DocumentType(
+        "invoice", "Invoice", "A bill.", TypeStatus.PROPOSED
+    )
+    assert [t.type for t in store.list_types()] == ["court_decision", "invoice"]
+    assert [t.type for t in store.list_types(TypeStatus.APPROVED)] == ["court_decision"]
+    assert store.set_type_status("invoice", TypeStatus.APPROVED) is True
+    assert store.set_type_status("missing", TypeStatus.APPROVED) is False
+    assert store.get_type("invoice").status is TypeStatus.APPROVED  # type: ignore[union-attr]
+    assert store.get_type("nothing") is None
+
+
+def test_ensure_type_leaves_an_existing_type_alone(db_conn):
+    store = DocumentStore()
+    store.upsert_type(
+        DocumentType("invoice", "Invoice", "A bill.", TypeStatus.PROPOSED)
+    )
+
+    store.ensure_type("invoice")
+
+    assert store.get_type("invoice") == DocumentType(
+        "invoice", "Invoice", "A bill.", TypeStatus.PROPOSED
+    )
+
+
+def test_deleting_a_document_removes_its_chunks_values_and_status_by_cascade(db_conn):
+    """The numeric links carry ON DELETE CASCADE: no orphans after a delete."""
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO documents (content_hash, source_file) VALUES ('h-cascade', 'c.docx') RETURNING id;"
+        )
+        doc_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO document_chunks (content, metadata, embedding, document_id) "
+            "VALUES ('x', '{}'::jsonb, %s, %s);",
+            ("[" + ",".join(["0"] * settings.EMBEDDING_DIMENSION) + "]", doc_id),
+        )
+    db_conn.commit()
+
+    with db_conn.cursor() as cur:
+        cur.execute("DELETE FROM documents WHERE id = %s;", (doc_id,))
+        cur.execute(
+            "SELECT count(*) FROM document_chunks WHERE document_id = %s;", (doc_id,)
+        )
+        assert cur.fetchone()[0] == 0
+    db_conn.commit()

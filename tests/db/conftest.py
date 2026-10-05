@@ -29,7 +29,8 @@ from scripts.db_cli import cmd_up, ensure_migrations_table
 #: Every table the tests may write to. CASCADE empties the tables that reference
 #: ``documents``; ``meta_keys`` is the catalog and tests write to it too.
 _TRUNCATE_ALL = (
-    "TRUNCATE document_chunks, documents, meta_keys RESTART IDENTITY CASCADE;"
+    "TRUNCATE document_chunks, documents, meta_keys, document_types "
+    "RESTART IDENTITY CASCADE;"
 )
 
 

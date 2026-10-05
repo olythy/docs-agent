@@ -72,6 +72,7 @@ def _put(
 @pytest.fixture
 def world(db_conn):
     store = DocumentStore()
+    store.ensure_type(DT)
     for name, vtype, allowed in (
         ("issuing_body", ValueType.TEXT, None),
         ("decision_date", ValueType.DATE, None),

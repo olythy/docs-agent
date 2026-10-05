@@ -285,6 +285,36 @@ class Document:
     ingested_at: datetime | None = None
 
 
+class TypeStatus(StrEnum):
+    """Whether a document type may be used.
+
+    ``PROPOSED`` types (suggested by a classifier, not yet reviewed) are not
+    usable in queries; ``RETIRED`` types were withdrawn or merged into another.
+    """
+
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    RETIRED = "retired"
+
+
+@dataclass(frozen=True)
+class DocumentType:
+    """One kind of document the system knows (a court decision, an invoice, ...).
+
+    Attributes:
+        type: English snake_case identifier; what documents and keys refer to.
+        name: Human-readable name.
+        description: What the classifier and the planner read to decide whether a
+            document or a question belongs to this type.
+        status: Whether the type is usable.
+    """
+
+    type: str
+    name: str
+    description: str
+    status: TypeStatus = TypeStatus.PROPOSED
+
+
 @dataclass(frozen=True)
 class MetaKey:
     """One entry of the key catalog for a document type.
