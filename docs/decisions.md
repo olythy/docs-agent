@@ -2,6 +2,26 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-05 — The router on the golden set: it first failed, was fixed, and then helped (reproducibly, on a biased sample)
+
+The gate before the router can lose its switch (see the removal note in the working notes): run the golden set with `QUERY_ROUTER=true` and show the single-document personas do not regress, because `meta-plan-eval` only measured count/list questions.
+
+**First run: it failed, for a reason that was worth finding.** The router crashed the run (the grader sent a request over the model's 1,048,576-token limit), and the cause was not the grader: of the 26 content questions (the other 7 carry a case number and skip the planner), the planner turned almost every one into `overview`, `list` or `count`, **all with a residual** (part of the question that no key covers: "which decisions dismissed the claim on limitation"). A metadata list answers an easier question than the one asked. One such answer listed ~50 documents; the grader loads the full text of every cited document, so one request carried all of them.
+
+- **Fix in the router, not the prompt:** a plan with a residual is not exact, so it is read like a lookup (`query/router.py`); the filters still narrow *which* documents. Principle: an exact structured answer is only allowed when the plan covers the whole question. A prompt rule ("don't use overview for content questions") would have been another thing a model can ignore; this is enforced.
+- **Fix in the grader:** it now reads at most 5 cited documents and 60,000 characters of each and says so in the verdict's reason, so a long list cannot abort a paid run. The earlier baseline used the old, unbounded grader; the repeat runs below used the new one for both arms.
+- **The eval now decides once.** It used to call the retriever and `query_knowledge_base` separately, which would have planned twice and measured citations against an unrestricted retrieval; `query_knowledge_base` takes an optional precomputed `routing`.
+
+**Result of the corrected run (33 questions, one pass):** single-document personas still 100% (identifier path, planner skipped); synthesizer 43% -> 64%, precedent_seeker 58% -> 58%. A single pass is not evidence: question q0001 has an identifier, so the router never touched it, and it still changed between the two runs. The planner is not deterministic either (the same question got different filters on two calls).
+
+**Repeat run (the 8 questions that differed, 3 runs each, both arms in parallel, same grader):** independent_fact answers correct **3 of 24 without the router, 13 of 24 with it** (precedent_seeker 20% -> 53%, synthesizer 0% -> 56%). Without the router 7 of the 8 questions were refused 3 out of 3 times; with it, much less often. Mechanism (plausible, not isolated): a question naming a court and a period is restricted to 183-769 of 2,235 documents, so the answer is no longer diluted across the whole corpus.
+
+What this does **not** show: the 8 questions were chosen *because* the first run differed on them, so 10-of-24 is not an effect size for the whole set, only evidence that the difference is real and not noise; one question got worse (q0030, 2/3 -> 1/3, correct court filter) which is within noise at n=3; q0014's retrieval hit 3/3 but its answer is still wrong (the answer step, not the router). The full 26-question x 3 run is still to do.
+
+**Also built the same day:** the `document_identifier` key (multi-valued; the case number's written variants, copied from the chunk metadata the ingest already extracts, deterministic, no LLM; 2,233 of 2,235 documents). `ChunkMetadataSource` now copies a list-valued field as one value per distinct element.
+
+**Known gap, not fixed:** a list/overview that exceeds the limit is cut in file-name order, which is arbitrary for an `overview`.
+
 ## 2026-10-05 — First measurement of the planner: 92% -> (my regression: 71%) -> 100% / 98%
 
 First `meta-plan-eval` on the full extraction (2,235 documents; decision_date 100% covered, issuing_body/document_kind 4 unverified each; fixed "today" 2022-12-08 = the median decision date; Hungarian questions phrased by the LLM): **22 of 24 exact (92%)**. The two misses were real planner faults, not noise:
