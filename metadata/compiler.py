@@ -68,6 +68,12 @@ _COMPARISON = {
 
 _KNOWN_STATES = "('present', 'confirmed_absent')"
 
+#: Sentence punctuation that an exact text match ignores at the end of a value. A model
+#: copies a value out of the question, where a case number or a name is often followed by
+#: the sentence's own full stop ("... 4.P.20.409/2023/4. számú ügy"): an exact match then
+#: finds nothing (confirmed live: the single-document questions fell to 50-75%).
+_TRAILING = ".,;:"
+
 
 @dataclass(frozen=True)
 class CompiledQuery:
@@ -324,9 +330,14 @@ class PlanCompiler:
             if not isinstance(flt.value, list) or not flt.value:
                 raise PlanError(f"{key.key!r}: 'in' needs a non-empty list")
             values = [check(v) for v in flt.value]
-            return f"{column} = ANY(%s)", (values,), f"in {values}"
+            return (
+                f"rtrim({column}, '{_TRAILING}') = ANY(%s)",
+                ([v.rstrip(_TRAILING) for v in values],),
+                f"in {values}",
+            )
         value = check(flt.value)
         if flt.op is FilterOp.CONTAINS:
+            value = value.rstrip(_TRAILING) or value
             escaped = (
                 value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             )
@@ -336,6 +347,12 @@ class PlanCompiler:
                 f"contains {value!r}",
             )
         symbol = _COMPARISON[flt.op]
+        if flt.op is FilterOp.EQ:
+            return (
+                f"rtrim({column}, '{_TRAILING}') = %s",
+                (value.rstrip(_TRAILING),),
+                f"= {value!r}",
+            )
         return f"{column} {symbol} %s", (value,), f"{symbol} {value!r}"
 
     @staticmethod

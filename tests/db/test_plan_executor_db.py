@@ -412,3 +412,25 @@ def test_stored_values_are_listed_per_document_type(world):
     assert set(invoice_values or []) == {"Debreceni Kft.", "Egri Kft."}
     # no type given: the values of every document, those of both types together
     assert set(everything or []) == set(court_values or []) | set(invoice_values or [])
+
+
+def test_a_filter_value_with_a_trailing_full_stop_still_finds_the_stored_value(world):
+    """ "... a 4.P.20.409/2023/4. számú ügy": the filter copied the sentence's own full stop."""
+    with_stop = _run(
+        world,
+        operation="count",
+        filters=[{"key": "issuing_body", "op": "eq", "value": "Egri Törvényszék."}],
+    )
+    in_list = _run(
+        world,
+        operation="count",
+        filters=[
+            {
+                "key": "issuing_body",
+                "op": "in",
+                "value": ["Egri Törvényszék.", "Nincs."],
+            }
+        ],
+    )
+
+    assert with_stop.count == 1 and in_list.count == 1

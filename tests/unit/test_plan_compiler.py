@@ -392,3 +392,36 @@ def test_every_plan_carries_its_documents_as_a_sub_select_for_restricting_retrie
     )  # bound, never spliced
     assert selection.sql.count("%s") == len(selection.params)
     assert compiler.compile(_plan(), KEYS).selection.params == ("court_decision",)
+
+
+def test_an_exact_text_match_ignores_a_trailing_sentence_full_stop_on_both_sides(
+    compiler,
+):
+    """A value copied out of a sentence often carries the sentence's own full stop."""
+    eq = compiler.compile(
+        _plan(
+            filters=[{"key": "issuing_body", "op": "eq", "value": "4.P.20.409/2023/4."}]
+        ),
+        KEYS,
+    )
+    many = compiler.compile(
+        _plan(filters=[{"key": "issuing_body", "op": "in", "value": ["A.", "B;"]}]),
+        KEYS,
+    )
+
+    assert "rtrim(m.value_text, '.,;:') = %s" in eq.sql
+    assert "4.P.20.409/2023/4" in eq.params and "4.P.20.409/2023/4." not in eq.params
+    assert [
+        "A",
+        "B",
+    ] in many.params and "rtrim(m.value_text, '.,;:') = ANY(%s)" in many.sql
+    assert "'4.P.20.409/2023/4.'" in eq.explanation  # the user sees what was asked
+
+
+def test_contains_also_ignores_a_trailing_sentence_full_stop(compiler):
+    compiled = compiler.compile(
+        _plan(filters=[{"key": "issuing_body", "op": "contains", "value": "Kúria."}]),
+        KEYS,
+    )
+
+    assert "%Kúria%" in compiled.params
