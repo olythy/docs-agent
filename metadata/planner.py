@@ -21,6 +21,7 @@ Key exports:
 import json
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Protocol
 
 from drivers.llm import AnswerDriver
@@ -28,37 +29,82 @@ from llm_json import extract_json
 from metadata.clock import Clock
 from metadata.compiler import PlanCompiler
 from metadata.plan import PlanError, QueryPlan, parse_plan
-from models import MetaKey, ValueType
+from models import DocumentType, KeyStatus, MetaKey, TypeStatus, ValueType
 
 #: A text key with more distinct values than this is too free-form to list in a prompt.
 MAX_LISTED_VALUES = 60
 
 
+@dataclass(frozen=True)
+class TypeCatalog:
+    """A document type together with its approved keys: what a plan about it may use.
+
+    Attributes:
+        doc_type: The type (its name and description tell the planner what it is).
+        keys: Its approved keys.
+    """
+
+    doc_type: DocumentType
+    keys: list[MetaKey]
+
+
+class CatalogSource(Protocol):
+    """The slice of :class:`document_store.DocumentStore` that lists types and keys."""
+
+    def list_types(self, status: TypeStatus | None = None) -> list[DocumentType]: ...
+    def list_keys(
+        self, doc_type: str, status: KeyStatus | None = None
+    ) -> list[MetaKey]: ...
+
+
 class ValueSource(Protocol):
     """The slice of :class:`document_store.DocumentStore` that lists stored values."""
 
-    def distinct_text_values(self, key: str, limit: int) -> list[str] | None: ...
+    def distinct_text_values(
+        self, key: str, limit: int, doc_type: str | None = None
+    ) -> list[str] | None: ...
+
+
+def load_catalogs(source: CatalogSource) -> list[TypeCatalog]:
+    """Every approved document type with its approved keys.
+
+    Raises:
+        RuntimeError: If no document type is approved yet (nothing to plan over).
+    """
+    types = source.list_types(TypeStatus.APPROVED)
+    if not types:
+        raise RuntimeError(
+            "no approved document types; run `meta_cli.py load-catalog` first"
+        )
+    return [TypeCatalog(t, source.list_keys(t.type, KeyStatus.APPROVED)) for t in types]
 
 
 def collect_known_values(
-    source: ValueSource, keys: Sequence[MetaKey]
-) -> dict[str, list[str]]:
-    """The exact stored values of every low-cardinality free-text key.
+    source: ValueSource, catalogs: Sequence[TypeCatalog]
+) -> dict[str, dict[str, list[str]]]:
+    """The exact stored values of every low-cardinality free-text key, per type.
 
     A planner that has not seen the stored spellings guesses them (and splits a
     combined name into two). Keys with an allowed-value list already say what they
-    take, and keys with many distinct values are left out.
+    take, and keys with many distinct values are left out. Values are read per
+    document type, because two types may have a key of the same name.
 
     Args:
         source: Where the stored values are read.
-        keys: The approved keys the plan may use.
+        catalogs: The types and their approved keys.
+
+    Returns:
+        ``type -> key -> values``.
     """
-    known: dict[str, list[str]] = {}
-    for key in keys:
-        if key.value_type is ValueType.TEXT and not key.allowed_values:
-            values = source.distinct_text_values(key.key, MAX_LISTED_VALUES)
-            if values:
-                known[key.key] = values
+    known: dict[str, dict[str, list[str]]] = {}
+    for catalog in catalogs:
+        for key in catalog.keys:
+            if key.value_type is ValueType.TEXT and not key.allowed_values:
+                values = source.distinct_text_values(
+                    key.key, MAX_LISTED_VALUES, catalog.doc_type.type
+                )
+                if values:
+                    known.setdefault(catalog.doc_type.type, {})[key.key] = values
     return known
 
 
@@ -83,17 +129,16 @@ class QueryPlanner(ABC):
     def plan(
         self,
         question: str,
-        doc_type: str,
-        keys: list[MetaKey],
-        known_values: Mapping[str, Sequence[str]] | None = None,
+        catalogs: Sequence[TypeCatalog],
+        known_values: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
     ) -> QueryPlan:
         """Return a plan for ``question``.
 
         Args:
             question: The user's question, in any language.
-            doc_type: The catalog the keys belong to.
-            keys: The *approved* keys the plan may use.
-            known_values: Exact stored values of low-cardinality text keys
+            catalogs: The document types the plan may be about, each with its
+                approved keys; the planner chooses the type.
+            known_values: Exact stored values of low-cardinality text keys per type
                 (see :func:`collect_known_values`), so a filter can copy them.
 
         Raises:
@@ -120,21 +165,24 @@ class LLMQueryPlanner(QueryPlanner):
     def plan(
         self,
         question: str,
-        doc_type: str,
-        keys: list[MetaKey],
-        known_values: Mapping[str, Sequence[str]] | None = None,
+        catalogs: Sequence[TypeCatalog],
+        known_values: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
     ) -> QueryPlan:
         messages: list[dict] = [
             {
                 "role": "user",
-                "content": self._prompt(question, keys, known_values or {}),
+                "content": self._prompt(question, catalogs, known_values or {}),
             }
         ]
+        type_names = {c.doc_type.type for c in catalogs}
+        keys = [k for c in catalogs for k in c.keys]
         error, reply = "", ""
         for attempt in range(2):
             reply = self._llm.run_tool_calling_turn(messages).content or ""
             try:
-                plan = parse_plan(extract_json(reply), doc_type)
+                plan = parse_plan(
+                    extract_json(reply, reject_duplicate_keys=True), type_names
+                )
                 self._compiler.compile(plan, keys)
                 return plan
             except (PlanError, ValueError, json.JSONDecodeError) as exc:
@@ -155,24 +203,42 @@ class LLMQueryPlanner(QueryPlanner):
     def _prompt(
         self,
         question: str,
-        keys: list[MetaKey],
-        known_values: Mapping[str, Sequence[str]],
+        catalogs: Sequence[TypeCatalog],
+        known_values: Mapping[str, Mapping[str, Sequence[str]]],
     ) -> str:
-        described = []
-        for k in keys:
-            line = f"- {k.key} ({k.value_type.value}): {k.description}"
-            if k.allowed_values:
-                line += f" Allowed values: {', '.join(k.allowed_values)}."
-            if k.key in known_values:
-                line += (
-                    " Stored values (copy one exactly; a combined name is ONE value): "
-                    + "; ".join(known_values[k.key])
-                    + "."
-                )
-            described.append(line)
+        blocks = []
+        for catalog in catalogs:
+            t = catalog.doc_type
+            lines = [f'- "{t.type}": {t.name}. {t.description}']
+            if catalog.keys:
+                lines.append("  Keys (usable only in a plan about this type):")
+            else:
+                lines.append("  (no keys: it can only be counted, listed or read)")
+            for k in catalog.keys:
+                line = f"    - {k.key} ({k.value_type.value}): {k.description}"
+                if k.allowed_values:
+                    line += f" Allowed values: {', '.join(k.allowed_values)}."
+                stored = known_values.get(t.type, {}).get(k.key)
+                if stored:
+                    line += (
+                        " Stored values (copy one exactly; a combined name is ONE value): "
+                        + "; ".join(stored)
+                        + "."
+                    )
+                lines.append(line)
+            blocks.append("\n".join(lines))
+        only = catalogs[0].doc_type.type if len(catalogs) == 1 else None
+        type_rule = (
+            f'Only ONE document type exists ("{only}"): use it whenever the question '
+            'counts, lists, sums or summarises documents, even when it just says "documents".'
+            if only
+            else "If the question counts or lists documents without saying which kind and "
+            'no single listed kind clearly fits, use null and "lookup".'
+        )
         return _TEMPLATE.format(
             today=self._clock.today().isoformat(),
-            keys="\n".join(described),
+            types="\n".join(blocks),
+            type_rule=type_rule,
             question=question,
         )
 
@@ -189,8 +255,10 @@ OPERATIONS
 - "overview": the matching documents with their summaries (for "what kinds of ... are there / summarise").
 - "lookup": the question asks about the CONTENT of specific documents (who, why, what did the court decide, what does clause X say), or names a case/document identifier, or cannot be answered from the keys below. The filters then only narrow down which documents to read; use [] when the question names no key-based restriction.
 
-KEYS (the only keys you may filter on; use these exact names)
-{keys}
+DOCUMENT TYPES (the kinds of document that exist, and the keys of each)
+{types}
+
+Choose ONE document type that the question is about and put its exact name in "document_type". The filters, "group_by" and "sum_key" may use only the keys of that type. "count", "list", "sum" and "overview" ALWAYS need a document type: an exact answer is only possible for one kind of document. {type_rule} Use null ONLY for a question about the CONTENT of documents (what a ruling says, why, who ...) that names no listed type; then the operation must be "lookup" and "filters" must be [].
 
 FILTERS: a list of {{"key", "op", "value"}} that must ALL hold.
 - ops: eq, ne, in (value is a list), contains (text substring), gt, gte, lt, lte, between (value is [low, high]).
@@ -206,10 +274,10 @@ FILTERS: a list of {{"key", "op", "value"}} that must ALL hold.
   A named period ("last year", "March 2023", "last quarter", "next week") is ALWAYS a closed range: the filter is {{"key": <date key>, "op": "between", "value": <ONE spec from the list above>}}, e.g. last year = {{"key": "decision_date", "op": "between", "value": {{"kind": "relative", "unit": "year", "offset": -1}}}}. Every spec, including the value of "between", has a "kind". The "between" KIND is only for spanning two different specs ("from March to May 2023"). "The last N days/weeks/months" is a rolling spec. Use "gte"/"lt" etc. with a spec only for open-ended questions ("after March 2023", "before 2020").
 
 RULES
-- Use only the keys above. If part of the question has no matching key, put that part in "residual" (a short string in the question's language) and keep the rest as filters.
+- Use only the keys of the chosen type. If part of the question has no matching key, put that part in "residual" (a short string in the question's language) and keep the rest as filters.
 - Never invent allowed values or keys.
 - "limit": at most how many documents to return (default 50).
-- Output ONLY one JSON object: {{"operation": ..., "filters": [...], "group_by": null, "sum_key": null, "limit": 50, "residual": null}}
+- Output ONLY one JSON object: {{"document_type": "<a type above>" or null, "operation": ..., "filters": [...], "group_by": null, "sum_key": null, "limit": 50, "residual": null}}
 
 QUESTION
 {question}

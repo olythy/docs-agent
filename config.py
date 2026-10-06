@@ -408,17 +408,12 @@ class Settings:
                               documents the planner's filters select. A
                               question naming a case/document identifier
                               always runs the normal retrieval without
-                              asking the planner. Needs the metadata
-                              catalog and extracted values (see
+                              asking the planner. The planner chooses
+                              the document type itself from the approved
+                              types' descriptions (nothing to configure).
+                              Needs the metadata catalog and extracted values (see
                               docs/structured-metadata-design.md). Off by
                               default pending the planner's measurement.
-        QUERY_ROUTER_DOC_TYPE
-                              Which document type's key catalog the router
-                              plans over (default: empty). Required when
-                              ``QUERY_ROUTER`` is on: the generic core
-                              names no corpus, so the deployment says which
-                              catalog applies (e.g. the doc type passed to
-                              ``meta_cli.py load-catalog``).
         EXPOSE_DOCUMENT_DATE  Whether each excerpt's document date is shown to
                               the answer LLM (default: ``False``). When
                               ``True``, the excerpt header gets
@@ -571,7 +566,6 @@ class Settings:
         os.getenv("ANSWER_PARTIAL_COVERAGE", "false").lower() == "true"
     )
     QUERY_ROUTER: bool = os.getenv("QUERY_ROUTER", "false").lower() == "true"
-    QUERY_ROUTER_DOC_TYPE: str = os.getenv("QUERY_ROUTER_DOC_TYPE", "")
     EXPOSE_DOCUMENT_DATE: bool = (
         os.getenv("EXPOSE_DOCUMENT_DATE", "false").lower() == "true"
     )

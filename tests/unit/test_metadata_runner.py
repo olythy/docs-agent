@@ -69,7 +69,7 @@ class FakeDocuments:
     def list_keys(self, doc_type, status=None):
         return [k for k in self.keys.values() if status is None or k.status == status]
 
-    def documents_needing(self, keys, limit=None, seed=None):
+    def documents_needing(self, keys, doc_type, limit=None, seed=None):
         out = [
             d
             for d in self.documents
@@ -194,7 +194,9 @@ def test_a_failed_source_leaves_the_key_pending_so_the_next_run_retries_it():
 
     assert report.failed == 1
     assert (HASH, "court") not in docs.statuses
-    assert docs.documents_needing(docs.list_keys("court_decision")) == [DOC]
+    assert docs.documents_needing(
+        docs.list_keys("court_decision"), "court_decision"
+    ) == [DOC]
 
 
 def test_a_second_run_does_nothing_and_a_bumped_key_version_redoes_that_key():

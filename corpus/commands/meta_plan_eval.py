@@ -41,8 +41,6 @@ from metadata.date_ranges import DateRange, DateRangeResolver
 
 app = typer.Typer()
 
-DOC_TYPE = "court_decision"
-
 #: A list question is only generated when the answer fits the plan's default limit.
 _MAX_LIST = 50
 #: Share of the generated questions that ask for a list rather than a count.
@@ -293,8 +291,12 @@ def meta_plan_eval(
     from metadata.compiler import PlanCompiler
     from metadata.executor import PlanExecutor
     from metadata.plan import PlanError
-    from metadata.planner import LLMQueryPlanner, PlanningFailed, collect_known_values
-    from models import KeyStatus
+    from metadata.planner import (
+        LLMQueryPlanner,
+        PlanningFailed,
+        collect_known_values,
+        load_catalogs,
+    )
 
     docs = _load_docs()
     fixed_today = date.fromisoformat(today) if today else pick_today(docs)
@@ -304,8 +306,8 @@ def meta_plan_eval(
     llm = get_answer_driver()
     planner = LLMQueryPlanner(llm, compiler, clock)
     executor = PlanExecutor(store, compiler)
-    keys = store.list_keys(DOC_TYPE, KeyStatus.APPROVED)
-    known_values = collect_known_values(store, keys)
+    catalogs = load_catalogs(store)
+    known_values = collect_known_values(store, catalogs)
 
     print(f"fixed today for this run: {fixed_today}")
     outcomes: dict[str, list[Score]] = defaultdict(list)
@@ -332,12 +334,21 @@ def meta_plan_eval(
             )
             continue
         try:
-            result = executor.execute(
-                planner.plan(question, DOC_TYPE, keys, known_values)
-            )
+            plan = planner.plan(question, catalogs, known_values)
+            result = executor.execute(plan)
         except (PlanningFailed, PlanError) as exc:
             outcomes[fact.template].append(Score(False, 0.0, 0.0))
             wrong.append(f"{question}\n    FAILED: {exc}")
+            continue
+        if plan.operation.value != fact.operation:
+            # A lookup also yields a number, which could coincide with the expected
+            # count: the plan has to be the kind of answer that was asked for.
+            outcomes[fact.template].append(Score(False, 0.0, 0.0))
+            wrong.append(
+                f"{question}\n    meant: {fact.description()}\n    planned as "
+                f"{plan.operation.value!r} instead of {fact.operation!r} "
+                f"(type {plan.doc_type!r})"
+            )
             continue
         if fact.operation == "count":
             got = score_count(fact.expected, result.count or 0)

@@ -26,7 +26,7 @@ Key exports:
     QueryRouter        -- Makes the decision.
     ResultPhraser      -- Phrases an exact result in the question's language.
     render_result      -- The exact result as plain facts.
-    get_query_router   -- Builds the router from settings.
+    get_query_router   -- Builds the router.
 """
 
 import logging
@@ -34,16 +34,17 @@ import re
 from dataclasses import dataclass, replace
 from typing import Protocol
 
-from config import settings
 from metadata.executor import PlanExecutor, PlanResult
 from metadata.plan import Operation, QueryPlan
 from metadata.planner import (
+    CatalogSource,
     PlanningFailed,
     QueryPlanner,
     ValueSource,
     collect_known_values,
+    load_catalogs,
 )
-from models import DocumentSelection, KeyStatus, MetaKey
+from models import DocumentSelection
 from store import extract_identifier_tokens
 
 logger = logging.getLogger(__name__)
@@ -77,12 +78,8 @@ class Routing:
     note: str | None = None
 
 
-class KeySource(ValueSource, Protocol):
+class CatalogReader(CatalogSource, ValueSource, Protocol):
     """The slice of :class:`document_store.DocumentStore` the router reads."""
-
-    def list_keys(
-        self, doc_type: str, status: KeyStatus | None = None
-    ) -> list[MetaKey]: ...
 
 
 class PlanRunner(Protocol):
@@ -199,8 +196,8 @@ class QueryRouter:
     Args:
         planner: Turns the question into a plan.
         executor: Runs a plan.
-        keys: Where the key catalog is read.
-        doc_type: The catalog the plan ranges over.
+        catalog: Where the document types and their keys are read (the planner
+            chooses among the approved types; nothing is configured).
         phraser: Words exact results as answers.
     """
 
@@ -208,38 +205,28 @@ class QueryRouter:
         self,
         planner: QueryPlanner,
         executor: PlanRunner,
-        keys: KeySource,
-        doc_type: str,
+        catalog: CatalogReader,
         phraser: Phraser,
     ) -> None:
         self._planner = planner
         self._executor = executor
-        self._keys = keys
-        self._doc_type = doc_type
+        self._catalog = catalog
         self._phraser = phraser
 
     def route(self, question: str) -> Routing:
         """Decide how to answer ``question``.
 
         Raises:
-            RuntimeError: If the catalog has no approved keys (the router was
-                switched on before ``load-catalog`` / extraction).
+            RuntimeError: If no document type is approved (the router was switched
+                on before ``load-catalog``).
         """
         if extract_identifier_tokens(question):
             logger.info("[router] Identifier in the question: lookup, planner skipped.")
             return Routing()
-        keys = self._keys.list_keys(self._doc_type, KeyStatus.APPROVED)
-        if not keys:
-            raise RuntimeError(
-                f"QUERY_ROUTER is on but doc type {self._doc_type!r} has no approved "
-                "keys; run `meta_cli.py load-catalog` and `extract-meta` first."
-            )
+        catalogs = load_catalogs(self._catalog)
         try:
             plan = self._planner.plan(
-                question,
-                self._doc_type,
-                keys,
-                collect_known_values(self._keys, keys),
+                question, catalogs, collect_known_values(self._catalog, catalogs)
             )
         except PlanningFailed as failure:
             logger.warning("[router] Could not plan %r: %s", question, failure.reason)
@@ -269,8 +256,8 @@ class QueryRouter:
         return Routing(answer=self._phraser.phrase(question, plan, result))
 
     def _restricted_lookup(self, plan: QueryPlan) -> Routing:
-        if not plan.filters:
-            return Routing()
+        if plan.doc_type is None and not plan.filters:
+            return Routing()  # names no type and no restriction: read everything
         result = self._executor.execute(plan)
         note = (
             f"Note: {result.unknown} document(s) could not be checked against the "
@@ -289,11 +276,7 @@ class QueryRouter:
 
 
 def get_query_router() -> QueryRouter:
-    """Build the router from settings.
-
-    Raises:
-        ValueError: If ``QUERY_ROUTER_DOC_TYPE`` is empty.
-    """
+    """Build the router (the document types come from the database)."""
     from document_store import DocumentStore
     from drivers.llm import get_answer_driver
     from metadata.clock import SystemClock
@@ -301,8 +284,6 @@ def get_query_router() -> QueryRouter:
     from metadata.date_ranges import DateRangeResolver
     from metadata.planner import LLMQueryPlanner
 
-    if not settings.QUERY_ROUTER_DOC_TYPE:
-        raise ValueError("QUERY_ROUTER=true needs QUERY_ROUTER_DOC_TYPE to be set.")
     clock = SystemClock()
     compiler = PlanCompiler(DateRangeResolver(clock))
     llm = get_answer_driver()
@@ -310,7 +291,6 @@ def get_query_router() -> QueryRouter:
     return QueryRouter(
         planner=LLMQueryPlanner(llm, compiler, clock),
         executor=PlanExecutor(store, compiler),
-        keys=store,
-        doc_type=settings.QUERY_ROUTER_DOC_TYPE,
+        catalog=store,
         phraser=ResultPhraser(llm),
     )

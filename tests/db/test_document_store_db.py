@@ -46,6 +46,13 @@ HASH_A = "a" * 64
 HASH_B = "b" * 64
 
 
+def _typed(store, *hashes: str, doc_type: str = "court_decision") -> None:
+    """Give already registered documents a type (extraction is per document type)."""
+    store.ensure_type(doc_type)
+    for content_hash in hashes:
+        store.set_document_type(content_hash, doc_type)
+
+
 def _save_chunks(content_hash: str, source_file: str, summary: str | None, n: int = 2):
     chunks = [
         Chunk(
@@ -61,9 +68,9 @@ def _save_chunks(content_hash: str, source_file: str, summary: str | None, n: in
         for i in range(n)
     ]
     embeddings = [[0.1] * settings.EMBEDDING_DIMENSION for _ in chunks]
-    document_id = DocumentStore().upsert_document(
-        Document(content_hash, source_file, summary)
-    )
+    store = DocumentStore()
+    document_id = store.upsert_document(Document(content_hash, source_file, summary))
+    _typed(store, content_hash)
     VectorStore().save(chunks, embeddings, document_id=document_id)
 
 
@@ -359,10 +366,11 @@ def test_documents_needing_extraction_follow_the_status_and_the_key_version(db_c
     store = DocumentStore()
     store.upsert_document(Document(HASH_A, "a.docx"))
     store.upsert_document(Document(HASH_B, "b.docx"))
+    _typed(store, HASH_A, HASH_B)
     keys = [_key("court"), _key("kind")]
 
     # nothing attempted: both documents need work
-    assert [d.source_file for d in store.documents_needing(keys)] == [
+    assert [d.source_file for d in store.documents_needing(keys, "court_decision")] == [
         "a.docx",
         "b.docx",
     ]
@@ -373,17 +381,42 @@ def test_documents_needing_extraction_follow_the_status_and_the_key_version(db_c
     store.set_status(
         MetaStatus(HASH_B, "court", MetaState.CONFIRMED_ABSENT, key_version=1)
     )
-    assert [d.source_file for d in store.documents_needing(keys)] == ["b.docx"]
+    assert [d.source_file for d in store.documents_needing(keys, "court_decision")] == [
+        "b.docx"
+    ]
 
     # a key whose definition changed (version 2) makes every document pending again
     bumped = [_key("court", version=2), _key("kind")]
-    assert [d.source_file for d in store.documents_needing(bumped)] == [
+    assert [
+        d.source_file for d in store.documents_needing(bumped, "court_decision")
+    ] == [
         "a.docx",
         "b.docx",
     ]
 
-    assert [d.source_file for d in store.documents_needing(keys, limit=1)] == ["b.docx"]
-    assert store.documents_needing([]) == []
+    assert [
+        d.source_file for d in store.documents_needing(keys, "court_decision", limit=1)
+    ] == ["b.docx"]
+    assert store.documents_needing([], "court_decision") == []
+
+
+def test_extraction_is_asked_only_of_documents_of_the_keys_own_type(db_conn):
+    """A type's keys are not asked of another type's documents, nor of untyped ones."""
+    store = DocumentStore()
+    store.upsert_document(Document(HASH_A, "decision.docx"))
+    store.upsert_document(Document(HASH_B, "invoice.docx"))
+    store.upsert_document(Document("c" * 64, "untyped.docx"))
+    _typed(store, HASH_A)
+    _typed(store, HASH_B, doc_type="invoice")
+
+    keys = [_key("court")]
+
+    assert [d.source_file for d in store.documents_needing(keys, "court_decision")] == [
+        "decision.docx"
+    ]
+    assert [d.source_file for d in store.documents_needing(keys, "invoice")] == [
+        "invoice.docx"
+    ]
 
 
 def test_statuses_of_a_document_are_returned_by_key(db_conn):
@@ -409,6 +442,10 @@ def test_coverage_counts_every_document_in_exactly_one_state(db_conn):
         ("d" * 64, "d.docx"),
     ):
         store.upsert_document(Document(h, f))
+    _typed(store, HASH_A, HASH_B, "c" * 64, "d" * 64)
+    store.upsert_document(Document("e" * 64, "other.docx"))  # another type: not counted
+    _typed(store, "e" * 64, doc_type="invoice")
+    store.set_status(MetaStatus("e" * 64, "court", MetaState.PRESENT, key_version=1))
     store.set_status(MetaStatus(HASH_A, "court", MetaState.PRESENT, key_version=1))
     store.set_status(MetaStatus(HASH_B, "court", MetaState.UNVERIFIED, key_version=1))
     store.set_status(
@@ -416,7 +453,7 @@ def test_coverage_counts_every_document_in_exactly_one_state(db_conn):
     )
     # d: never attempted
 
-    [cov] = store.coverage([_key("court")])
+    [cov] = store.coverage([_key("court")], "court_decision")
 
     assert (cov.present, cov.unverified, cov.confirmed_absent, cov.not_attempted) == (
         1,
@@ -430,9 +467,10 @@ def test_coverage_counts_every_document_in_exactly_one_state(db_conn):
 def test_a_status_from_an_older_definition_counts_as_not_attempted(db_conn):
     store = DocumentStore()
     store.upsert_document(Document(HASH_A, "a.docx"))
+    _typed(store, HASH_A)
     store.set_status(MetaStatus(HASH_A, "court", MetaState.PRESENT, key_version=1))
 
-    [cov] = store.coverage([_key("court", version=2)])
+    [cov] = store.coverage([_key("court", version=2)], "court_decision")
 
     assert (cov.present, cov.not_attempted) == (0, 1)
 
@@ -526,7 +564,10 @@ def test_the_runner_extracts_end_to_end_with_the_real_stores_and_a_scripted_sour
         date(2023, 5, 4),
         MetaSource.DETERMINISTIC,
     )
-    by_key = {c.key: c for c in store.coverage(store.list_keys("court_decision"))}
+    by_key = {
+        c.key: c
+        for c in store.coverage(store.list_keys("court_decision"), "court_decision")
+    }
     assert (by_key["issuing_body"].present, by_key["decision_date"].present) == (1, 1)
 
 
@@ -554,12 +595,24 @@ def test_a_seeded_sample_is_random_across_files_yet_reproducible(db_conn):
         store.upsert_document(
             Document(f"{i:064x}", f"court_{i // 4}__doc_{i:02d}.docx")
         )
+        _typed(store, f"{i:064x}")
     keys = [_key("court")]
 
-    by_name = [d.source_file for d in store.documents_needing(keys, limit=4)]
-    seeded = [d.source_file for d in store.documents_needing(keys, limit=4, seed=7)]
-    again = [d.source_file for d in store.documents_needing(keys, limit=4, seed=7)]
-    other_seed = [d.source_file for d in store.documents_needing(keys, limit=4, seed=8)]
+    by_name = [
+        d.source_file for d in store.documents_needing(keys, "court_decision", limit=4)
+    ]
+    seeded = [
+        d.source_file
+        for d in store.documents_needing(keys, "court_decision", limit=4, seed=7)
+    ]
+    again = [
+        d.source_file
+        for d in store.documents_needing(keys, "court_decision", limit=4, seed=7)
+    ]
+    other_seed = [
+        d.source_file
+        for d in store.documents_needing(keys, "court_decision", limit=4, seed=8)
+    ]
 
     assert by_name == sorted(by_name) and len({f.split("__")[0] for f in by_name}) == 1
     assert seeded == again  # reproducible

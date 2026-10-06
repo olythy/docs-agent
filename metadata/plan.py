@@ -9,7 +9,7 @@ parameterised SQL is the compiler's job (``metadata/compiler.py``).
 
 A plan, as JSON:
 
-    {"operation": "count",
+    {"document_type": "court_decision", "operation": "count",
      "filters": [{"key": "issuing_body", "op": "eq", "value": "Debreceni Ítélőtábla"},
                  {"key": "decision_date", "op": "between",
                   "value": {"kind": "calendar", "year_offset": -1, "month": 10}}],
@@ -22,6 +22,7 @@ Key exports:
     PlanError           -- A plan that is malformed or inconsistent.
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -85,7 +86,9 @@ class QueryPlan:
     """A validated-in-shape query plan.
 
     Attributes:
-        doc_type: The catalog the keys belong to.
+        doc_type: The document type the plan is about (its keys are the usable ones
+            and only its documents are considered); ``None`` for a ``lookup`` that
+            names no type.
         operation: What to compute.
         filters: Conditions that must all hold (an AND).
         group_by: For ``COUNT``, a categorical key to break the count down by.
@@ -95,7 +98,7 @@ class QueryPlan:
             by SQL; a later step evaluates it over the matching documents).
     """
 
-    doc_type: str
+    doc_type: str | None
     operation: Operation
     filters: tuple[Filter, ...] = ()
     group_by: str | None = None
@@ -104,7 +107,15 @@ class QueryPlan:
     residual: str | None = None
 
 
-_PLAN_FIELDS = {"operation", "filters", "group_by", "sum_key", "limit", "residual"}
+_PLAN_FIELDS = {
+    "document_type",
+    "operation",
+    "filters",
+    "group_by",
+    "sum_key",
+    "limit",
+    "residual",
+}
 _FILTER_FIELDS = {"key", "op", "value"}
 
 
@@ -116,22 +127,24 @@ def _enum[E: StrEnum](enum: type[E], raw: object, what: str) -> E:
         raise PlanError(f"unknown {what} {raw!r}; use one of: {allowed}") from None
 
 
-def parse_plan(raw: object, doc_type: str) -> QueryPlan:
+def parse_plan(raw: object, doc_types: Collection[str]) -> QueryPlan:
     """Validate a raw plan (typically an LLM's JSON) into a :class:`QueryPlan`.
 
     Args:
         raw: The decoded JSON value.
-        doc_type: The catalog the plan is for (not taken from ``raw``: a model
-            must not choose which catalog to query).
+        doc_types: The document types a plan may name (the usable ones; the model
+            must choose among them, it cannot invent one).
 
     Returns:
         The plan.
 
     Raises:
         PlanError: If the plan is not an object, has unknown or missing fields,
+            names no ``document_type`` (it must be one of ``doc_types`` or null),
             uses an unknown operation or operator, or combines options that do not
             go together (``group_by`` outside ``count``, ``sum_key`` outside ``sum``,
-            ``sum`` without a key, a limit out of range).
+            ``sum`` without a key, a limit out of range, filters or a computation
+            without a document type).
     """
     if not isinstance(raw, dict):
         raise PlanError(f"a plan must be an object, got {type(raw).__name__}")
@@ -143,11 +156,23 @@ def parse_plan(raw: object, doc_type: str) -> QueryPlan:
     if "operation" not in raw:
         raise PlanError("a plan needs an 'operation'")
     operation = _enum(Operation, raw["operation"], "operation")
+    doc_type = _document_type(raw, doc_types)
+    if doc_type is None and operation is not Operation.LOOKUP:
+        raise PlanError(
+            f"the '{operation.value}' operation needs a document_type "
+            f"({', '.join(sorted(doc_types)) or 'none is known'}): an exact answer is "
+            "only possible for one kind of document; use 'lookup' (with "
+            '"document_type": null) when the question names no known kind'
+        )
 
     raw_filters = raw.get("filters") or []
     if not isinstance(raw_filters, list):
         raise PlanError("'filters' must be a list of {key, op, value} objects")
     filters = tuple(_parse_filter(f, i) for i, f in enumerate(raw_filters))
+    if doc_type is None and filters:
+        raise PlanError(
+            "filters are keys of a document type: name the document_type they belong to"
+        )
     group_by, sum_key = raw.get("group_by"), raw.get("sum_key")
     for name, value in (
         ("group_by", group_by),
@@ -180,6 +205,24 @@ def parse_plan(raw: object, doc_type: str) -> QueryPlan:
         limit=limit,
         residual=raw.get("residual"),
     )
+
+
+def _document_type(raw: dict, doc_types: Collection[str]) -> str | None:
+    """The plan's document type: one of ``doc_types``, or ``None`` (explicitly null)."""
+    if "document_type" not in raw:
+        raise PlanError(
+            "a plan needs a 'document_type': one of "
+            f"{', '.join(sorted(doc_types)) or '(none known)'}, or null"
+        )
+    chosen = raw["document_type"]
+    if chosen is None:
+        return None
+    if not isinstance(chosen, str) or chosen not in doc_types:
+        raise PlanError(
+            f"unknown document_type {chosen!r}; use one of "
+            f"{', '.join(sorted(doc_types)) or '(none known)'}, or null"
+        )
+    return chosen
 
 
 def _parse_filter(raw: object, index: int) -> Filter:

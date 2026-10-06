@@ -11,7 +11,19 @@ from metadata.plan import (
     parse_plan,
 )
 
+TYPES = ["court_decision", "invoice"]
+
+
+def _parse(raw, types=TYPES):
+    """Parse a plan; a plan that names no document type gets the first one (most tests
+    are about something else than the type, which has its own tests below)."""
+    if isinstance(raw, dict) and "document_type" not in raw:
+        raw = {"document_type": types[0], **raw}
+    return parse_plan(raw, types)
+
+
 GOOD = {
+    "document_type": "court_decision",
     "operation": "count",
     "filters": [
         {"key": "issuing_body", "op": "eq", "value": "Debreceni Ítélőtábla"},
@@ -28,7 +40,7 @@ GOOD = {
 
 
 def test_a_good_plan_parses_into_typed_parts():
-    plan = parse_plan(GOOD, "court_decision")
+    plan = parse_plan(GOOD, TYPES)
 
     assert plan.doc_type == "court_decision"
     assert plan.operation is Operation.COUNT
@@ -40,8 +52,8 @@ def test_a_good_plan_parses_into_typed_parts():
     assert plan.filters[1].value["month"] == 10
 
 
-def test_defaults_a_minimal_plan_needs_only_an_operation():
-    plan = parse_plan({"operation": "list"}, "invoice")
+def test_defaults_a_minimal_plan_needs_only_an_operation_and_a_document_type():
+    plan = parse_plan({"document_type": "invoice", "operation": "list"}, TYPES)
 
     assert (plan.filters, plan.group_by, plan.sum_key, plan.limit, plan.residual) == (
         (),
@@ -52,26 +64,69 @@ def test_defaults_a_minimal_plan_needs_only_an_operation():
     )
 
 
-def test_the_doc_type_comes_from_the_caller_never_from_the_model():
-    with pytest.raises(PlanError, match="unknown plan field"):
-        parse_plan({"operation": "list", "doc_type": "secrets"}, "court_decision")
+def test_the_type_must_be_one_the_caller_offered_the_model_cannot_invent_one():
+    with pytest.raises(
+        PlanError,
+        match=r"unknown document_type 'secrets'; use one of court_decision, invoice",
+    ):
+        _parse({"document_type": "secrets", "operation": "list"})
+
+
+def test_a_plan_must_name_its_document_type_even_when_it_is_null():
+    with pytest.raises(
+        PlanError,
+        match=r"needs a 'document_type': one of court_decision, invoice, or null",
+    ):
+        parse_plan({"operation": "list"}, TYPES)
+
+
+def test_a_lookup_may_name_no_type_and_then_has_no_filters():
+    plan = parse_plan({"document_type": None, "operation": "lookup"}, TYPES)
+
+    assert plan.doc_type is None and plan.filters == ()
+    with pytest.raises(PlanError, match="filters are keys of a document type"):
+        parse_plan(
+            {
+                "document_type": None,
+                "operation": "lookup",
+                "filters": [{"key": "k", "op": "eq", "value": 1}],
+            },
+            TYPES,
+        )
+
+
+@pytest.mark.parametrize("operation", ["count", "list", "overview", "sum"])
+def test_an_exact_answer_needs_a_document_type(operation):
+    raw = {
+        "document_type": None,
+        "operation": operation,
+        "sum_key": "x" if operation == "sum" else None,
+    }
+
+    with pytest.raises(
+        PlanError, match=f"the '{operation}' operation needs a document_type"
+    ):
+        parse_plan(raw, TYPES)
+
+
+def test_a_type_list_that_is_empty_says_so_in_the_message():
+    with pytest.raises(PlanError, match=r"none is known|\(none known\)"):
+        parse_plan({"document_type": None, "operation": "count"}, [])
 
 
 def test_group_by_and_sum_are_accepted_where_they_belong():
     assert (
-        parse_plan({"operation": "count", "group_by": "document_kind"}, "t").group_by
+        _parse({"operation": "count", "group_by": "document_kind"}).group_by
         == "document_kind"
     )
     assert (
-        parse_plan({"operation": "sum", "sum_key": "legal_costs_awarded"}, "t").sum_key
+        _parse({"operation": "sum", "sum_key": "legal_costs_awarded"}).sum_key
         == "legal_costs_awarded"
     )
 
 
 def test_a_residual_is_kept_as_text():
-    plan = parse_plan(
-        {"operation": "overview", "residual": "cases about expropriation"}, "t"
-    )
+    plan = _parse({"operation": "overview", "residual": "cases about expropriation"})
 
     assert plan.residual == "cases about expropriation"
 
@@ -116,4 +171,4 @@ def test_a_residual_is_kept_as_text():
 )
 def test_a_malformed_or_inconsistent_plan_is_rejected_with_a_message(raw, message):
     with pytest.raises((PlanError, TypeError), match=message):
-        parse_plan(raw, "t")
+        _parse(raw)

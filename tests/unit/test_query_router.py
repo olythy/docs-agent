@@ -10,7 +10,14 @@ import query.retrieval as retrieval_module
 from metadata.executor import PlanResult
 from metadata.plan import Filter, FilterOp, Operation, QueryPlan
 from metadata.planner import PlanningFailed, QueryPlanner
-from models import DocumentSelection, KeyStatus, MetaKey, ValueType
+from models import (
+    DocumentSelection,
+    DocumentType,
+    KeyStatus,
+    MetaKey,
+    TypeStatus,
+    ValueType,
+)
 from query.router import (
     COULD_NOT_INTERPRET_MESSAGE,
     QueryRouter,
@@ -31,8 +38,9 @@ class FakePlanner(QueryPlanner):
     def __init__(self, plan=None, fail=False):
         self._plan, self._fail, self.calls = plan, fail, 0
 
-    def plan(self, question, doc_type, keys, known_values=None):
+    def plan(self, question, catalogs, known_values=None):
         self.calls += 1
+        self.catalogs = catalogs
         if self._fail:
             raise PlanningFailed("bad", "reply")
         return self._plan
@@ -48,14 +56,24 @@ class FakeExecutor:
         return self._result
 
 
-class FakeKeys:
-    def __init__(self, keys):
+class FakeCatalog:
+    """The document types and keys the router reads (and the stored values)."""
+
+    def __init__(self, keys, types=None):
         self._keys = keys
+        self._types = (
+            [DocumentType(DT, "Court decision", "A ruling.", TypeStatus.APPROVED)]
+            if types is None
+            else types
+        )
+
+    def list_types(self, status=None):
+        return [t for t in self._types if status is None or t.status is status]
 
     def list_keys(self, doc_type, status=None):
-        return self._keys
+        return [k for k in self._keys if k.doc_type == doc_type]
 
-    def distinct_text_values(self, key, limit):
+    def distinct_text_values(self, key, limit, doc_type=None):
         return None
 
 
@@ -64,10 +82,10 @@ class EchoPhraser:
         return f"PHRASED {result.count}"
 
 
-def _router(plan=None, result: PlanResult | None = None, keys=(KEY,), fail=False):
+def _router(plan=None, result: PlanResult | None = None, types=None, fail=False):
     planner, executor = FakePlanner(plan, fail), FakeExecutor(result)
     return (
-        QueryRouter(planner, executor, FakeKeys(list(keys)), DT, EchoPhraser()),
+        QueryRouter(planner, executor, FakeCatalog([KEY], types), EchoPhraser()),
         planner,
         executor,
     )
@@ -97,11 +115,33 @@ def test_an_identifier_forces_lookup_without_asking_the_planner():
     assert planner.calls == 0 and executor.calls == 0
 
 
-def test_a_lookup_without_filters_is_unrestricted():
-    router, _, executor = _router(QueryPlan(DT, Operation.LOOKUP))
+def test_a_lookup_that_names_no_type_and_no_filter_is_unrestricted():
+    router, _, executor = _router(QueryPlan(None, Operation.LOOKUP))
 
     assert router.route("why did the court dismiss the claim?") == Routing()
     assert executor.calls == 0
+
+
+def test_a_lookup_that_names_only_a_type_is_restricted_to_that_types_documents():
+    result = PlanResult(
+        Operation.LOOKUP, "court_decision documents", 2235, 0, selection=SELECTION
+    )
+    router, _, executor = _router(QueryPlan(DT, Operation.LOOKUP), result)
+
+    routing = router.route("what did the court decide about costs?")
+
+    assert routing == Routing(selection=SELECTION) and executor.calls == 1
+
+
+def test_the_planner_is_offered_the_approved_types_with_their_keys():
+    router, planner, _ = _router(QueryPlan(None, Operation.LOOKUP))
+
+    router.route("a content question")
+
+    [catalog] = planner.catalogs
+    assert catalog.doc_type.type == DT and [k.key for k in catalog.keys] == [
+        "issuing_body"
+    ]
 
 
 def test_a_lookup_with_filters_is_restricted_to_the_selected_documents():
@@ -163,12 +203,17 @@ def test_a_count_with_a_residual_is_not_answered_exactly_it_is_read_like_a_looku
     assert routing.answer is None and executor.calls == 1
 
 
-def test_a_listing_with_a_residual_and_no_filters_reads_everything_not_a_list():
+def test_a_listing_with_a_residual_and_no_filters_reads_its_types_documents_not_a_list():
     plan = QueryPlan(DT, Operation.LIST, residual="that discuss limitation")
-    router, _, executor = _router(plan)
+    result = PlanResult(
+        Operation.LOOKUP, "court_decision documents", 2235, 0, selection=SELECTION
+    )
+    router, _, executor = _router(plan, result)
 
-    assert router.route("which decisions discuss limitation?") == Routing()
-    assert executor.calls == 0
+    routing = router.route("which decisions discuss limitation?")
+
+    assert routing == Routing(selection=SELECTION)  # read, restricted to the type
+    assert routing.answer is None and executor.calls == 1
 
 
 def test_an_uninterpretable_question_is_said_plainly_not_guessed():
@@ -178,10 +223,10 @@ def test_an_uninterpretable_question_is_said_plainly_not_guessed():
     assert executor.calls == 0
 
 
-def test_a_router_switched_on_without_a_catalog_fails_loudly():
-    router, _, _ = _router(keys=())
+def test_a_router_switched_on_without_an_approved_document_type_fails_loudly():
+    router, _, _ = _router(types=[])
 
-    with pytest.raises(RuntimeError, match="no approved keys"):
+    with pytest.raises(RuntimeError, match="no approved document types"):
         router.route("how many?")
 
 

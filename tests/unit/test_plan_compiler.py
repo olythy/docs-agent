@@ -37,7 +37,8 @@ def compiler():
 
 def _plan(**kw):
     kw.setdefault("operation", "count")
-    return parse_plan(kw, DT)
+    kw.setdefault("document_type", DT)
+    return parse_plan(kw, [DT, "invoice"])
 
 
 def test_every_user_value_is_a_bound_parameter_never_part_of_the_sql(compiler):
@@ -72,23 +73,63 @@ def test_a_count_with_a_text_and_a_date_filter(compiler):
     assert compiled.sql.startswith("SELECT count(*) FROM documents d WHERE")
     assert compiled.sql.count("EXISTS") == 2
     assert compiled.params == (
+        "court_decision",
         "issuing_body", "Debreceni Ítélőtábla",
         "decision_date", date(2025, 10, 1), date(2025, 10, 31),
     )  # fmt: skip
     assert compiled.explanation == (
-        "issuing_body = 'Debreceni Ítélőtábla' AND decision_date between 2025-10-01 and 2025-10-31"
+        "court_decision documents: issuing_body = 'Debreceni Ítélőtábla' AND "
+        "decision_date between 2025-10-01 and 2025-10-31"
     )
 
 
-def test_a_plan_without_filters_counts_everything_and_has_no_unknown_query(compiler):
+def test_a_plan_without_filters_counts_the_documents_of_its_type(compiler):
     compiled = compiler.compile(_plan(), KEYS)
 
-    assert compiled.sql == "SELECT count(*) FROM documents d WHERE TRUE"
-    assert (compiled.params, compiled.unknown_sql, compiled.explanation) == (
-        (),
-        None,
-        "all documents",
+    assert compiled.sql == (
+        "SELECT count(*) FROM documents d "
+        "WHERE (d.document_type IS NOT NULL AND d.document_type = %s)"
     )
+    assert compiled.params == ("court_decision",)
+    assert compiled.explanation == "court_decision documents"
+
+
+def test_documents_without_a_type_are_the_unknown_of_a_plan_without_filters(compiler):
+    """An untyped document might be of this type, so a count says '+K unknown'."""
+    compiled = compiler.compile(_plan(), KEYS)
+
+    assert compiled.unknown_sql is not None
+    assert "d.document_type IS NULL OR d.document_type = %s" in compiled.unknown_sql
+    assert compiled.unknown_params == ("court_decision", "court_decision")
+
+
+def test_a_lookup_that_names_no_type_reads_everything_and_has_nothing_unknown(compiler):
+    compiled = compiler.compile(_plan(document_type=None, operation="lookup"), KEYS)
+
+    assert compiled.sql == "SELECT count(*) FROM documents d WHERE TRUE"
+    assert compiled.unknown_sql is None
+    assert compiled.explanation == "all documents"
+    assert compiled.selection.sql == "SELECT d.id FROM documents d WHERE TRUE"
+
+
+def test_the_type_condition_is_a_bound_parameter_and_other_types_keys_are_unusable(
+    compiler,
+):
+    invoice_keys = [
+        MetaKey(
+            "invoice", "issuing_body", ValueType.TEXT, "d", status=KeyStatus.APPROVED
+        )
+    ]
+    plan = _plan(
+        document_type="invoice",
+        filters=[{"key": "issuing_body", "op": "eq", "value": "x"}],
+    )
+
+    compiled = compiler.compile(plan, [*KEYS, *invoice_keys])
+
+    assert "invoice" not in compiled.sql and "invoice" in compiled.params
+    with pytest.raises(PlanError, match="unknown or unapproved key"):
+        compiler.compile(plan, KEYS)  # the court keys do not belong to an invoice plan
 
 
 def test_the_unknown_query_finds_documents_that_might_match_but_cannot_be_decided(
@@ -130,7 +171,9 @@ def test_list_and_overview_return_documents_with_a_total_and_lookup_only_counts(
     assert "d.summary" in overview.sql and "d.summary" not in listed.sql
     # a lookup does not fetch documents: a retrieval is restricted with the
     # selection instead, so there is no list to cap
-    assert lookup.sql == "SELECT count(*) FROM documents d WHERE TRUE"
+    assert lookup.sql.startswith(
+        "SELECT count(*) FROM documents d WHERE (d.document_type"
+    )
     assert lookup.count_sql is None
     assert all(c.count_sql for c in (listed, overview))
     assert compiler.compile(_plan(), KEYS).count_sql is None  # a count is its own total
@@ -154,7 +197,7 @@ def test_a_grouped_count_breaks_down_by_a_text_key(compiler):
     compiled = compiler.compile(_plan(group_by="document_kind", limit=5), KEYS)
 
     assert "GROUP BY 1 ORDER BY 2 DESC" in compiled.sql
-    assert compiled.params == ("document_kind", 5)
+    assert compiled.params == ("document_kind", "court_decision", 5)
     assert (
         compiled.count_sql is not None
     )  # the groups need not add up to the number of documents
@@ -236,7 +279,8 @@ def test_a_bool_filter(compiler):
         _plan(filters=[{"key": "appealed", "op": "eq", "value": True}]), KEYS
     )
 
-    assert True in compiled.params and compiled.explanation == "appealed is true"
+    assert True in compiled.params
+    assert compiled.explanation == "court_decision documents: appealed is true"
 
 
 @pytest.mark.parametrize(
@@ -340,11 +384,11 @@ def test_every_plan_carries_its_documents_as_a_sub_select_for_restricting_retrie
 
     selection = compiler.compile(plan, KEYS).selection
 
-    assert selection.sql.startswith("SELECT d.id FROM documents d WHERE EXISTS")
+    assert selection.sql.startswith(
+        "SELECT d.id FROM documents d WHERE (d.document_type IS NOT NULL"
+    )
     assert (
         "Kúria" not in selection.sql and "Kúria" in selection.params
     )  # bound, never spliced
     assert selection.sql.count("%s") == len(selection.params)
-    assert compiler.compile(_plan(), KEYS).selection.sql == (
-        "SELECT d.id FROM documents d WHERE TRUE"
-    )
+    assert compiler.compile(_plan(), KEYS).selection.params == ("court_decision",)

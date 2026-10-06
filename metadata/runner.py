@@ -42,7 +42,11 @@ class DocumentRepository(Protocol):
         self, doc_type: str, status: KeyStatus | None = None
     ) -> list[MetaKey]: ...
     def documents_needing(
-        self, keys: list[MetaKey], limit: int | None = None, seed: int | None = None
+        self,
+        keys: list[MetaKey],
+        doc_type: str,
+        limit: int | None = None,
+        seed: int | None = None,
     ) -> list[Document]: ...
     def get_statuses(self, content_hash: str) -> dict[str, MetaStatus]: ...
     def replace_values(
@@ -114,7 +118,7 @@ class MetaExtractionRunner:
         """Extract every pending approved key for up to ``limit`` documents.
 
         Args:
-            doc_type: The catalog to use.
+            doc_type: The catalog to use; only documents of this type are processed.
             limit: Process at most this many documents (for a trial run).
             seed: With ``limit``, take a random sample fixed by this seed instead
                 of the first documents by file name (which is rarely
@@ -124,7 +128,7 @@ class MetaExtractionRunner:
             The counts of what happened.
         """
         keys = self._documents.list_keys(doc_type, KeyStatus.APPROVED)
-        todo = self._documents.documents_needing(keys, limit, seed)
+        todo = self._documents.documents_needing(keys, doc_type, limit, seed)
         report = RunReport()
         for index, document in enumerate(todo, start=1):
             report = self._merge(report, self._process(document, keys, doc_type))

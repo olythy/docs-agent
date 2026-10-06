@@ -134,18 +134,42 @@ class PlanCompiler:
         }
         compiled = [self._filter(f, usable) for f in plan.filters]
 
-        match_sql = " AND ".join(c.satisfied_sql for c in compiled) or "TRUE"
-        match_params = tuple(p for c in compiled for p in c.satisfied_params)
-        explanation = " AND ".join(c.words for c in compiled) or "all documents"
+        # A plan about a document type only considers documents of that type. The
+        # test is written so an untyped document is plainly false (never NULL),
+        # which keeps the ``NOT (match)`` of the unknown query well defined.
+        type_sql, type_params = "", ()
+        if plan.doc_type is not None:
+            type_sql = "(d.document_type IS NOT NULL AND d.document_type = %s)"
+            type_params = (plan.doc_type,)
+        parts = [t for t in (type_sql,) if t] + [c.satisfied_sql for c in compiled]
+        match_sql = " AND ".join(parts) or "TRUE"
+        match_params = (
+            *type_params,
+            *(p for c in compiled for p in c.satisfied_params),
+        )
+        words = [c.words for c in compiled]
+        explanation = (
+            " AND ".join(words)
+            if plan.doc_type is None
+            else f"{plan.doc_type} documents"
+            + (": " + " AND ".join(words) if words else "")
+        ) or "all documents"
 
+        # Documents that might match but cannot be decided: a filtered key that is
+        # unverified or was never extracted, or no document type yet (it may be
+        # this type). Nothing to decide for a plan with neither type nor filters.
         unknown_sql: str | None = None
         unknown_params: tuple[Any, ...] = ()
-        if compiled:
-            could = " AND ".join(
-                f"({c.satisfied_sql} OR NOT {c.known_sql})" for c in compiled
-            )
-            could_params = tuple(
-                p for c in compiled for p in (*c.satisfied_params, *c.known_params)
+        if compiled or plan.doc_type is not None:
+            could_parts = (
+                ["(d.document_type IS NULL OR d.document_type = %s)"]
+                if plan.doc_type is not None
+                else []
+            ) + [f"({c.satisfied_sql} OR NOT {c.known_sql})" for c in compiled]
+            could = " AND ".join(could_parts)
+            could_params = (
+                *type_params,
+                *(p for c in compiled for p in (*c.satisfied_params, *c.known_params)),
             )
             unknown_sql = (
                 f"SELECT count(*) FROM documents d WHERE {could} AND NOT ({match_sql})"

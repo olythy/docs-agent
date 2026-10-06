@@ -84,7 +84,11 @@ class PlanExecutor:
         Raises:
             metadata.plan.PlanError: If the plan does not fit the catalog.
         """
-        keys = self._store.list_keys(plan.doc_type, KeyStatus.APPROVED)
+        keys = (
+            self._store.list_keys(plan.doc_type, KeyStatus.APPROVED)
+            if plan.doc_type is not None
+            else []
+        )
         query = self._compiler.compile(plan, keys)
         unknown = 0
         if query.unknown_sql is not None:

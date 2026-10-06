@@ -124,10 +124,16 @@ class DocumentStore:
             row = cur.fetchone()
         return None if row is None else Document(*row)
 
-    def count_documents(self) -> int:
-        """Return how many documents are registered."""
+    def count_documents(self, doc_type: str | None = None) -> int:
+        """Return how many documents are registered (of one type, if given)."""
         with self._scope.connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT count(*) FROM documents;")
+            if doc_type is None:
+                cur.execute("SELECT count(*) FROM documents;")
+            else:
+                cur.execute(
+                    "SELECT count(*) FROM documents WHERE document_type = %s;",
+                    (doc_type,),
+                )
             row = cur.fetchone()
         assert row is not None  # an aggregate query always returns one row
         return row[0]
@@ -498,9 +504,17 @@ class DocumentStore:
         }
 
     def documents_needing(
-        self, keys: list[MetaKey], limit: int | None = None, seed: int | None = None
+        self,
+        keys: list[MetaKey],
+        doc_type: str,
+        limit: int | None = None,
+        seed: int | None = None,
     ) -> list[Document]:
-        """Return documents for which at least one of ``keys`` still has to be extracted.
+        """Return documents of ``doc_type`` for which a key still has to be extracted.
+
+        Only documents *of that type* are returned: a type's keys are not asked of
+        documents of another type, nor of documents that have no type yet (classify
+        them first).
 
         A key is *done* for a document when a status row exists at the key's
         current version or later; a missing row (never attempted) or one from an
@@ -509,6 +523,7 @@ class DocumentStore:
 
         Args:
             keys: The catalog keys to consider (their ``version`` is the bar).
+            doc_type: The document type whose documents are considered.
             limit: Return at most this many documents.
             seed: If given, the documents are taken in a random order that is
                 fixed by this seed (so a trial sample is representative yet
@@ -519,7 +534,7 @@ class DocumentStore:
         sql = """
             SELECT d.content_hash, d.source_file, d.summary, d.ingested_at
             FROM documents d
-            WHERE EXISTS (
+            WHERE d.document_type = %s AND EXISTS (
                 SELECT 1 FROM unnest(%s::text[], %s::int[]) AS k(key, version)
                 WHERE NOT EXISTS (
                     SELECT 1 FROM document_meta_status s
@@ -533,6 +548,7 @@ class DocumentStore:
         """
         seed_text = None if seed is None else str(seed)
         params = (
+            doc_type,
             [k.key for k in keys],
             [k.version for k in keys],
             seed_text,
@@ -544,7 +560,9 @@ class DocumentStore:
             rows = cur.fetchall()
         return [Document(*row) for row in rows]
 
-    def distinct_text_values(self, key: str, limit: int) -> list[str] | None:
+    def distinct_text_values(
+        self, key: str, limit: int, doc_type: str | None = None
+    ) -> list[str] | None:
         """Return every distinct stored text value of a key, if there are few enough.
 
         Lets a planner see the exact spellings a text filter has to match (a
@@ -553,18 +571,22 @@ class DocumentStore:
         Args:
             key: The catalog key.
             limit: The most distinct values worth listing.
+            doc_type: Only the values of documents of this type (two types may
+                have a key of the same name); ``None`` reads them all.
 
         Returns:
             The values, most frequent first; ``None`` when there are more than
             ``limit`` (the key is too free-form to list).
         """
         sql = """
-            SELECT value_text FROM document_meta
-            WHERE key = %s AND value_text IS NOT NULL
-            GROUP BY value_text ORDER BY count(*) DESC, value_text LIMIT %s;
+            SELECT m.value_text
+            FROM document_meta m JOIN documents d ON d.id = m.document_id
+            WHERE m.key = %s AND m.value_text IS NOT NULL
+              AND (%s::text IS NULL OR d.document_type = %s)
+            GROUP BY m.value_text ORDER BY count(*) DESC, m.value_text LIMIT %s;
         """
         with self._scope.connection() as conn, conn.cursor() as cur:
-            cur.execute(sql, (key, limit + 1))
+            cur.execute(sql, (key, doc_type, doc_type, limit + 1))
             rows = [row[0] for row in cur.fetchall()]
         return rows if len(rows) <= limit else None
 
@@ -597,25 +619,27 @@ class DocumentStore:
                 conn.rollback()  # nothing to keep; also ends the read-only transaction
         return rows
 
-    def coverage(self, keys: list[MetaKey]) -> list[KeyCoverage]:
-        """Count, per key, how many documents are in each state.
+    def coverage(self, keys: list[MetaKey], doc_type: str) -> list[KeyCoverage]:
+        """Count, per key, how many documents of ``doc_type`` are in each state.
 
         Only a status row at the key's *current* version counts; an older one is
         treated as not attempted, because the definition has changed since.
 
         Args:
-            keys: The catalog keys to report on.
+            keys: The catalog keys to report on (those of ``doc_type``).
+            doc_type: The document type; only its documents are counted.
         """
-        total = self.count_documents()
+        total = self.count_documents(doc_type)
         sql = """
-            SELECT state, count(*) FROM document_meta_status
-            WHERE key = %s AND key_version >= %s
-            GROUP BY state;
+            SELECT s.state, count(*)
+            FROM document_meta_status s JOIN documents d ON d.id = s.document_id
+            WHERE s.key = %s AND s.key_version >= %s AND d.document_type = %s
+            GROUP BY s.state;
         """
         result = []
         with self._scope.connection() as conn, conn.cursor() as cur:
             for key in keys:
-                cur.execute(sql, (key.key, key.version))
+                cur.execute(sql, (key.key, key.version, doc_type))
                 counts = {MetaState(state): n for state, n in cur.fetchall()}
                 recorded = sum(counts.values())
                 result.append(

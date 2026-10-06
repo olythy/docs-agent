@@ -25,7 +25,9 @@ Commands:
                       Example: corpus/data/meta_catalog.json.
 
     extract-meta [--doc-type T] [--limit N [--seed S]]
-                      Extract every pending approved key of up to N documents (default:
+                      Extract every pending approved key of up to N documents of each
+                      document type (or of type T only); a type's keys are asked only of
+                      its own documents, and documents with no type are skipped (default:
                       all that still need it). Idempotent and resumable: it only does
                       (document, key) pairs with no status at the key's current version,
                       so an interrupted run continues where it stopped and a changed key
@@ -136,7 +138,11 @@ _RESET = "\033[0m"
 
 def _parse(args: list[str], description: str, with_limit: bool) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="meta_cli.py", description=description)
-    parser.add_argument("--doc-type", default="court_decision", help="catalog to use")
+    parser.add_argument(
+        "--doc-type",
+        default=None,
+        help="only this document type (default: every approved type that has keys)",
+    )
     if with_limit:
         parser.add_argument(
             "--limit", type=int, default=None, help="process at most N documents"
@@ -150,14 +156,30 @@ def _parse(args: list[str], description: str, with_limit: bool) -> argparse.Name
     return parser.parse_args(args)
 
 
+def _types_with_keys(store: DocumentStore, only: str | None) -> list[str]:
+    """The document types a command applies to: ``only``, or every approved type with keys."""
+    if only is not None:
+        return [only]
+    return [
+        t.type
+        for t in store.list_types(TypeStatus.APPROVED)
+        if store.list_keys(t.type, KeyStatus.APPROVED)
+    ]
+
+
 def cmd_extract_meta(args: list[str]) -> int:
-    """Run the extraction for the pending keys of the documents that need it."""
+    """Run the extraction for the pending keys of the documents that need it.
+
+    Each document type's keys are extracted from the documents *of that type*;
+    documents that have no type yet are not touched (classify them first).
+    """
     options = _parse(
         args, "Extract the catalog's keys from the documents.", with_limit=True
     )
     store = DocumentStore()
-    if not store.list_keys(options.doc_type):
-        print(f"No catalog for doc_type {options.doc_type!r}. Run load-catalog first.")
+    doc_types = _types_with_keys(store, options.doc_type)
+    if not doc_types:
+        print("No document type has approved keys. Run load-catalog first.")
         return 1
 
     def progress(done: int, total: int) -> None:
@@ -173,35 +195,51 @@ def cmd_extract_meta(args: list[str]) -> int:
         ],
         on_progress=progress,
     )
-    report = runner.run(options.doc_type, limit=options.limit, seed=options.seed)
-    print(
-        f"\nextracted for {report.documents} document(s): {report.present} values present, "
-        f"{report.confirmed_absent} confirmed absent, {report.unverified} unverified, "
-        f"{report.failed} failed (will be retried), {report.proposed_keys} key(s) proposed."
-    )
-    return cmd_coverage(["--doc-type", options.doc_type])
+    for doc_type in doc_types:
+        if not store.list_keys(doc_type):
+            print(f"No catalog for document type {doc_type!r}. Run load-catalog first.")
+            return 1
+        print(f"\n== {doc_type}")
+        report = runner.run(doc_type, limit=options.limit, seed=options.seed)
+        print(
+            f"extracted for {report.documents} document(s): {report.present} values present, "
+            f"{report.confirmed_absent} confirmed absent, {report.unverified} unverified, "
+            f"{report.failed} failed (will be retried), {report.proposed_keys} key(s) proposed."
+        )
+    untyped = store.count_by_type().get(None, 0)
+    if untyped:
+        print(
+            f"\n{_RED}{untyped} document(s) have no type and were not extracted;{_RESET} "
+            "run classify-documents (or assign-type) first."
+        )
+    return cmd_coverage(["--doc-type", options.doc_type] if options.doc_type else [])
 
 
 def cmd_coverage(args: list[str]) -> int:
-    """Print, per approved key, how complete the extracted metadata is."""
+    """Print, per approved key, how complete the extracted metadata is (per document type)."""
     options = _parse(args, "Report metadata coverage per key.", with_limit=False)
     store = DocumentStore()
-    keys = store.list_keys(options.doc_type, KeyStatus.APPROVED)
-    if not keys:
-        print(f"No approved keys for doc_type {options.doc_type!r}.")
+    doc_types = _types_with_keys(store, options.doc_type)
+    if not doc_types:
+        print("No document type has approved keys.")
         return 1
-    print(
-        f"\nmetadata coverage for {options.doc_type} ({store.count_documents()} documents)"
-    )
-    print(
-        f"{'key':<22}{'present':>9}{'absent':>9}{'unverified':>12}{'not tried':>11}{'unknown':>9}"
-    )
-    for cov in store.coverage(keys):
-        colour = _GREEN if cov.unknown == 0 else _RED
+    for doc_type in doc_types:
+        keys = store.list_keys(doc_type, KeyStatus.APPROVED)
+        if not keys:
+            print(f"No approved keys for document type {doc_type!r}.")
+            return 1
         print(
-            f"{cov.key:<22}{cov.present:>9}{cov.confirmed_absent:>9}{cov.unverified:>12}"
-            f"{cov.not_attempted:>11}{colour}{cov.unknown:>9}{_RESET}"
+            f"\nmetadata coverage for {doc_type} ({store.count_documents(doc_type)} documents)"
         )
+        print(
+            f"{'key':<22}{'present':>9}{'absent':>9}{'unverified':>12}{'not tried':>11}{'unknown':>9}"
+        )
+        for cov in store.coverage(keys, doc_type):
+            colour = _GREEN if cov.unknown == 0 else _RED
+            print(
+                f"{cov.key:<22}{cov.present:>9}{cov.confirmed_absent:>9}{cov.unverified:>12}"
+                f"{cov.not_attempted:>11}{colour}{cov.unknown:>9}{_RESET}"
+            )
     print(
         "\nunknown = unverified + not tried: a count over that key must say '+K unknown'. "
         "'absent' means the document was examined and does not state it."
@@ -210,16 +248,21 @@ def cmd_coverage(args: list[str]) -> int:
 
 
 def cmd_keys(args: list[str]) -> int:
-    """List the catalog's keys with status and version."""
+    """List the catalog's keys with status and version (every type, or one)."""
     options = _parse(args, "List the catalog's keys.", with_limit=False)
-    keys = DocumentStore().list_keys(options.doc_type)
-    if not keys:
-        print(f"No keys for doc_type {options.doc_type!r}.")
+    store = DocumentStore()
+    doc_types = (
+        [options.doc_type] if options.doc_type else [t.type for t in store.list_types()]
+    )
+    rows = [(t, key) for t in doc_types for key in store.list_keys(t)]
+    if not rows:
+        print("No keys.")
         return 1
-    print(f"{'key':<24}{'type':<8}{'status':<10}{'v':>3}  description")
-    for key in keys:
+    print(f"{'type':<18}{'key':<24}{'value':<8}{'status':<10}{'v':>3}  description")
+    for doc_type, key in rows:
         print(
-            f"{key.key:<24}{key.value_type.value:<8}{key.status.value:<10}{key.version:>3}  {key.description[:70]}"
+            f"{doc_type:<18}{key.key:<24}{key.value_type.value:<8}{key.status.value:<10}"
+            f"{key.version:>3}  {key.description[:60]}"
         )
     return 0
 

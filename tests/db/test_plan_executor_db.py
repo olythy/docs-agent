@@ -50,11 +50,14 @@ def _put(
     kind,
     costs=None,
     statuses=("issuing_body", "decision_date", "document_kind"),
+    doc_type: str | None = DT,
 ):
     """One document with its values; every listed key gets a PRESENT status."""
     store.upsert_document(
         Document(_h(n), f"{court.split()[0]}__doc_{n}.docx", summary=f"summary {n}")
     )
+    if doc_type is not None:
+        store.set_document_type(_h(n), doc_type)
     rows = [
         ("issuing_body", {"value_text": court}),
         ("decision_date", {"value_date": when}),
@@ -93,8 +96,11 @@ def world(db_conn):
 
 
 def _run(store, **plan):
+    plan.setdefault("document_type", DT)
     resolver = DateRangeResolver(FixedClock(TODAY))
-    return PlanExecutor(store, PlanCompiler(resolver)).execute(parse_plan(plan, DT))
+    return PlanExecutor(store, PlanCompiler(resolver)).execute(
+        parse_plan(plan, [DT, "invoice"])
+    )
 
 
 LAST_OCTOBER = {"kind": "calendar", "year_offset": -1, "month": 10}
@@ -113,7 +119,8 @@ def test_how_many_decisions_did_a_court_issue_last_october(world):
 
     assert (result.count, result.unknown) == (2, 0)
     assert result.explanation == (
-        "issuing_body = 'Debreceni Ítélőtábla' AND decision_date between 2025-10-01 and 2025-10-31"
+        "court_decision documents: issuing_body = 'Debreceni Ítélőtábla' AND "
+        "decision_date between 2025-10-01 and 2025-10-31"
     )
 
 
@@ -312,3 +319,96 @@ def test_the_executing_connection_is_read_only(world):
 def test_a_runaway_query_is_cancelled_by_the_time_limit(world):
     with pytest.raises(psycopg2.errors.QueryCanceled):
         world.execute_query("SELECT pg_sleep(2)", (), timeout_ms=50)
+
+
+def _invoice_world(world):
+    """Two invoices (their own key set, the *same key name* issuing_body) and one document
+    that has no type yet, next to the four court decisions."""
+    world.ensure_type("invoice")
+    world.upsert_key(
+        MetaKey(
+            "invoice",
+            "issuing_body",
+            ValueType.TEXT,
+            "The seller.",
+            status=KeyStatus.APPROVED,
+        )
+    )
+    _put(
+        world,
+        5,
+        "Debreceni Kft.",
+        date(2025, 10, 5),
+        "judgment",
+        doc_type="invoice",
+        statuses=("issuing_body",),
+    )
+    _put(
+        world,
+        6,
+        "Egri Kft.",
+        date(2025, 10, 6),
+        "judgment",
+        doc_type="invoice",
+        statuses=("issuing_body",),
+    )
+    _put(world, 7, "Debreceni Ítélőtábla", date(2025, 10, 7), "judgment", doc_type=None)
+    return world
+
+
+def test_a_count_over_a_type_counts_only_that_types_documents(world):
+    _invoice_world(world)
+
+    courts = _run(world, operation="count")
+    invoices = _run(world, operation="count", document_type="invoice")
+
+    assert courts.count == 4 and invoices.count == 2
+
+
+def test_documents_with_no_type_yet_are_the_unknown_not_silently_dropped(world):
+    _invoice_world(world)
+
+    result = _run(world, operation="count")
+
+    # doc 7 has no type: it might be a court decision, so the count says so
+    assert (result.count, result.unknown) == (4, 1)
+
+
+def test_a_filter_on_a_key_name_two_types_share_stays_inside_the_chosen_type(world):
+    _invoice_world(world)
+    court = {"key": "issuing_body", "op": "contains", "value": "Debreceni"}
+
+    courts = _run(world, operation="count", filters=[court])
+    invoices = _run(world, operation="count", document_type="invoice", filters=[court])
+
+    # "Debreceni" is a court (3 decisions), an invoice seller (1) and the untyped doc 7:
+    # each type counts only its own, and the untyped one is the unknown of both
+    assert (courts.count, courts.unknown) == (3, 1)
+    assert (invoices.count, invoices.unknown) == (1, 1)
+
+
+def test_the_selection_of_a_typed_lookup_contains_only_that_types_documents(world):
+    _invoice_world(world)
+
+    result = _run(world, operation="lookup", document_type="invoice")
+
+    assert result.count == 2 and result.selection is not None
+    ids = world.execute_query(result.selection.sql, result.selection.params)
+    sources = world.execute_query(
+        "SELECT source_file FROM documents WHERE id = ANY(%s) ORDER BY 1",
+        ([row[0] for row in ids],),
+    )
+    assert [row[0] for row in sources] == ["Debreceni__doc_5.docx", "Egri__doc_6.docx"]
+
+
+def test_stored_values_are_listed_per_document_type(world):
+    _invoice_world(world)
+
+    court_values = world.distinct_text_values("issuing_body", 10, DT)
+    invoice_values = world.distinct_text_values("issuing_body", 10, "invoice")
+    everything = world.distinct_text_values("issuing_body", 10)
+
+    assert set(court_values or []) == {"Debreceni Ítélőtábla", "Egri Törvényszék"}
+    assert set(invoice_values or []) == {"Debreceni Kft.", "Egri Kft."}
+    # no type given: the values of every document, those of both types together
+    assert set(everything or []) == set(court_values or []) | set(invoice_values or [])
