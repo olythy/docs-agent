@@ -188,8 +188,8 @@ class PlanCompiler:
                 )
             column = _VALUE_COLUMN[key.value_type]
             sql = (
-                f"SELECT m.{column}, count(DISTINCT d.content_hash) FROM documents d "
-                "JOIN document_meta m ON m.content_hash = d.content_hash AND m.key = %s "
+                f"SELECT m.{column}, count(DISTINCT d.id) FROM documents d "
+                "JOIN document_meta m ON m.document_id = d.id AND m.key = %s "
                 f"WHERE {match_sql} GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT %s"
             )
             return sql, (key.key, *match_params, plan.limit), True
@@ -207,8 +207,8 @@ class PlanCompiler:
                     f"cannot sum {key.key!r}: it is a {key.value_type.value} key, not a number"
                 )
             sql = (
-                "SELECT coalesce(sum(m.value_number), 0), count(DISTINCT d.content_hash) FROM documents d "
-                f"JOIN document_meta m ON m.content_hash = d.content_hash AND m.key = %s WHERE {match_sql}"
+                "SELECT coalesce(sum(m.value_number), 0), count(DISTINCT d.id) FROM documents d "
+                f"JOIN document_meta m ON m.document_id = d.id AND m.key = %s WHERE {match_sql}"
             )
             return sql, (key.key, *match_params), False
         if op is Operation.LOOKUP:
@@ -246,11 +246,11 @@ class PlanCompiler:
         column = f"m.{_VALUE_COLUMN[key.value_type]}"
         condition, params, words = self._condition(flt, key, column)
         exists = (
-            "EXISTS (SELECT 1 FROM document_meta m WHERE m.content_hash = d.content_hash "
+            "EXISTS (SELECT 1 FROM document_meta m WHERE m.document_id = d.id "
             f"AND m.key = %s AND {condition})"
         )
         known = (
-            "EXISTS (SELECT 1 FROM document_meta_status s WHERE s.content_hash = d.content_hash "
+            "EXISTS (SELECT 1 FROM document_meta_status s WHERE s.document_id = d.id "
             f"AND s.key = %s AND s.key_version >= %s AND s.state IN {_KNOWN_STATES})"
         )
         return _CompiledFilter(

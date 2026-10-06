@@ -43,10 +43,12 @@ def test_save_inserts_one_row_per_chunk(monkeypatch):
     ]
     embeddings = [[0.1, 0.2], [0.3, 0.4]]
 
-    inserted = VectorStore().save(chunks, embeddings)
+    inserted = VectorStore().save(chunks, embeddings, document_id=7)
 
     assert inserted == 2
     assert cursor.execute.call_count == 2
+    # every row is inserted under the document's id (the last bound parameter)
+    assert [call.args[1][-1] for call in cursor.execute.call_args_list] == [7, 7]
     conn.commit.assert_called_once()
     conn.close.assert_called_once()
 
@@ -64,7 +66,7 @@ def test_save_raises_on_mismatched_lengths(monkeypatch):
     embeddings = []  # length mismatch vs. chunks
 
     with pytest.raises(ValueError, match="zip"):
-        VectorStore().save(chunks, embeddings)
+        VectorStore().save(chunks, embeddings, document_id=7)
 
 
 def test_search_filters_by_min_score_and_parses_json_metadata(monkeypatch):
@@ -374,7 +376,7 @@ def test_vector_store_reuses_provided_connection():
     ]
     embeddings = [[0.1, 0.2]]
 
-    custom_store.save(chunks, embeddings)
+    custom_store.save(chunks, embeddings, document_id=7)
 
     assert cursor.execute.call_count == 1
     conn.commit.assert_called_once()

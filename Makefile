@@ -75,7 +75,7 @@ db-dump: ## Dump the local Docker database to ./docs_agent_<date>.dump (before r
 	@ls -lh docs_agent_$$(date +%Y-%m-%d).dump
 
 # --- Structured metadata (scripts/meta_cli.py) ---
-documents-sync: ## Sync the documents table from the ingested chunks (idempotent)
+documents-sync: ## Remove documents that have no chunks (what a failed ingest leaves; idempotent)
 	uv run python scripts/meta_cli.py sync-documents
 
 extract-meta: ## Extract catalog metadata (LLM calls!) — usage: make extract-meta limit=50 [seed=7]

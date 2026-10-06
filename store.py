@@ -577,7 +577,7 @@ class VectorStore:
         self,
         chunks: list[Chunk],
         embeddings: list[list[float]],
-        document_id: int | None = None,
+        document_id: int,
     ) -> int:
         """Insert chunk rows into document_chunks.
 
@@ -585,8 +585,8 @@ class VectorStore:
             chunks: One :class:`models.Chunk` per row to insert.
             embeddings: Parallel list of float vectors, one per chunk.
             document_id: The numeric id of the document the chunks belong to
-                (see :meth:`document_store.DocumentStore.upsert_document`).
-                ``None`` leaves the link empty; ``sync-documents`` fills it later.
+                (see :meth:`document_store.DocumentStore.upsert_document`); a
+                chunk cannot exist without its document.
 
         Returns:
             The number of rows inserted.
@@ -1062,7 +1062,8 @@ class VectorStore:
     def get_document_chunks(self, content_hash: str) -> list[RetrievedChunk]:
         """Return every chunk of one document, in document order.
 
-        Uses the indexed ``content_hash`` column, so it does not scan the table.
+        Uses the indexed ``document_id`` column (looked up from the hash), so it
+        does not scan the table.
 
         Args:
             content_hash: The document's SHA-256 content hash.
@@ -1074,7 +1075,7 @@ class VectorStore:
         sql = """
             SELECT id, content, metadata
             FROM document_chunks
-            WHERE content_hash = %s
+            WHERE document_id = (SELECT id FROM documents WHERE content_hash = %s)
             ORDER BY (metadata->>'chunk_index')::int;
         """
         with self._connection() as conn, conn.cursor() as cur:

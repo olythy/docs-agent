@@ -61,62 +61,23 @@ def _save_chunks(content_hash: str, source_file: str, summary: str | None, n: in
         for i in range(n)
     ]
     embeddings = [[0.1] * settings.EMBEDDING_DIMENSION for _ in chunks]
-    VectorStore().save(chunks, embeddings)
+    document_id = DocumentStore().upsert_document(
+        Document(content_hash, source_file, summary)
+    )
+    VectorStore().save(chunks, embeddings, document_id=document_id)
 
 
-def test_generated_content_hash_column_is_filled_from_the_metadata(db_conn):
-    _save_chunks(HASH_A, "a.docx", "summary a")
-
-    with db_conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT content_hash FROM document_chunks;")
-        assert cur.fetchall() == [(HASH_A,)]
-
-
-def test_sync_registers_one_document_per_hash_with_its_summary(db_conn):
-    _save_chunks(HASH_A, "a.docx", "summary a", n=3)
-    _save_chunks(HASH_B, "b.docx", None)
-
-    result = DocumentStore().sync_from_chunks()
-
-    assert result.upserted == 2
-    assert result.removed == 0
-    store = DocumentStore()
-    assert store.count_documents() == 2
-    doc = store.get_document(HASH_A)
-    assert doc is not None
-    assert (doc.source_file, doc.summary) == ("a.docx", "summary a")
-    assert doc.ingested_at is not None
-    doc_b = store.get_document(HASH_B)
-    assert doc_b is not None and doc_b.summary is None
-
-
-def test_sync_is_idempotent_and_refreshes_a_changed_summary(db_conn):
-    _save_chunks(HASH_A, "a.docx", "old summary")
-    DocumentStore().sync_from_chunks()
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "UPDATE document_chunks SET metadata = jsonb_set("
-            "metadata, '{document_summary}', '\"new summary\"');"
-        )
-    db_conn.commit()
-
-    result = DocumentStore().sync_from_chunks()
-
-    assert result.removed == 0
-    assert DocumentStore().count_documents() == 1
-    doc = DocumentStore().get_document(HASH_A)
-    assert doc is not None and doc.summary == "new summary"
-
-
-def test_sync_removes_a_document_whose_chunks_are_gone_and_cascades(db_conn):
-    """What a re-ingest that replaced a document leaves behind: the old hash's chunks
-    are deleted, so its document row, values and status must go too."""
+def test_a_document_left_without_chunks_is_removed_with_its_values_and_statuses(
+    db_conn,
+):
+    """What an ingest that failed between registering the document and saving its
+    chunks leaves behind: a bare document row, which must go (and take its values)."""
     _save_chunks(HASH_A, "a.docx", "summary")
     store = DocumentStore()
-    store.sync_from_chunks()
+    store.upsert_document(Document(HASH_B, "bare.docx"))  # registered, no chunks
     store.add_value(
         MetaValue(
-            content_hash=HASH_A,
+            content_hash=HASH_B,
             key="court",
             key_version=1,
             source=MetaSource.LLM,
@@ -124,15 +85,24 @@ def test_sync_removes_a_document_whose_chunks_are_gone_and_cascades(db_conn):
             evidence="Egri Törvényszék",
         )
     )
-    store.set_status(MetaStatus(HASH_A, "court", MetaState.PRESENT, key_version=1))
+    store.set_status(MetaStatus(HASH_B, "court", MetaState.PRESENT, key_version=1))
+
+    removed = store.remove_documents_without_chunks()
+
+    assert removed == 1
+    assert store.get_document(HASH_B) is None
+    assert store.get_values(HASH_B, "court") == []
+    assert store.get_status(HASH_B, "court").state is MetaState.NOT_ATTEMPTED
+    assert store.get_document(HASH_A) is not None  # a document with chunks stays
+    assert store.remove_documents_without_chunks() == 0  # idempotent
+
+
+def test_deleting_a_documents_chunks_makes_it_removable(db_conn):
+    _save_chunks(HASH_A, "a.docx", "summary")
     VectorStore().delete_chunks_by_hash(HASH_A)
 
-    result = store.sync_from_chunks()
-
-    assert result.removed == 1
-    assert store.get_document(HASH_A) is None
-    assert store.get_values(HASH_A, "court") == []
-    assert store.get_status(HASH_A, "court").state is MetaState.NOT_ATTEMPTED
+    assert DocumentStore().remove_documents_without_chunks() == 1
+    assert DocumentStore().get_document(HASH_A) is None
 
 
 def test_catalog_round_trips_and_filters_by_status(db_conn):
@@ -239,7 +209,7 @@ def test_a_value_row_must_carry_exactly_one_value(db_conn):
 
 def test_a_value_needs_a_registered_document_and_a_unique_ordinal(db_conn):
     store = DocumentStore()
-    with pytest.raises(psycopg2.errors.ForeignKeyViolation):
+    with pytest.raises(ValueError, match="not registered"):
         store.add_value(MetaValue("c" * 64, "court", 1, MetaSource.LLM, value_text="x"))
 
     store.upsert_document(Document(HASH_A, "a.docx"))
@@ -514,7 +484,6 @@ def test_the_runner_extracts_end_to_end_with_the_real_stores_and_a_scripted_sour
             " metadata = jsonb_set(metadata, '{document_date}', '\"2023-05-04\"');"
         )
     db_conn.commit()
-    DocumentStore().sync_from_chunks()
     KeyCatalog(DocumentStore()).import_seed(
         [
             MetaKey(
@@ -728,28 +697,12 @@ def test_a_value_for_an_unregistered_document_still_fails_loudly(db_conn):
     store.ensure_type("court_decision")
     store.upsert_key(MetaKey("court_decision", "court", ValueType.TEXT, "The court."))
 
-    with pytest.raises(psycopg2.errors.ForeignKeyViolation):
+    with pytest.raises(ValueError, match="not registered"):
         store.add_value(
             MetaValue(
                 "f" * 64, "court", 1, MetaSource.LLM, value_text="x", evidence="x"
             )
         )
-
-
-def test_sync_links_chunks_that_were_saved_without_a_document_id(db_conn):
-    """What the ingest leaves behind until it sets the id itself."""
-    _save_chunks(HASH_A, "a.docx", None, n=3)
-
-    result = DocumentStore().sync_from_chunks()
-
-    assert result.linked == 3
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT count(*) FROM document_chunks c JOIN documents d "
-            "ON d.id = c.document_id AND d.content_hash = c.content_hash;"
-        )
-        assert cur.fetchone() == (3,)
-    assert DocumentStore().sync_from_chunks().linked == 0  # nothing left to link
 
 
 def test_importing_a_catalog_writes_its_types_then_its_keys_and_is_idempotent(db_conn):

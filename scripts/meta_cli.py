@@ -12,10 +12,10 @@ Usage:
     uv run python scripts/meta_cli.py [command]
 
 Commands:
-    sync-documents    Make the documents table match the ingested chunks: register
-                      (or refresh) one row per distinct content hash and remove rows
-                      whose chunks are gone. Idempotent; safe to re-run after any
-                      ingest, replace or flush.
+    sync-documents    Remove documents that have no chunks. The ingest registers a
+                      document before it saves its chunks, so an ingest that failed in
+                      between leaves a bare row; its values and statuses go with it.
+                      Idempotent; safe to re-run at any time.
 
     load-catalog <file>
                       Validate a catalog JSON file and write it to meta_keys. A new key
@@ -91,13 +91,11 @@ from store import VectorStore
 
 
 def cmd_sync_documents() -> int:
-    """Sync ``documents`` with the ingested chunks and report what changed."""
+    """Remove documents that have no chunks (what a failed ingest leaves behind)."""
     store = DocumentStore()
-    result = store.sync_from_chunks()
+    removed = store.remove_documents_without_chunks()
     print(
-        f"documents synced: {result.upserted} registered/refreshed, "
-        f"{result.removed} removed (no chunks left), "
-        f"{result.linked} chunk(s) linked to their document. "
+        f"{removed} document(s) removed (no chunks). "
         f"Total now: {store.count_documents()}."
     )
     return 0

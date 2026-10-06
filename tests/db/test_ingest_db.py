@@ -10,9 +10,10 @@ from pathlib import Path
 import pytest
 
 from config import settings
+from document_store import DocumentStore
 from drivers.embedding import get_embedding_driver
 from ingestion.ingest import add_directory, add_document
-from models import Chunk, ChunkMetadata
+from models import Chunk, ChunkMetadata, Document
 from store import VectorStore
 
 pytestmark = [
@@ -42,7 +43,9 @@ def test_save_inserts_rows_that_are_readable_back(db_conn):
     ]
     embeddings = [[0.1] * 384, [0.2] * 384]
 
-    inserted = VectorStore().save(chunks, embeddings)
+    document_id = DocumentStore().upsert_document(Document("h-save", "t.pdf"))
+
+    inserted = VectorStore().save(chunks, embeddings, document_id=document_id)
     assert inserted == 2
 
     with db_conn.cursor() as cur:
@@ -118,7 +121,13 @@ def test_delete_chunks_from_source_removes_only_target_file(db_conn):
         ),
     ]
     embeddings = [driver.embed_text("c1"), driver.embed_text("c2")]
-    VectorStore().save(chunks, embeddings)
+    documents = DocumentStore()
+    store = VectorStore()
+    for chunk, embedding in zip(chunks, embeddings, strict=True):
+        document_id = documents.upsert_document(
+            Document(f"h-{chunk.metadata.source_file}", chunk.metadata.source_file)
+        )
+        store.save([chunk], [embedding], document_id=document_id)
 
     deleted = VectorStore().delete_chunks_from_source("file_a.pdf")
     assert deleted == 1

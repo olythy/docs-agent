@@ -33,10 +33,20 @@ def _insert_chunk(
     db_conn, content, embedding, source_file="t.pdf", page=1, chunk_index=0
 ):
     with db_conn.cursor() as cur:
+        # a chunk cannot exist without its document: one per source file
         cur.execute(
             """
-            INSERT INTO document_chunks (content, metadata, embedding)
-            VALUES (%s, %s, %s);
+            INSERT INTO documents (content_hash, source_file) VALUES (%s, %s)
+            ON CONFLICT (content_hash) DO UPDATE SET source_file = EXCLUDED.source_file
+            RETURNING id;
+            """,
+            (f"hash-{source_file}", source_file),
+        )
+        document_id = cur.fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO document_chunks (content, metadata, embedding, document_id)
+            VALUES (%s, %s, %s, %s);
             """,
             (
                 content,
@@ -48,6 +58,7 @@ def _insert_chunk(
                     }
                 ),
                 _to_pgvector_literal(embedding),
+                document_id,
             ),
         )
     db_conn.commit()

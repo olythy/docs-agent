@@ -7,7 +7,6 @@ builds SQL for them. See docs/structured-metadata-design.md.
 
 Key exports:
     DocumentStore -- The data-access class.
-    SyncResult    -- What :meth:`DocumentStore.sync_from_chunks` changed.
     KeyCoverage   -- Per-key counts of documents by state (for the coverage report).
 """
 
@@ -36,22 +35,6 @@ from models import (
 def _to_type(row: tuple) -> DocumentType:
     """Build a :class:`DocumentType` from a ``document_types`` row."""
     return DocumentType(row[0], row[1], row[2], TypeStatus(row[3]))
-
-
-@dataclass(frozen=True)
-class SyncResult:
-    """The outcome of syncing ``documents`` with the ingested chunks.
-
-    Attributes:
-        upserted: Documents inserted or refreshed from their chunks.
-        removed: Documents deleted because no chunk carries their hash any more
-            (their extracted values and status rows go with them, by cascade).
-        linked: Chunks that had no ``document_id`` and were given their document's.
-    """
-
-    upserted: int
-    removed: int
-    linked: int = 0
 
 
 @dataclass(frozen=True)
@@ -164,52 +147,27 @@ class DocumentStore:
             conn.commit()
         return deleted
 
-    def sync_from_chunks(self) -> SyncResult:
-        """Make ``documents`` match the ingested chunks, in both directions.
+    def remove_documents_without_chunks(self) -> int:
+        """Remove documents that have no chunks, and return how many.
 
-        Registers (or refreshes) one document per distinct chunk
-        ``content_hash`` -- taking the file name and the summary from its first
-        chunk -- removes documents whose chunks are gone (what a re-ingest that
-        replaced a document leaves behind), and gives every chunk that has no
-        ``document_id`` the id of its document. Idempotent.
-
-        Returns:
-            How many documents were upserted and removed, and how many chunks
-            were linked.
+        A chunk cannot exist without its document (``document_chunks.document_id``
+        is ``NOT NULL`` and cascades), but a document can be left without chunks:
+        an ingest registers the document before it saves the chunks, so one that
+        failed in between leaves a bare row. Their values and statuses go with
+        them, by cascade. Idempotent.
         """
-        upsert_sql = """
-            INSERT INTO documents (content_hash, source_file, summary)
-            SELECT DISTINCT ON (content_hash)
-                   content_hash,
-                   metadata->>'source_file',
-                   metadata->>'document_summary'
-            FROM document_chunks
-            WHERE content_hash IS NOT NULL
-            ORDER BY content_hash, id
-            ON CONFLICT (content_hash) DO UPDATE
-            SET source_file = EXCLUDED.source_file, summary = EXCLUDED.summary;
-        """
-        remove_sql = """
+        sql = """
             DELETE FROM documents d
             WHERE NOT EXISTS (
-                SELECT 1 FROM document_chunks c WHERE c.content_hash = d.content_hash
+                SELECT 1 FROM document_chunks c WHERE c.document_id = d.id
             );
-        """
-        link_sql = """
-            UPDATE document_chunks c SET document_id = d.id
-            FROM documents d
-            WHERE d.content_hash = c.content_hash AND c.document_id IS NULL;
         """
         with self._scope.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(upsert_sql)
-                upserted = cur.rowcount
-                cur.execute(remove_sql)
+                cur.execute(sql)
                 removed = cur.rowcount
-                cur.execute(link_sql)
-                linked = cur.rowcount
             conn.commit()
-        return SyncResult(upserted=upserted, removed=removed, linked=linked)
+        return removed
 
     # ------------------------------------------------------ classification
 
@@ -453,7 +411,7 @@ class DocumentStore:
         Raises:
             psycopg2.errors.CheckViolation: If not exactly one ``value_*`` field
                 is set.
-            psycopg2.errors.ForeignKeyViolation: If the document is not registered.
+            ValueError: If the document is not registered.
             psycopg2.errors.UniqueViolation: If the (document, key, ordinal) row exists.
         """
         with self._scope.connection() as conn:
@@ -462,36 +420,43 @@ class DocumentStore:
 
     @staticmethod
     def _insert_value(conn, value: MetaValue) -> None:
-        """Insert one value row on ``conn`` without committing."""
+        """Insert one value row on ``conn`` without committing.
+
+        Raises:
+            ValueError: If the document is not registered.
+        """
         sql = """
             INSERT INTO document_meta
-                (content_hash, document_id, key, key_version, value_text,
+                (document_id, key, key_version, value_text,
                  value_number, value_date, value_bool, unit, ordinal, qualifiers,
                  evidence, evidence_chunk_index, page, source)
-            VALUES (%s, (SELECT id FROM documents WHERE content_hash = %s),
+            VALUES ((SELECT id FROM documents WHERE content_hash = %s),
                     %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s);
         """
-        with conn.cursor() as cur:
-            cur.execute(
-                sql,
-                (
-                    value.content_hash,
-                    value.content_hash,
-                    value.key,
-                    value.key_version,
-                    value.value_text,
-                    value.value_number,
-                    value.value_date,
-                    value.value_bool,
-                    value.unit,
-                    value.ordinal,
-                    json.dumps(value.qualifiers),
-                    value.evidence,
-                    value.evidence_chunk_index,
-                    value.page,
-                    value.source.value,
-                ),
-            )
+        params = (
+            value.content_hash,
+            value.key,
+            value.key_version,
+            value.value_text,
+            value.value_number,
+            value.value_date,
+            value.value_bool,
+            value.unit,
+            value.ordinal,
+            json.dumps(value.qualifiers),
+            value.evidence,
+            value.evidence_chunk_index,
+            value.page,
+            value.source.value,
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+        except psycopg2.errors.NotNullViolation:
+            conn.rollback()
+            raise ValueError(
+                f"document {value.content_hash[:8]} is not registered"
+            ) from None
 
     def replace_values(
         self, content_hash: str, key: str, values: list[MetaValue]
@@ -506,10 +471,13 @@ class DocumentStore:
             key: The catalog key.
             values: The new rows (may be empty, which just clears the key).
         """
-        delete_sql = "DELETE FROM document_meta WHERE content_hash = %s AND key = %s;"
+        delete_sql = (
+            "DELETE FROM document_meta WHERE key = %s AND document_id = "
+            "(SELECT id FROM documents WHERE content_hash = %s);"
+        )
         with self._scope.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(delete_sql, (content_hash, key))
+                cur.execute(delete_sql, (key, content_hash))
             for value in values:
                 self._insert_value(conn, value)
             conn.commit()
@@ -517,8 +485,9 @@ class DocumentStore:
     def get_statuses(self, content_hash: str) -> dict[str, MetaStatus]:
         """Return a document's recorded status per key (keys never attempted are absent)."""
         sql = """
-            SELECT key, state, key_version FROM document_meta_status
-            WHERE content_hash = %s;
+            SELECT s.key, s.state, s.key_version
+            FROM document_meta_status s JOIN documents d ON d.id = s.document_id
+            WHERE d.content_hash = %s;
         """
         with self._scope.connection() as conn, conn.cursor() as cur:
             cur.execute(sql, (content_hash,))
@@ -554,7 +523,7 @@ class DocumentStore:
                 SELECT 1 FROM unnest(%s::text[], %s::int[]) AS k(key, version)
                 WHERE NOT EXISTS (
                     SELECT 1 FROM document_meta_status s
-                    WHERE s.content_hash = d.content_hash
+                    WHERE s.document_id = d.id
                       AND s.key = k.key AND s.key_version >= k.version
                 )
             )
@@ -676,10 +645,10 @@ class DocumentStore:
             ``(source_file, value)`` pairs ordered by file name and ordinal.
         """
         sql = """
-            SELECT d.source_file, m.content_hash, m.key, m.key_version, m.source,
+            SELECT d.source_file, d.content_hash, m.key, m.key_version, m.source,
                    m.value_text, m.value_number, m.value_date, m.value_bool, m.unit,
                    m.ordinal, m.qualifiers, m.evidence, m.evidence_chunk_index, m.page
-            FROM document_meta m JOIN documents d USING (content_hash)
+            FROM document_meta m JOIN documents d ON d.id = m.document_id
             WHERE m.key = %s
             ORDER BY d.source_file, m.ordinal;
         """
@@ -712,12 +681,12 @@ class DocumentStore:
     def get_values(self, content_hash: str, key: str) -> list[MetaValue]:
         """Return a document's values for one key, in ordinal order."""
         sql = """
-            SELECT content_hash, key, key_version, source, value_text, value_number,
-                   value_date, value_bool, unit, ordinal, qualifiers, evidence,
-                   evidence_chunk_index, page
-            FROM document_meta
-            WHERE content_hash = %s AND key = %s
-            ORDER BY ordinal;
+            SELECT d.content_hash, m.key, m.key_version, m.source, m.value_text,
+                   m.value_number, m.value_date, m.value_bool, m.unit, m.ordinal,
+                   m.qualifiers, m.evidence, m.evidence_chunk_index, m.page
+            FROM document_meta m JOIN documents d ON d.id = m.document_id
+            WHERE d.content_hash = %s AND m.key = %s
+            ORDER BY m.ordinal;
         """
         with self._scope.connection() as conn, conn.cursor() as cur:
             cur.execute(sql, (content_hash, key))
@@ -745,29 +714,36 @@ class DocumentStore:
     # ---------------------------------------------------------------- status
 
     def set_status(self, status: MetaStatus) -> None:
-        """Record (or replace) what is known about a (document, key) pair."""
+        """Record (or replace) what is known about a (document, key) pair.
+
+        Raises:
+            ValueError: If the document is not registered.
+        """
         sql = """
-            INSERT INTO document_meta_status
-                (content_hash, document_id, key, state, key_version)
-            VALUES (%s, (SELECT id FROM documents WHERE content_hash = %s), %s, %s, %s)
-            ON CONFLICT (content_hash, key) DO UPDATE SET
-                document_id = EXCLUDED.document_id,
+            INSERT INTO document_meta_status (document_id, key, state, key_version)
+            VALUES ((SELECT id FROM documents WHERE content_hash = %s), %s, %s, %s)
+            ON CONFLICT (document_id, key) DO UPDATE SET
                 state = EXCLUDED.state,
                 key_version = EXCLUDED.key_version,
                 attempted_at = now();
         """
         with self._scope.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    sql,
-                    (
-                        status.content_hash,
-                        status.content_hash,
-                        status.key,
-                        status.state.value,
-                        status.key_version,
-                    ),
-                )
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        sql,
+                        (
+                            status.content_hash,
+                            status.key,
+                            status.state.value,
+                            status.key_version,
+                        ),
+                    )
+            except psycopg2.errors.NotNullViolation:
+                conn.rollback()
+                raise ValueError(
+                    f"document {status.content_hash[:8]} is not registered"
+                ) from None
             conn.commit()
 
     def get_status(self, content_hash: str, key: str) -> MetaStatus:
@@ -777,8 +753,9 @@ class DocumentStore:
         :attr:`models.MetaState.NOT_ATTEMPTED`, not as an error.
         """
         sql = """
-            SELECT state, key_version FROM document_meta_status
-            WHERE content_hash = %s AND key = %s;
+            SELECT s.state, s.key_version
+            FROM document_meta_status s JOIN documents d ON d.id = s.document_id
+            WHERE d.content_hash = %s AND s.key = %s;
         """
         with self._scope.connection() as conn, conn.cursor() as cur:
             cur.execute(sql, (content_hash, key))
