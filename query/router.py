@@ -11,9 +11,19 @@ The router sits in front of ``query_knowledge_base``. It asks the query planner
 * a **lookup** question ("what did the court decide in ...") still goes to the
   normal retrieval pipeline, restricted to the documents the planner's filters
   select (no filters: unrestricted);
-* a question that names a **case/document identifier** always goes to the normal
-  retrieval, without asking the planner, because an identifier is a pinpoint
-  lookup the pipeline already handles.
+* a request the system **cannot do yet** (documents *similar* to a named one) is
+  said so plainly, instead of being sent to a search that can only return the
+  named document and then answer "I could not find this information".
+
+The planner always decides (when the router is on). An identifier in the question
+is a *parameter* (which document the question is about), not an *intent*: a
+question that names a case may ask about it (a lookup, the retrieval pins that
+document), or ask for cases like it (not supported yet). It used to skip the
+planner, which sent "five cases similar to X" to a retrieval that returned X alone.
+A lookup that names an identifier is *not* restricted by the plan's filters: the
+retrieval finds the named document itself, and a metadata restriction could only
+exclude it (identifiers are stored in written variants, an anonymised document may
+lack a court name).
 
 Nothing here is silent. A counted answer states the filter that was executed and
 how many documents could not be decided; a lookup restricted by a filter says how
@@ -26,6 +36,7 @@ Key exports:
     QueryRouter        -- Makes the decision.
     ResultPhraser      -- Phrases an exact result in the question's language.
     render_result      -- The exact result as plain facts.
+    as_routed          -- The plan as the router treats it (a residual means read, not count).
     get_query_router   -- Builds the router.
 """
 
@@ -48,6 +59,12 @@ from models import DocumentSelection
 from store import extract_identifier_tokens
 
 logger = logging.getLogger(__name__)
+
+#: Said when the request is of a kind the system cannot do yet; the planner's reason
+#: (in the question's language) follows it.
+NOT_SUPPORTED_MESSAGE = (
+    "This kind of question is not supported yet, so I will not guess at an answer."
+)
 
 #: Returned when the planner cannot turn the question into a valid plan.
 COULD_NOT_INTERPRET_MESSAGE = (
@@ -92,6 +109,25 @@ class Phraser(Protocol):
     """Turns an exact result into an answer in the question's language."""
 
     def phrase(self, question: str, plan: QueryPlan, result: PlanResult) -> str: ...
+
+
+def as_routed(plan: QueryPlan) -> QueryPlan:
+    """The plan as the router will treat it: an exact plan with a residual is read instead.
+
+    Part of the question is covered by no key, so a count/list/sum/overview over the
+    keys alone would answer a different, easier question and present it as exact. The
+    documents have to be read; the filters still narrow which ones. Anything else is
+    returned unchanged (the same object).
+
+    Args:
+        plan: A plan as the planner produced it.
+    """
+    if plan.residual and plan.operation not in (
+        Operation.LOOKUP,
+        Operation.UNSUPPORTED,
+    ):
+        return replace(plan, operation=Operation.LOOKUP, group_by=None, sum_key=None)
+    return plan
 
 
 def render_result(plan: QueryPlan, result: PlanResult) -> str:
@@ -220,9 +256,6 @@ class QueryRouter:
             RuntimeError: If no document type is approved (the router was switched
                 on before ``load-catalog``).
         """
-        if extract_identifier_tokens(question):
-            logger.info("[router] Identifier in the question: lookup, planner skipped.")
-            return Routing()
         catalogs = load_catalogs(self._catalog)
         try:
             plan = self._planner.plan(
@@ -232,20 +265,29 @@ class QueryRouter:
             logger.warning("[router] Could not plan %r: %s", question, failure.reason)
             return Routing(answer=COULD_NOT_INTERPRET_MESSAGE)
 
-        if plan.residual and plan.operation is not Operation.LOOKUP:
-            # Part of the question is covered by no key, so a count/list/sum over
-            # the keys alone would answer a different, easier question, and
-            # present it as exact. The documents have to be read; the filters
-            # still narrow which ones.
+        if plan.operation is Operation.UNSUPPORTED:
+            logger.info("[router] Not supported yet: %s", plan.reason)
+            return Routing(answer=f"{NOT_SUPPORTED_MESSAGE} ({plan.reason})")
+
+        routed = as_routed(plan)
+        if routed is not plan:
             logger.info(
                 "[router] %s plan has a residual (%r): reading the filtered documents instead.",
                 plan.operation.value,
                 plan.residual,
             )
-            plan = replace(
-                plan, operation=Operation.LOOKUP, group_by=None, sum_key=None
-            )
+        plan = routed
         if plan.operation is Operation.LOOKUP:
+            if extract_identifier_tokens(question):
+                # The question is about a named document: the retrieval finds it by
+                # itself (it pins the identifier match). A metadata restriction would
+                # only risk excluding it: an identifier is stored in written variants
+                # ("4.P.20.409/2023/4-ítélet"), a court name may be missing for an
+                # anonymised document. The restriction is for broad questions.
+                logger.info(
+                    "[router] Lookup anchored on an identifier: not restricted."
+                )
+                return Routing()
             return self._restricted_lookup(plan)
         result = self._executor.execute(plan)
         logger.info(

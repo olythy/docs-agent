@@ -172,3 +172,40 @@ def test_a_residual_is_kept_as_text():
 def test_a_malformed_or_inconsistent_plan_is_rejected_with_a_message(raw, message):
     with pytest.raises((PlanError, TypeError), match=message):
         _parse(raw)
+
+
+def test_an_unsupported_plan_carries_the_reason_and_needs_no_type():
+    plan = parse_plan(
+        {
+            "document_type": None,
+            "operation": "unsupported",
+            "reason": "five cases similar to a named one",
+        },
+        TYPES,
+    )
+
+    assert plan.operation is Operation.UNSUPPORTED
+    assert plan.reason == "five cases similar to a named one" and plan.doc_type is None
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ({}, "needs a 'reason'"),
+        ({"reason": "  "}, "needs a 'reason'"),
+        (
+            {"reason": "x", "filters": [{"key": "k", "op": "eq", "value": 1}]},
+            "has no filters",
+        ),
+    ],
+)
+def test_a_malformed_unsupported_plan_is_rejected(extra, message):
+    raw = {"document_type": "court_decision", "operation": "unsupported", **extra}
+
+    with pytest.raises(PlanError, match=message):
+        parse_plan(raw, TYPES)
+
+
+def test_a_reason_belongs_to_the_unsupported_operation_only():
+    with pytest.raises(PlanError, match="only goes with the 'unsupported'"):
+        _parse({"operation": "count", "reason": "why"})

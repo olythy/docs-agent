@@ -64,3 +64,13 @@ def test_looks_like_a_decline_false_for_valid_answers():
         _looks_like_a_decline("The company was founded in 2018 in Budapest.") is False
     )
     assert _looks_like_a_decline("A projekt költségvetése 5 millió forint.") is False
+
+
+def test_the_routers_own_plain_refusal_counts_as_a_decline():
+    from query.decline_detection import looks_like_a_decline
+
+    assert looks_like_a_decline(
+        "No documents match the filter (court_decision documents: document_identifier "
+        "contains 'PK-987654')."
+    )
+    assert not looks_like_a_decline("A bíróság a keresetet elutasította.")

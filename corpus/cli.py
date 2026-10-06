@@ -24,6 +24,7 @@ Usage::
     uv run python corpus/cli.py meta-accuracy
     uv run python corpus/cli.py meta-plan-eval
     uv run python corpus/cli.py retrieval-snapshot [--out F] [--compare F]
+    uv run python corpus/cli.py routing-eval [--repeat N]
 """
 
 import sys
@@ -46,6 +47,7 @@ from corpus.commands import (
     meta_accuracy,
     meta_plan_eval,
     retrieval_snapshot,
+    routing_eval,
 )
 
 app = typer.Typer(help=__doc__)
@@ -59,6 +61,7 @@ app.add_typer(funnel.app)
 app.add_typer(meta_accuracy.app)
 app.add_typer(meta_plan_eval.app)
 app.add_typer(retrieval_snapshot.app)
+app.add_typer(routing_eval.app)
 
 if __name__ == "__main__":
     app()

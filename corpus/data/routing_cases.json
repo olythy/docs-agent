@@ -1,0 +1,19 @@
+{
+  "description": "Questions with the flow the router is expected to choose. lookup = read the best passages (flow A); exact = answered from the metadata by SQL (flow B); unsupported = a kind of request the system cannot do yet and must say so. A case has either 'question' or 'golden_id' (the text is then taken from questions.json). Used by `corpus/cli.py routing-eval`, which only runs the planner.",
+  "cases": [
+    {"golden_id": "q0001", "expected": "lookup", "note": "pinpoint: a case number, asks about that case"},
+    {"golden_id": "q0002", "expected": "lookup", "note": "pinpoint: a case number, asks about that case"},
+    {"golden_id": "q0004", "expected": "lookup", "note": "pinpoint: a case number, asks who represents a party"},
+    {"golden_id": "q0031", "expected": "lookup", "note": "content question with a court and a year, no case number"},
+    {"golden_id": "q0010", "expected": "lookup", "note": "synthesis over a period; stays on the passages flow for now"},
+    {"question": "Mi a különbség a 4.P.20.409/2023/4. és a 27.P.20.339/2021/37. számú ügy között?", "expected": "lookup", "note": "comparing two named cases: both documents are the anchors"},
+    {"golden_id": "q0003", "expected": "lookup", "note": "adversarial: an invented case number must lead to a read that finds nothing, not to a filter that matches nothing"},
+    {"question": "Hány ítéletet hozott a Debreceni Törvényszék 2021-ben?", "expected": "exact", "note": "a count over court, kind and year"},
+    {"question": "Sorold fel a Debreceni Ítélőtábla 2022-ben kelt határozatait.", "expected": "exact", "note": "a list over court and year"},
+    {"question": "Hány határozat született tavaly októberben?", "expected": "exact", "note": "a count over a relative month"},
+    {"question": "Sorolj fel 5 hasonló ügyet, mint a Budapest Környéki Törvényszék 27.P.20.339/2021/37. számú ügye.", "expected": "unsupported", "note": "similar to a named case: the observed failure (only the anchor came back)"},
+    {"question": "Keress olyan ügyeket, amelyek hasonlítanak a 4.P.20.409/2023/4. számú ügyhöz.", "expected": "unsupported", "note": "similar to a named case, another wording"},
+    {"question": "Van hasonló ügy a 104.K.700.027/2023/3. számú ügyhöz a többi között?", "expected": "unsupported", "note": "similar to a named case, a yes/no wording"},
+    {"question": "Which cases are similar to case 27.P.20.339/2021/37?", "expected": "unsupported", "note": "similar to a named case, in English"}
+  ]
+}

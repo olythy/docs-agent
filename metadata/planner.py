@@ -28,7 +28,7 @@ from drivers.llm import AnswerDriver
 from llm_json import extract_json
 from metadata.clock import Clock
 from metadata.compiler import PlanCompiler
-from metadata.plan import PlanError, QueryPlan, parse_plan
+from metadata.plan import Operation, PlanError, QueryPlan, parse_plan
 from models import DocumentType, KeyStatus, MetaKey, TypeStatus, ValueType
 
 #: A text key with more distinct values than this is too free-form to list in a prompt.
@@ -183,7 +183,8 @@ class LLMQueryPlanner(QueryPlanner):
                 plan = parse_plan(
                     extract_json(reply, reject_duplicate_keys=True), type_names
                 )
-                self._compiler.compile(plan, keys)
+                if plan.operation is not Operation.UNSUPPORTED:
+                    self._compiler.compile(plan, keys)  # nothing to compile otherwise
                 return plan
             except (PlanError, ValueError, json.JSONDecodeError) as exc:
                 error = str(exc)
@@ -253,7 +254,8 @@ OPERATIONS
 - "list": which documents match.
 - "sum": the total of a number key ("sum_key") over the matching documents.
 - "overview": the matching documents with their summaries (for "what kinds of ... are there / summarise").
-- "lookup": the question asks about the CONTENT of specific documents (who, why, what did the court decide, what does clause X say), or names a case/document identifier, or cannot be answered from the keys below. The filters then only narrow down which documents to read; use [] when the question names no key-based restriction.
+- "unsupported": ONLY when the question asks for documents SIMILAR or RELATED to a specific named document or case ("list five cases similar to case X", "find cases like this one", "hasonló ügyeket"). The system cannot do that yet. Give a short "reason" in the question's language saying what was asked. Do NOT use it for ordinary questions about the content of a document, for comparing named documents, or for questions about the practice in general: those are "lookup".
+- "lookup": the question asks about the CONTENT of specific documents (who, why, what did the court decide, what does clause X say), or names a case/document identifier, or cannot be answered from the keys below. The filters then only narrow down which documents to read; use [] when the question names no key-based restriction. NEVER put a case or document identifier into the filters of a lookup: the retrieval finds a named case by itself, and an exact match on its written form is brittle (a trailing full stop or a different suffix finds nothing, and then nothing is read). An identifier filter is right only to count or list documents by their number.
 
 DOCUMENT TYPES (the kinds of document that exist, and the keys of each)
 {types}
@@ -277,7 +279,7 @@ RULES
 - Use only the keys of the chosen type. If part of the question has no matching key, put that part in "residual" (a short string in the question's language) and keep the rest as filters.
 - Never invent allowed values or keys.
 - "limit": at most how many documents to return (default 50).
-- Output ONLY one JSON object: {{"document_type": "<a type above>" or null, "operation": ..., "filters": [...], "group_by": null, "sum_key": null, "limit": 50, "residual": null}}
+- Output ONLY one JSON object: {{"document_type": "<a type above>" or null, "operation": ..., "filters": [...], "group_by": null, "sum_key": null, "limit": 50, "residual": null, "reason": null}}
 
 QUESTION
 {question}

@@ -20,6 +20,7 @@ from models import (
 )
 from query.router import (
     COULD_NOT_INTERPRET_MESSAGE,
+    NOT_SUPPORTED_MESSAGE,
     QueryRouter,
     ResultPhraser,
     Routing,
@@ -106,13 +107,32 @@ def test_a_count_is_answered_exactly_and_never_reaches_the_retriever():
     assert routing == Routing(answer="PHRASED 7")
 
 
-def test_an_identifier_forces_lookup_without_asking_the_planner():
-    router, planner, executor = _router(QueryPlan(DT, Operation.COUNT))
+def test_an_identifier_is_a_parameter_not_an_intent_so_the_planner_still_decides():
+    """It used to skip the planner: 'five cases similar to X' then went to a retrieval
+    that returned X alone, and the answer was 'I could not find this information'."""
+    router, planner, _ = _router(QueryPlan(None, Operation.LOOKUP))
 
     routing = router.route("What did the court decide in Pfv.20060/2022/9?")
 
-    assert routing == Routing()
-    assert planner.calls == 0 and executor.calls == 0
+    assert planner.calls == 1
+    assert routing == Routing()  # a lookup: the retrieval pins the named document
+
+
+def test_a_request_for_similar_cases_is_said_plainly_not_answered_by_a_search():
+    plan = QueryPlan(
+        None,
+        Operation.UNSUPPORTED,
+        reason="five cases similar to the 27.P.20.339/2021/37 case",
+    )
+    router, _, executor = _router(plan)
+
+    routing = router.route("Sorolj fel 5 hasonló ügyet, mint a 27.P.20.339/2021/37.")
+
+    assert routing.answer == (
+        f"{NOT_SUPPORTED_MESSAGE} (five cases similar to the 27.P.20.339/2021/37 case)"
+    )
+    assert routing.selection is None
+    assert executor.calls == 0  # nothing was run, nothing was searched
 
 
 def test_a_lookup_that_names_no_type_and_no_filter_is_unrestricted():
@@ -333,3 +353,44 @@ def test_query_knowledge_base_restricts_retrieval_and_appends_the_note(monkeypat
 
     assert seen["selection"] == SELECTION
     assert out == "ANSWER from scoped\n\nNOTE"
+
+
+def test_as_routed_turns_an_exact_plan_with_a_residual_into_a_lookup_and_leaves_the_rest():
+    from query.router import as_routed
+
+    exact_with_residual = QueryPlan(
+        DT, Operation.COUNT, FILTER, group_by="document_kind", residual="limitation"
+    )
+    exact = QueryPlan(DT, Operation.COUNT, FILTER)
+    lookup = QueryPlan(DT, Operation.LOOKUP, FILTER, residual="limitation")
+    unsupported = QueryPlan(None, Operation.UNSUPPORTED, reason="similar", residual="x")
+
+    routed = as_routed(exact_with_residual)
+
+    assert routed.operation is Operation.LOOKUP and routed.group_by is None
+    assert routed.filters == FILTER and routed.doc_type == DT  # the narrowing stays
+    assert as_routed(exact) is exact
+    assert as_routed(lookup) is lookup
+    assert as_routed(unsupported) is unsupported  # never turned into a search
+
+
+def test_a_lookup_that_names_an_identifier_is_not_restricted_by_the_plans_filters():
+    """Identifiers are stored in written variants and an anonymised document may lack a
+    court name: a metadata restriction could only exclude the document that was named.
+    (The single-document golden questions fell to 50-75% when it did.)"""
+    result = PlanResult(
+        Operation.LOOKUP, "court_decision documents", 0, 0
+    )  # would refuse
+    plan = QueryPlan(
+        DT,
+        Operation.LOOKUP,
+        (Filter("issuing_body", FilterOp.EQ, "X"),),
+    )
+    router, _, executor = _router(plan, result)
+
+    routing = router.route(
+        "Ki képviseli az alperest a 104.K.700.027/2023/3. számú ügyben?"
+    )
+
+    assert routing == Routing()  # unrestricted: the retrieval pins the named case
+    assert executor.calls == 0

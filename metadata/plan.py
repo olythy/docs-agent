@@ -41,7 +41,9 @@ class Operation(StrEnum):
     ``COUNT`` an exact number (optionally grouped by a categorical key); ``LIST``
     the matching documents; ``SUM`` the total of a number key; ``LOOKUP`` the set of
     matching documents, to restrict a normal retrieval to; ``OVERVIEW`` the matching
-    documents with their summaries, for a synthesised overview.
+    documents with their summaries, for a synthesised overview; ``UNSUPPORTED`` a
+    request this system cannot do yet (for example "list five cases similar to case
+    X"): it is reported plainly, not answered by a search that cannot serve it.
     """
 
     LOOKUP = "lookup"
@@ -49,6 +51,7 @@ class Operation(StrEnum):
     COUNT = "count"
     SUM = "sum"
     OVERVIEW = "overview"
+    UNSUPPORTED = "unsupported"
 
 
 class FilterOp(StrEnum):
@@ -96,6 +99,8 @@ class QueryPlan:
         limit: How many documents/groups to return.
         residual: The part of the question no key covers, if any (not executed
             by SQL; a later step evaluates it over the matching documents).
+        reason: For ``UNSUPPORTED``, what was asked that cannot be done yet, in the
+            question's language.
     """
 
     doc_type: str | None
@@ -105,6 +110,7 @@ class QueryPlan:
     sum_key: str | None = None
     limit: int = DEFAULT_LIMIT
     residual: str | None = None
+    reason: str | None = None
 
 
 _PLAN_FIELDS = {
@@ -115,6 +121,7 @@ _PLAN_FIELDS = {
     "sum_key",
     "limit",
     "residual",
+    "reason",
 }
 _FILTER_FIELDS = {"key", "op", "value"}
 
@@ -144,7 +151,8 @@ def parse_plan(raw: object, doc_types: Collection[str]) -> QueryPlan:
             uses an unknown operation or operator, or combines options that do not
             go together (``group_by`` outside ``count``, ``sum_key`` outside ``sum``,
             ``sum`` without a key, a limit out of range, filters or a computation
-            without a document type).
+            without a document type, an ``unsupported`` plan without a ``reason`` or
+            with filters, a ``reason`` on any other operation).
     """
     if not isinstance(raw, dict):
         raise PlanError(f"a plan must be an object, got {type(raw).__name__}")
@@ -157,7 +165,7 @@ def parse_plan(raw: object, doc_types: Collection[str]) -> QueryPlan:
         raise PlanError("a plan needs an 'operation'")
     operation = _enum(Operation, raw["operation"], "operation")
     doc_type = _document_type(raw, doc_types)
-    if doc_type is None and operation is not Operation.LOOKUP:
+    if doc_type is None and operation not in (Operation.LOOKUP, Operation.UNSUPPORTED):
         raise PlanError(
             f"the '{operation.value}' operation needs a document_type "
             f"({', '.join(sorted(doc_types)) or 'none is known'}): an exact answer is "
@@ -173,7 +181,21 @@ def parse_plan(raw: object, doc_types: Collection[str]) -> QueryPlan:
         raise PlanError(
             "filters are keys of a document type: name the document_type they belong to"
         )
-    group_by, sum_key = raw.get("group_by"), raw.get("sum_key")
+    group_by, sum_key, reason = (
+        raw.get("group_by"),
+        raw.get("sum_key"),
+        raw.get("reason"),
+    )
+    if operation is Operation.UNSUPPORTED:
+        if not isinstance(reason, str) or not reason.strip():
+            raise PlanError(
+                "an 'unsupported' plan needs a 'reason': what was asked that cannot be "
+                "done yet, in the question's language"
+            )
+        if filters:
+            raise PlanError("an 'unsupported' plan has no filters")
+    elif reason is not None:
+        raise PlanError("'reason' only goes with the 'unsupported' operation")
     for name, value in (
         ("group_by", group_by),
         ("sum_key", sum_key),
@@ -204,6 +226,7 @@ def parse_plan(raw: object, doc_types: Collection[str]) -> QueryPlan:
         sum_key=sum_key,
         limit=limit,
         residual=raw.get("residual"),
+        reason=reason,
     )
 
 

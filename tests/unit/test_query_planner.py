@@ -322,3 +322,41 @@ def test_with_several_types_a_generic_question_is_not_forced_onto_one_of_them():
     prompt = llm.calls[0][0]["content"]
     assert "Only ONE document type exists" not in prompt
     assert "no single listed kind clearly fits" in prompt
+
+
+def test_an_unsupported_plan_is_accepted_without_compiling_it():
+    reply = (
+        '{"document_type": null, "operation": "unsupported", "filters": [],'
+        ' "reason": "cases similar to a named one"}'
+    )
+
+    plan = _planner(ScriptedLLM(reply)).plan("find cases like X", CATALOGS)
+
+    assert plan.operation is Operation.UNSUPPORTED
+    assert plan.reason == "cases similar to a named one"
+
+
+def test_the_prompt_tells_the_model_what_unsupported_is_for_and_what_it_is_not_for():
+    llm = ScriptedLLM(GOOD)
+
+    _planner(llm).plan("q", CATALOGS)
+
+    prompt = llm.calls[0][0]["content"]
+    assert '"unsupported": ONLY when the question asks for documents SIMILAR' in prompt
+    assert "Do NOT use it for ordinary questions about the content" in prompt
+    assert '"reason": null' in prompt
+
+
+def test_the_prompt_forbids_an_identifier_filter_in_a_lookup():
+    """The router restricts a lookup to the documents the filters match; an exact
+    identifier match failed on a trailing full stop and nothing was read (the single
+    document golden questions fell to 50%, the adversarial ones to 25%)."""
+    llm = ScriptedLLM(GOOD)
+
+    _planner(llm).plan("q", CATALOGS)
+
+    prompt = llm.calls[0][0]["content"]
+    assert (
+        "NEVER put a case or document identifier into the filters of a lookup" in prompt
+    )
+    assert "An identifier filter is right only to count or list documents" in prompt

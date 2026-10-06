@@ -21,6 +21,8 @@ _DECLINE_PHRASES = [
     "nem tér ki",
     "nem derül ki",
     "nem állapítható meg",
+    # the router's own plain refusal when the named thing matches no document
+    "no documents match",
 ]
 
 
