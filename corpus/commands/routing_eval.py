@@ -33,6 +33,31 @@ def flow_of(operation: str) -> str:
     return "exact"  # count, list, sum, overview: answered from the metadata
 
 
+def restriction_problem(plan, executor) -> str | None:
+    """Why the restriction a lookup plan puts on the retrieval is wrong, if it is.
+
+    A lookup is restricted to the documents its type and filters select. A restriction
+    that selects *no document* is never what the question wanted (the corpus holds
+    documents the question is about): it turns a question that can be read into "no
+    documents match". It is what two contradicting filters on one key do, which an
+    answer-level eval would show only as a refusal, never as a routing failure.
+
+    Args:
+        plan: The plan as the router treats it (a lookup).
+        executor: Runs a plan (:class:`metadata.executor.PlanExecutor`).
+
+    Returns:
+        A description of the problem, or ``None`` when there is no restriction or it
+        selects at least one document.
+    """
+    if plan.doc_type is None and not plan.filters:
+        return None
+    result = executor.execute(plan)
+    if result.count == 0:
+        return f"the restriction selects no document ({result.explanation})"
+    return None
+
+
 def load_cases(
     cases_path: Path = CASES, questions_path: Path = QUESTIONS
 ) -> list[dict]:
@@ -76,6 +101,7 @@ def routing_eval(
     from metadata.clock import SystemClock
     from metadata.compiler import PlanCompiler
     from metadata.date_ranges import DateRangeResolver
+    from metadata.executor import PlanExecutor
     from metadata.planner import (
         LLMQueryPlanner,
         PlanningFailed,
@@ -83,14 +109,15 @@ def routing_eval(
         load_catalogs,
     )
     from query.router import as_routed
+    from store import extract_identifier_tokens
 
     clock = SystemClock()
     store = DocumentStore()
     catalogs = load_catalogs(store)
     known = collect_known_values(store, catalogs)
-    planner = LLMQueryPlanner(
-        get_answer_driver(), PlanCompiler(DateRangeResolver(clock)), clock
-    )
+    compiler = PlanCompiler(DateRangeResolver(clock))
+    planner = LLMQueryPlanner(get_answer_driver(), compiler, clock)
+    executor = PlanExecutor(store, compiler)
 
     per_expected: dict[str, list[bool]] = defaultdict(list)
     wrong: list[str] = []
@@ -105,6 +132,16 @@ def routing_eval(
                     + (f" with residual {plan.residual!r}" if plan.residual else "")
                     + f", type {plan.doc_type!r}"
                 )
+                # A lookup that names an identifier is not restricted (the router
+                # lets the retrieval find the document); the others are.
+                problem = (
+                    restriction_problem(routed, executor)
+                    if got == "lookup"
+                    and not extract_identifier_tokens(case["question"])
+                    else None
+                )
+                if problem:
+                    got, detail = "lookup with an empty restriction", problem
             except PlanningFailed as failure:
                 got, detail = "failed", f"could not plan: {failure.reason}"
             ok = got == case["expected"]
