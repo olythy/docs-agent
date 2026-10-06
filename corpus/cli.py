@@ -23,6 +23,7 @@ Usage::
     uv run python corpus/cli.py funnel -q ID [-q ID ...]
     uv run python corpus/cli.py meta-accuracy
     uv run python corpus/cli.py meta-plan-eval
+    uv run python corpus/cli.py retrieval-snapshot [--out F] [--compare F]
 """
 
 import sys
@@ -44,6 +45,7 @@ from corpus.commands import (
     generate_questions,
     meta_accuracy,
     meta_plan_eval,
+    retrieval_snapshot,
 )
 
 app = typer.Typer(help=__doc__)
@@ -56,6 +58,7 @@ app.add_typer(compare_retrieval.app)
 app.add_typer(funnel.app)
 app.add_typer(meta_accuracy.app)
 app.add_typer(meta_plan_eval.app)
+app.add_typer(retrieval_snapshot.app)
 
 if __name__ == "__main__":
     app()

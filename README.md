@@ -107,6 +107,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   │   ├── funnel.py          # `funnel` command: per-stage retrieval trace -- where a golden/valid document drops out
 │   │   ├── meta_accuracy.py   # `meta-accuracy` command: extracted metadata vs meta.csv (measurement truth only)
 │   │   └── meta_plan_eval.py  # `meta-plan-eval` command: planner + compiler scored on generated count/list questions
+retrieval_snapshot.py  # `retrieval-snapshot` command: pin and compare what retrieval returns (proves a refactor changed nothing)
 │   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/
