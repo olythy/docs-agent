@@ -27,7 +27,7 @@ from dataclasses import replace
 import pytest
 
 import query.retrieval as retrieval_module
-from drivers.reranker import CrossEncoderRerankerDriver
+from drivers.reranker import CrossEncoderRerankerDriver, RerankerDriver
 from models import ChunkMetadata, RetrievalTrace, RetrievedChunk
 from query.facts import QueryFactsReader
 from query.outcome import Answerable
@@ -166,6 +166,17 @@ class RejectsEverything(FakeCrossEncoder):
         return [replace(c, score=0.01) for c in chunks]
 
 
+class FakeOtherReranker(RerankerDriver):
+    """A reranker whose scores are not calibrated logits (not a cross-encoder)."""
+
+    def rerank(self, question, chunks):
+        scored = [
+            replace(c, score=(0.9 if "costs" in c.content else 0.2) + c.score / 100)
+            for c in chunks
+        ]
+        return sorted(scored, key=lambda c: -c.score)
+
+
 class FakeListwise:
     def __call__(self, question, chunks, driver, **kwargs):
         return list(reversed(chunks))
@@ -173,6 +184,7 @@ class FakeListwise:
 
 _BASE_SETTINGS = {
     "RETRIEVAL_STRATEGY": "hybrid",
+    "RERANKER_DRIVER": "cross_encoder",
     "RETRIEVAL_TOP_K": 4,
     "RETRIEVAL_CANDIDATE_POOL_SIZE": 6,
     "RETRIEVAL_MIN_SCORE": 0.25,
@@ -240,7 +252,11 @@ def _run_v2(
     service = RetrievalService(
         QueryFactsReader(),
         ProfileResolver(config),
-        PipelineFactory(embedding),  # type: ignore[arg-type]
+        PipelineFactory(
+            embedding,  # type: ignore[arg-type]
+            reranker or FakeCrossEncoder(),
+            lambda q, chunks: FakeListwise()(q, chunks, None),
+        ),
         embedding,  # type: ignore[arg-type]
     )
     result = service.retrieve(
@@ -263,22 +279,6 @@ def _run_v2(
 #: here and must reproduce every ``EXPECTED`` result unchanged.
 ENGINES = {"legacy": _run_legacy, "v2": _run_v2}
 
-#: The scenarios the new engine can run so far (it grows with the steps; the rest are
-#: run on the legacy engine only until their steps exist).
-V2_READY = {
-    "vector_strategy",
-    "vector_cosine_gate_fails",
-    "vector_metadata_filter",
-    "vector_similarity_cut",
-    "vector_top_k_above_pool",
-    "vector_top_k_two",
-}
-
-
-def runnable(engine: str) -> list[str]:
-    """The scenario names ``engine`` can run."""
-    return list(SCENARIOS) if engine == "legacy" else sorted(V2_READY)
-
 
 QUESTION = "What about the costs of the proceedings?"
 
@@ -299,6 +299,27 @@ SCENARIOS = {
         ),
         "costs of the proceedings in 2021 and 2022",
         lambda: {"RETRIEVAL_PERIOD_FILTER": True},
+    ),
+    "period_filter_without_years": (
+        "the period filter is on but the question names no year: nothing is widened",
+        QUESTION,
+        lambda: {"RETRIEVAL_PERIOD_FILTER": True},
+    ),
+    "years_with_metadata_filter": (
+        "the year pools and the metadata filter work together",
+        "costs of the proceedings in 2021",
+        lambda: {
+            "RETRIEVAL_PERIOD_FILTER": True,
+            "metadata_filter": {"source_file": "b.docx"},
+        },
+    ),
+    "another_reranker_has_no_score_gate": (
+        (
+            "a reranker that is not a cross-encoder has no calibrated scores, so nothing is "
+            "dropped by a threshold: the whole reranked list goes to the final cut"
+        ),
+        QUESTION,
+        lambda: {"RERANKER_DRIVER": "vertex", "reranker": FakeOtherReranker()},
     ),
     "one_identifier": (
         (
@@ -446,6 +467,44 @@ EXPECTED = {
             "final": [3, 5, 1],
         },
         [3, 5, 1],
+    ),
+    "period_filter_without_years": (
+        {
+            "vector": [1, 3, 5, 7, 2, 4],
+            "vector_csls": [1, 3, 5, 7, 2, 4],
+            "fulltext": [1, 3, 5],
+            "fused": [1, 3, 5, 7, 2, 4],
+            "reranked": [1, 3, 5, 7, 2, 4],
+            "listwise": [1, 3, 5],
+            "final": [1, 3, 5],
+        },
+        [1, 3, 5],
+    ),
+    "years_with_metadata_filter": (
+        {
+            "vector": [3, 4],
+            "vector_years": [3, 4],
+            "vector_csls": [3, 4],
+            "fulltext": [3],
+            "fulltext_years": [3],
+            "fused": [3, 4],
+            "reranked": [3, 4],
+            "listwise": [3],
+            "final": [3],
+        },
+        [3],
+    ),
+    "another_reranker_has_no_score_gate": (
+        {
+            "vector": [1, 3, 5, 7, 2, 4],
+            "vector_csls": [1, 3, 5, 7, 2, 4],
+            "fulltext": [1, 3, 5],
+            "fused": [1, 3, 5, 7, 2, 4],
+            "reranked": [1, 3, 5, 7, 2, 4],
+            "listwise": [1, 3, 5, 7, 2, 4],
+            "final": [1, 3, 5, 7],
+        },
+        [1, 3, 5, 7],
     ),
     "one_identifier": (
         {
@@ -607,7 +666,7 @@ EXPECTED = {
 
 
 @pytest.mark.parametrize(
-    ("engine", "name"), [(e, n) for e in ENGINES for n in runnable(e)]
+    ("engine", "name"), [(e, n) for e in ENGINES for n in SCENARIOS]
 )
 def test_the_pipeline_still_does_exactly_what_it_did(
     engine, name, monkeypatch, settings_override

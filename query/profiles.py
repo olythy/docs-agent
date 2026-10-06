@@ -17,15 +17,39 @@ Key exports:
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 
 from config import Settings
 from drivers.embedding import EmbeddingDriver
-from query.candidate_steps import DenseSearchStep, EmbedQueryStep
-from query.gate_steps import RelevanceGateStep
+from drivers.reranker import RerankerDriver
+from query.candidate_steps import (
+    CslsReorderStep,
+    DenseSearchStep,
+    EmbedQueryStep,
+    IdentifierPinStep,
+    KeywordSearchStep,
+    YearDenseWideningStep,
+    YearKeywordWideningStep,
+)
+from query.gate_steps import RelevanceGateStep, RerankScoreGateStep
+from query.ranking_steps import (
+    ListwiseRanker,
+    ListwiseRerankStep,
+    RerankStep,
+    RrfFusionStep,
+)
 from query.runner import PipelineError, RetrievalPipeline
-from query.selection_steps import CosineCutStep
+from query.selection_steps import CosineCutStep, TopKWithGuaranteesStep
 from query.step import RetrievalStep, StepName
 from store import VectorStore
+
+
+class Condition(StrEnum):
+    """When an optional step belongs to a profile (decided from the settings)."""
+
+    PERIOD_FILTER = "period_filter"  # RETRIEVAL_PERIOD_FILTER
+    CROSS_ENCODER = "cross_encoder"  # the reranker's scores are calibrated logits
+    LISTWISE = "listwise"  # LISTWISE_RERANK_ENABLED
 
 
 @dataclass(frozen=True)
@@ -34,9 +58,11 @@ class StepSpec:
 
     Attributes:
         kind: Which step.
+        when: The condition under which it is part of the profile (always, if ``None``).
     """
 
     kind: StepName
+    when: Condition | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +83,28 @@ class ProfileSpec:
 
 #: The valid profiles. Adding one means adding it here and measuring it.
 PROFILES: dict[str, ProfileSpec] = {
+    "hybrid": ProfileSpec(
+        name="hybrid",
+        steps=(
+            StepSpec(StepName.EMBED_QUERY),
+            StepSpec(StepName.DENSE_SEARCH),
+            StepSpec(StepName.RELEVANCE_GATE),
+            StepSpec(StepName.YEAR_DENSE_WIDENING, Condition.PERIOD_FILTER),
+            StepSpec(StepName.CSLS_REORDER),
+            StepSpec(StepName.KEYWORD_SEARCH),
+            StepSpec(StepName.YEAR_KEYWORD_WIDENING, Condition.PERIOD_FILTER),
+            StepSpec(StepName.RRF_FUSION),
+            StepSpec(StepName.IDENTIFIER_PIN),
+            StepSpec(StepName.RERANK),
+            StepSpec(StepName.RERANK_SCORE_GATE, Condition.CROSS_ENCODER),
+            StepSpec(StepName.LISTWISE_RERANK, Condition.LISTWISE),
+            StepSpec(StepName.TOP_K_SELECTION),
+        ),
+        measured=(
+            "the default since hybrid search was adopted (docs/decisions.md); pinned "
+            "by the characterization scenarios and retrieval-snapshot"
+        ),
+    ),
     "vector": ProfileSpec(
         name="vector",
         steps=tuple(
@@ -81,19 +129,33 @@ class RetrievalParams:
         top_k: How many chunks the context may hold (also the depth of the relevance gate).
         min_score: The cosine similarity threshold of the relevance gate.
         pool_size: How many candidates each search fetches.
+        diversify: Share the guaranteed slots across documents (the identifier pin
+            searches per token, the final cut takes turns across documents).
+        rerank_min_score: The lowest reranker score the score gate accepts.
+        period_filter: Whether the question's years narrow the retrieval.
     """
 
     top_k: int
     min_score: float
     pool_size: int
+    diversify: bool = True
+    rerank_min_score: float = 0.0
+    period_filter: bool = False
 
 
 @dataclass(frozen=True)
 class ResolvedProfile:
-    """A profile with its numbers settled."""
+    """A profile with its numbers settled and its optional steps decided.
+
+    Attributes:
+        spec: The profile.
+        params: The numbers.
+        steps: The kinds of the steps that apply, in order.
+    """
 
     spec: ProfileSpec
     params: RetrievalParams
+    steps: tuple[StepName, ...]
 
 
 class ProfileResolver:
@@ -130,12 +192,25 @@ class ProfileResolver:
             )
         s = self._settings
         k = top_k if top_k is not None else s.RETRIEVAL_TOP_K
+        enabled = {
+            Condition.PERIOD_FILTER: s.RETRIEVAL_PERIOD_FILTER,
+            Condition.CROSS_ENCODER: s.RERANKER_DRIVER.lower() == "cross_encoder",
+            Condition.LISTWISE: s.LISTWISE_RERANK_ENABLED,
+        }
         return ResolvedProfile(
             spec=spec,
             params=RetrievalParams(
                 top_k=k,
                 min_score=min_score if min_score is not None else s.RETRIEVAL_MIN_SCORE,
                 pool_size=max(k, s.RETRIEVAL_CANDIDATE_POOL_SIZE),
+                diversify=s.RETRIEVAL_DIVERSIFY_GUARANTEES,
+                rerank_min_score=s.RERANKER_MIN_SCORE,
+                period_filter=s.RETRIEVAL_PERIOD_FILTER,
+            ),
+            steps=tuple(
+                step.kind
+                for step in spec.steps
+                if step.when is None or enabled[step.when]
             ),
         )
 
@@ -146,6 +221,8 @@ class StepDeps:
 
     store: VectorStore
     embedding: EmbeddingDriver
+    reranker: RerankerDriver
+    listwise: ListwiseRanker
     params: RetrievalParams
 
 
@@ -157,6 +234,22 @@ _BUILDERS: dict[StepName, Callable[[StepDeps], RetrievalStep]] = {
         d.params.top_k, d.params.min_score
     ),
     StepName.COSINE_CUT: lambda d: CosineCutStep(d.params.min_score, d.params.top_k),
+    StepName.YEAR_DENSE_WIDENING: lambda d: YearDenseWideningStep(
+        d.store, d.params.pool_size
+    ),
+    StepName.CSLS_REORDER: lambda d: CslsReorderStep(),
+    StepName.YEAR_KEYWORD_WIDENING: lambda d: YearKeywordWideningStep(d.store),
+    StepName.LISTWISE_RERANK: lambda d: ListwiseRerankStep(d.listwise),
+    StepName.KEYWORD_SEARCH: lambda d: KeywordSearchStep(d.store),
+    StepName.RRF_FUSION: lambda d: RrfFusionStep(),
+    StepName.IDENTIFIER_PIN: lambda d: IdentifierPinStep(d.store, d.params.diversify),
+    StepName.RERANK: lambda d: RerankStep(d.reranker),
+    StepName.RERANK_SCORE_GATE: lambda d: RerankScoreGateStep(
+        d.params.rerank_min_score
+    ),
+    StepName.TOP_K_SELECTION: lambda d: TopKWithGuaranteesStep(
+        d.params.top_k, d.params.diversify, d.params.period_filter
+    ),
 }
 
 
@@ -165,10 +258,20 @@ class PipelineFactory:
 
     Args:
         embedding: The embedding driver the steps use.
+        reranker: The reranker driver the steps use.
+        listwise: The listwise reranker (called only when a profile includes the step,
+            so whatever it needs, such as a language-model client, is made lazily).
     """
 
-    def __init__(self, embedding: EmbeddingDriver) -> None:
+    def __init__(
+        self,
+        embedding: EmbeddingDriver,
+        reranker: RerankerDriver,
+        listwise: ListwiseRanker,
+    ) -> None:
         self._embedding = embedding
+        self._reranker = reranker
+        self._listwise = listwise
 
     def build(self, profile: ResolvedProfile, store: VectorStore) -> RetrievalPipeline:
         """Build the pipeline for ``store``.
@@ -176,11 +279,13 @@ class PipelineFactory:
         Raises:
             PipelineError: If a step kind has no builder, or the chain is invalid.
         """
-        deps = StepDeps(store, self._embedding, profile.params)
+        deps = StepDeps(
+            store, self._embedding, self._reranker, self._listwise, profile.params
+        )
         steps = []
-        for spec in profile.spec.steps:
-            builder = _BUILDERS.get(spec.kind)
+        for kind in profile.steps:
+            builder = _BUILDERS.get(kind)
             if builder is None:
-                raise PipelineError(f"no builder for step {spec.kind!r}")
+                raise PipelineError(f"no builder for step {kind!r}")
             steps.append(builder(deps))
         return RetrievalPipeline(steps)

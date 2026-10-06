@@ -78,10 +78,12 @@ class AuditLogObserver:
 
     Args:
         events: The event log to write to.
+        reranker_model: The name of the reranker model, for the rerank event.
     """
 
-    def __init__(self, events: EventLogger) -> None:
+    def __init__(self, events: EventLogger, reranker_model: str = "") -> None:
         self._events = events
+        self._reranker_model = reranker_model
 
     def on_step(
         self,
@@ -102,5 +104,18 @@ class AuditLogObserver:
                     "top_k": notes["gate_depth"],
                     "min_score": notes["gate_min_score"],
                     "candidate_count": notes["gate_candidates"],
+                },
+            )
+        elif step.name == StepName.RERANK_SCORE_GATE:
+            notes = result.notes
+            self._events.log(
+                LogAction.RERANK_APPLIED,
+                {
+                    "question": before.facts.question,
+                    "reranker_model": self._reranker_model,
+                    "threshold": notes["rerank_threshold"],
+                    "candidates_count": notes["rerank_candidates"],
+                    "accepted_count": notes["rerank_accepted"],
+                    "top_score": notes["rerank_top_score"],
                 },
             )

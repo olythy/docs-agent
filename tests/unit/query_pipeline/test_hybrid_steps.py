@@ -1,0 +1,388 @@
+"""The steps of the hybrid profile, one at a time.
+
+The scenarios (``test_retrieval_characterization.py``) pin what the whole chain does on
+a small corpus. These tests cover what a fake store cannot show (the arguments a step
+passes to the store) and compare the two steps that were *ported* from the original
+functions against those functions on many random inputs, so a slip in the port cannot
+hide behind the few scenarios.
+"""
+
+import random
+
+import pytest
+
+from logger import EventLogger
+from models import ChunkMetadata, RetrievedChunk
+from query.candidate_steps import (
+    CslsReorderStep,
+    IdentifierPinStep,
+    KeywordSearchStep,
+    YearDenseWideningStep,
+    YearKeywordWideningStep,
+)
+from query.context import RetrievalContext
+from query.facts import QueryFacts
+from query.gate_steps import RerankScoreGateStep
+from query.observers import AuditLogObserver
+from query.retrieval import _apply_top_k_with_guarantees, _csls_rerank
+from query.selection_steps import TopKWithGuaranteesStep
+from query.step import Continue, Halt
+
+
+def chunk(
+    chunk_id: int,
+    score: float = 0.5,
+    source: str = "a.docx",
+    date: str | None = None,
+    hub: float | None = None,
+) -> RetrievedChunk:
+    return RetrievedChunk(
+        id=chunk_id,
+        content="",
+        metadata=ChunkMetadata(
+            source_file=source,
+            page_number=None,
+            chunk_index=0,
+            document_date=date,
+            hub_score=hub,
+        ),
+        score=score,
+    )
+
+
+def ids(chunks) -> list[int]:
+    return [c.id for c in chunks]
+
+
+class SpyStore:
+    """Records how it was searched and answers with what it was given."""
+
+    def __init__(self, fulltext=(), by_identifier=(), dense=()):
+        self.fulltext, self.by_identifier, self.dense = fulltext, by_identifier, dense
+        self.search_calls: list[dict] = []
+        self.fulltext_calls: list[dict] = []
+        self.identifier_calls: list[dict] = []
+
+    def search_fulltext(self, query_text, top_k, **kwargs):
+        self.fulltext_calls.append({"top_k": top_k, **kwargs})
+        return list(self.fulltext)
+
+    def search(self, query_embedding, top_k, min_score, **kwargs):
+        self.search_calls.append({"top_k": top_k, "min_score": min_score, **kwargs})
+        return list(self.dense)
+
+    def search_by_identifier(self, tokens, top_k, per_token=False):
+        self.identifier_calls.append(
+            {"tokens": tokens, "top_k": top_k, "per_token": per_token}
+        )
+        return list(self.by_identifier)
+
+
+def context(**slots) -> RetrievalContext:
+    facts = slots.pop("facts", QueryFacts("q"))
+    return RetrievalContext(facts=facts, **slots)
+
+
+class TestKeywordSearch:
+    def test_it_fetches_as_many_candidates_as_the_vector_pool_holds(self):
+        store = SpyStore()
+
+        KeywordSearchStep(store).run(  # type: ignore[arg-type]
+            context(dense_pool=(chunk(1), chunk(2), chunk(3)))
+        )
+
+        assert store.fulltext_calls == [{"top_k": 3}]
+
+    def test_the_metadata_filter_is_passed_only_when_there_is_one(self):
+        store = SpyStore()
+        step = KeywordSearchStep(store)  # type: ignore[arg-type]
+
+        step.run(context(dense_pool=(chunk(1),), metadata_filter={"k": "v"}))
+
+        assert store.fulltext_calls == [{"top_k": 1, "metadata_filter": {"k": "v"}}]
+
+
+FACTS_2021 = QueryFacts("q", years=(2021,))
+
+
+class TestYearDenseWidening:
+    def widen(self, store, pool, facts=FACTS_2021, **extra):
+        step = YearDenseWideningStep(store, pool_size=7)  # type: ignore[arg-type]
+        return step.run(
+            context(facts=facts, query_vector=(0.1,), dense_pool=pool, **extra)
+        )
+
+    def test_it_searches_the_years_with_the_pool_size_and_no_threshold(self):
+        store = SpyStore(dense=(chunk(9, 0.4),))
+
+        self.widen(store, (chunk(1, 0.9),))
+
+        assert store.search_calls == [{"top_k": 7, "min_score": 0.0, "years": [2021]}]
+
+    def test_the_metadata_filter_goes_along(self):
+        store = SpyStore(dense=(chunk(9, 0.4),))
+
+        self.widen(store, (chunk(1, 0.9),), metadata_filter={"k": "v"})
+
+        assert store.search_calls[0]["years"] == [2021]
+        assert store.search_calls[0]["metadata_filter"] == {"k": "v"}
+
+    def test_the_union_is_sorted_by_similarity_and_a_tie_keeps_the_original_first(self):
+        store = SpyStore(dense=(chunk(9, 0.5), chunk(8, 0.7), chunk(1, 0.5)))
+
+        result = self.widen(store, (chunk(1, 0.5), chunk(2, 0.9)))
+
+        assert isinstance(result, Continue)
+        # 1 is already there (not added twice); 1 (0.5) keeps its place before 9 (0.5)
+        assert ids(result.context.dense_pool or ()) == [2, 8, 1, 9]
+
+    def test_it_reports_the_years_and_the_year_pool(self):
+        store = SpyStore(dense=(chunk(9, 0.4),))
+
+        result = self.widen(store, (chunk(1, 0.9),))
+
+        assert isinstance(result, Continue)
+        assert result.notes == {"years": [2021]}
+        assert [(r.label, ids(r.chunks)) for r in result.records] == [
+            ("year_pool", [9])
+        ]
+
+    def test_without_years_nothing_is_searched_or_changed(self):
+        store = SpyStore(dense=(chunk(9, 0.4),))
+
+        result = self.widen(store, (chunk(1, 0.9),), facts=QueryFacts("q"))
+
+        assert store.search_calls == []
+        assert isinstance(result, Continue)
+        assert ids(result.context.dense_pool or ()) == [1]
+        assert result.records == () and dict(result.notes) == {}
+
+
+class TestYearKeywordWidening:
+    def widen(self, store, facts=FACTS_2021, **extra):
+        return YearKeywordWideningStep(store).run(  # type: ignore[arg-type]
+            context(
+                facts=facts,
+                dense_pool=(chunk(1), chunk(2), chunk(3)),
+                keyword_pool=(chunk(5, 3.0), chunk(6, 1.0)),
+                **extra,
+            )
+        )
+
+    def test_the_limit_is_the_size_of_the_vector_pool_and_the_years_are_passed(self):
+        store = SpyStore(fulltext=(chunk(7, 9.0),))
+
+        self.widen(store)
+
+        assert store.fulltext_calls == [{"top_k": 3, "years": [2021]}]
+
+    def test_the_metadata_filter_goes_along(self):
+        store = SpyStore(fulltext=(chunk(7, 9.0),))
+
+        self.widen(store, metadata_filter={"k": "v"})
+
+        assert store.fulltext_calls == [
+            {"top_k": 3, "years": [2021], "metadata_filter": {"k": "v"}}
+        ]
+
+    def test_the_year_candidates_are_appended_not_sorted_in(self):
+        """Even a year candidate with a higher score goes after the existing ones."""
+        store = SpyStore(fulltext=(chunk(7, 9.0), chunk(5, 3.0)))
+
+        result = self.widen(store)
+
+        assert isinstance(result, Continue)
+        assert ids(result.context.keyword_pool or ()) == [5, 6, 7]
+        assert [(r.label, ids(r.chunks)) for r in result.records] == [
+            ("year_pool", [7, 5])
+        ]
+
+    def test_without_years_nothing_is_searched(self):
+        store = SpyStore(fulltext=(chunk(7, 9.0),))
+
+        result = self.widen(store, facts=QueryFacts("q"))
+
+        assert store.fulltext_calls == []
+        assert isinstance(result, Continue)
+        assert ids(result.context.keyword_pool or ()) == [5, 6]
+
+
+class TestIdentifierPin:
+    def run_step(self, store, identifiers, per_token=True):
+        step = IdentifierPinStep(store, per_token=per_token)  # type: ignore[arg-type]
+        return step.run(
+            context(
+                facts=QueryFacts("q", identifiers=identifiers),
+                dense_pool=(chunk(1), chunk(2), chunk(3)),
+                ranked=(chunk(1), chunk(2)),
+            )
+        )
+
+    def test_it_searches_every_token_with_a_limit_of_the_pool_size(self):
+        store = SpyStore(by_identifier=(chunk(9),))
+
+        self.run_step(store, ("A/1", "B/2"))
+
+        assert store.identifier_calls == [
+            {"tokens": ["A/1", "B/2"], "top_k": 3, "per_token": True}
+        ]
+
+    @pytest.mark.parametrize("per_token", [True, False])
+    def test_it_passes_the_per_token_choice_on(self, per_token):
+        store = SpyStore(by_identifier=(chunk(9),))
+
+        self.run_step(store, ("A/1",), per_token=per_token)
+
+        assert store.identifier_calls[0]["per_token"] is per_token
+
+    def test_new_matches_go_in_front_and_every_match_is_pinned(self):
+        store = SpyStore(by_identifier=(chunk(9), chunk(2)))  # 2 is already ranked
+
+        result = self.run_step(store, ("A/1",))
+
+        assert isinstance(result, Continue)
+        assert ids(result.context.ranked or ()) == [9, 1, 2]
+        assert result.context.pins == {9, 2}
+        assert [r.label for r in result.records] == ["identifier_matches"]
+
+    def test_without_an_identifier_it_searches_nothing_and_pins_nothing(self):
+        store = SpyStore(by_identifier=(chunk(9),))
+
+        result = self.run_step(store, ())
+
+        assert store.identifier_calls == []
+        assert isinstance(result, Continue)
+        assert result.context.pins == frozenset()
+        assert ids(result.context.ranked or ()) == [1, 2]
+        assert result.records == ()
+
+
+class TestRerankScoreGate:
+    def test_a_pinned_chunk_survives_a_low_score(self):
+        ranked = (chunk(1, 0.9), chunk(2, 0.1), chunk(3, 0.1))
+
+        result = RerankScoreGateStep(0.5).run(
+            context(ranked=ranked, pins=frozenset({3}))
+        )
+
+        assert isinstance(result, Continue)
+        assert ids(result.context.ranked or ()) == [1, 3]
+        assert result.notes == {
+            "rerank_threshold": 0.5,
+            "rerank_candidates": 3,
+            "rerank_accepted": 2,
+            "rerank_top_score": 0.9,
+        }
+
+    def test_nothing_accepted_is_a_refusal_that_keeps_the_numbers(self):
+        result = RerankScoreGateStep(0.5).run(
+            context(ranked=(chunk(1, 0.1),), pins=frozenset())
+        )
+
+        assert isinstance(result, Halt)
+        assert result.declined.reason == "rerank_rejected"
+        assert result.declined.stage == "rerank_score_gate"
+        assert result.notes["rerank_accepted"] == 0
+
+    def test_the_audit_event_is_what_the_original_logged(self, tmp_path):
+        import json
+
+        path = tmp_path / "log.jsonl"
+        gate = RerankScoreGateStep(0.5)
+        before = context(ranked=(chunk(1, 0.9), chunk(2, 0.1)), pins=frozenset())
+
+        AuditLogObserver(EventLogger(path), reranker_model="m").on_step(
+            gate, before, gate.run(before), 0.0
+        )
+
+        event = json.loads(path.read_text())
+        assert event["action"] == "rerank_applied"
+        assert event["data"] == {
+            "question": "q",
+            "reranker_model": "m",
+            "threshold": 0.5,
+            "candidates_count": 2,
+            "accepted_count": 1,
+            "top_score": 0.9,
+        }
+
+
+def random_chunks(rng: random.Random, n: int) -> list[RetrievedChunk]:
+    sources = ["a.docx", "b.docx", "c.docx"]
+    dates = ["2020-01-01", "2021-05-05", "2022-09-09", None]
+    return [
+        chunk(
+            i,
+            score=round(rng.random(), 2),  # ties are likely on purpose
+            source=rng.choice(sources),
+            date=rng.choice(dates),
+            hub=rng.choice([None, round(rng.random(), 2)]),
+        )
+        for i in range(1, n + 1)
+    ]
+
+
+class TestPortedFunctionsAgreeWithTheOriginals:
+    """The steps are ports of private functions of ``query.retrieval``; on random
+    inputs (with score ties) they must give exactly what those functions give."""
+
+    @pytest.mark.parametrize("seed", range(150))
+    def test_top_k_with_guarantees(self, seed):
+        rng = random.Random(seed)
+        chunks = random_chunks(rng, rng.randint(0, 14))
+        chunks.sort(key=lambda c: -c.score)
+        pins = {c.id for c in chunks if rng.random() < 0.4}
+        top_k = rng.randint(1, 6)
+        diversify = rng.random() < 0.5
+        years = rng.choice([[], [2021], [2020, 2022]])
+        step = TopKWithGuaranteesStep(top_k, diversify, year_quota=bool(years))
+
+        result = step.run(
+            context(
+                facts=QueryFacts("q", years=tuple(years)),
+                ranked=tuple(chunks),
+                pins=frozenset(pins),
+            )
+        )
+
+        assert isinstance(result, Continue)
+        assert ids(result.context.selected or ()) == ids(
+            _apply_top_k_with_guarantees(
+                chunks, pins, top_k, diversify=diversify, years=years
+            )
+        )
+
+    @pytest.mark.parametrize("seed", range(150))
+    def test_csls(self, seed):
+        rng = random.Random(seed)
+        pool = random_chunks(rng, rng.randint(0, 12))
+
+        result = CslsReorderStep().run(context(dense_pool=tuple(pool)))
+
+        assert isinstance(result, Continue)
+        assert ids(result.context.dense_pool or ()) == ids(_csls_rerank(pool))
+        assert all(
+            a.score == b.score
+            for a, b in zip(
+                sorted(result.context.dense_pool or (), key=lambda c: c.id),
+                sorted(pool, key=lambda c: c.id),
+            )
+        )  # raw scores untouched
+
+
+def test_the_year_quota_only_applies_when_the_profile_asks_for_it():
+    chunks = tuple(chunk(i, date="2020-01-01") for i in range(1, 5)) + (
+        chunk(9, date="2021-01-01"),
+    )
+    facts = QueryFacts("q", years=(2021,))
+
+    with_quota = TopKWithGuaranteesStep(4, False, year_quota=True).run(
+        context(facts=facts, ranked=chunks, pins=frozenset())
+    )
+    without = TopKWithGuaranteesStep(4, False, year_quota=False).run(
+        context(facts=facts, ranked=chunks, pins=frozenset())
+    )
+
+    assert isinstance(with_quota, Continue) and isinstance(without, Continue)
+    assert 9 in ids(with_quota.context.selected or ())
+    assert 9 not in ids(without.context.selected or ())

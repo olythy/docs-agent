@@ -1,7 +1,8 @@
 """Steps that can end the retrieval with a refusal.
 
 Key exports:
-    RelevanceGateStep -- Refuses when nothing is similar enough to the question.
+    RelevanceGateStep  -- Refuses when nothing is similar enough to the question.
+    RerankScoreGateStep -- Refuses when the reranker scores every candidate too low.
 """
 
 from query.context import RetrievalContext, Slot
@@ -43,3 +44,41 @@ class RelevanceGateStep(RetrievalStep):
         return Halt(
             Declined(DeclineReason.NOT_RELEVANT, stage=str(self.name)), notes=notes
         )
+
+
+class RerankScoreGateStep(RetrievalStep):
+    """Drops candidates the reranker scored below a threshold; refuses if none are left.
+
+    A pinned chunk (an exact identifier match) survives the threshold: a question that
+    names several cases can make the reranker score a definitionally right chunk low,
+    since it only reads as on-topic for part of the question. Only meaningful for a
+    reranker whose scores are calibrated (a cross-encoder's logits), which is why a
+    profile includes this step only for one.
+
+    Args:
+        min_score: The lowest reranker score that is accepted.
+    """
+
+    name = StepName.RERANK_SCORE_GATE
+    requires = frozenset({Slot.RANKED, Slot.PINS})
+    provides = frozenset({Slot.RANKED})
+
+    def __init__(self, min_score: float) -> None:
+        self._min_score = min_score
+
+    def run(self, context: RetrievalContext) -> StepResult:
+        ranked = context.ranked or ()
+        pins = context.pins or frozenset()
+        kept = tuple(c for c in ranked if c.score >= self._min_score or c.id in pins)
+        notes = {
+            "rerank_threshold": self._min_score,
+            "rerank_candidates": len(ranked),
+            "rerank_accepted": len(kept),
+            "rerank_top_score": ranked[0].score if ranked else None,
+        }
+        if not kept:
+            return Halt(
+                Declined(DeclineReason.RERANK_REJECTED, stage=str(self.name)),
+                notes=notes,
+            )
+        return Continue(context.with_slots(ranked=kept), notes=notes)

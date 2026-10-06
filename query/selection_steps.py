@@ -1,9 +1,11 @@
 """Steps that choose the final chunks.
 
 Key exports:
-    CosineCutStep -- The plain similarity cut of the ``vector`` profile.
+    CosineCutStep           -- The plain similarity cut of the ``vector`` profile.
+    TopKWithGuaranteesStep  -- The final cut of the ``hybrid`` profile.
 """
 
+from models import RetrievedChunk
 from query.context import RetrievalContext, Slot
 from query.step import Continue, RetrievalStep, StepName, StepResult
 
@@ -27,3 +29,96 @@ class CosineCutStep(RetrievalStep):
     def run(self, context: RetrievalContext) -> StepResult:
         kept = [c for c in (context.dense_pool or ()) if c.score >= self._min_score]
         return Continue(context.with_slots(selected=tuple(kept[: self._top_k])))
+
+
+def _round_robin_by_document(
+    chunks: list[RetrievedChunk], limit: int
+) -> list[RetrievedChunk]:
+    """Pick up to ``limit`` chunks, taking turns across distinct documents.
+
+    ``chunks`` is in descending score order. Round 1 takes each document's best chunk
+    (documents ordered by that chunk's rank), round 2 each document's second best, and
+    so on, so a question naming two documents gets both represented before either
+    gets a second chunk. Documents are told apart by their source file.
+    """
+    by_document: dict[str, list[RetrievedChunk]] = {}
+    for chunk in chunks:
+        by_document.setdefault(chunk.metadata.source_file, []).append(chunk)
+
+    picked: list[RetrievedChunk] = []
+    queues = list(by_document.values())
+    while queues and len(picked) < limit:
+        for queue in queues:
+            if len(picked) == limit:
+                break
+            picked.append(queue.pop(0))
+        queues = [queue for queue in queues if queue]
+    return picked
+
+
+class TopKWithGuaranteesStep(RetrievalStep):
+    """Cuts the ranked list to ``top_k``, letting guaranteed chunks go first.
+
+    * Pinned chunks (exact identifier matches) are taken first, capped at ``top_k``
+      (one cited case number can match a whole document of chunks, and letting them
+      all through floods the context with one document). With ``diversify`` they take
+      turns across documents, so a question naming two documents shows both.
+    * With ``year_quota`` and years in the question, at least ``ceil(top_k / 2)`` of
+      the final chunks come from those years (guaranteed ones count), if there are
+      that many candidates; the reranker knows nothing about dates, so widening the
+      pool alone is not enough. Soft: with no in-period candidate nothing changes.
+    * The remaining slots go to the best-ranked chunks.
+
+    Args:
+        top_k: The most chunks to keep.
+        diversify: Share the pinned slots across documents.
+        year_quota: Reserve half of the slots for the question's years.
+    """
+
+    name = StepName.TOP_K_SELECTION
+    requires = frozenset({Slot.RANKED, Slot.PINS})
+    provides = frozenset({Slot.SELECTED})
+
+    def __init__(self, top_k: int, diversify: bool, year_quota: bool) -> None:
+        self._top_k = top_k
+        self._diversify = diversify
+        self._year_quota = year_quota
+
+    def run(self, context: RetrievalContext) -> StepResult:
+        chunks = list(context.ranked or ())
+        pins = context.pins or frozenset()
+        top_k = self._top_k
+        years = list(context.facts.years) if self._year_quota else []
+
+        pinned_pool = [c for c in chunks if c.id in pins]
+        selected = (
+            _round_robin_by_document(pinned_pool, top_k)
+            if self._diversify
+            else pinned_pool[:top_k]
+        )
+        picked = {c.id for c in selected}
+
+        if years:
+            wanted = {str(y) for y in years}
+
+            def in_period(chunk: RetrievedChunk) -> bool:
+                return (chunk.metadata.document_date or "")[:4] in wanted
+
+            reserve = -(-top_k // 2)
+            need = min(
+                reserve - sum(1 for c in selected if in_period(c)),
+                top_k - len(selected),
+            )
+            if need > 0:
+                candidates = [c for c in chunks if c.id not in picked and in_period(c)]
+                extra = (
+                    _round_robin_by_document(candidates, need)
+                    if self._diversify
+                    else candidates[:need]
+                )
+                selected += extra
+                picked |= {c.id for c in extra}
+
+        rest = [c for c in chunks if c.id not in picked]
+        final = selected + rest[: max(0, top_k - len(selected))]
+        return Continue(context.with_slots(selected=tuple(final)))

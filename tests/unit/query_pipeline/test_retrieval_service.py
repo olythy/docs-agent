@@ -1,6 +1,7 @@
 """The service wires the pieces: it runs the profile and tells the observers."""
 
 from test_retrieval_characterization import (  # type: ignore[import-not-found]
+    FakeCrossEncoder,
     FakeEmbedding,
     FakeStore,
 )
@@ -23,7 +24,11 @@ def service(settings_override, observers=()):
     return RetrievalService(
         QueryFactsReader(),
         ProfileResolver(config),
-        PipelineFactory(embedding),  # type: ignore[arg-type]
+        PipelineFactory(
+            embedding,  # type: ignore[arg-type]
+            FakeCrossEncoder(),
+            lambda q, chunks: chunks,
+        ),
         embedding,  # type: ignore[arg-type]
         observers,
     )
