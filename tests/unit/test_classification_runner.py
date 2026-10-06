@@ -28,8 +28,8 @@ class FakeDocuments:
     def list_types(self, status=None):
         return list(self.types.values())
 
-    def get_type(self, name):
-        return self.types.get(name)
+    def get_type(self, type_name):
+        return self.types.get(type_name)
 
     def upsert_type(self, doc_type):
         self.types[doc_type.type] = doc_type
@@ -43,7 +43,7 @@ class FakeDocuments:
 
 
 class FakeChunks:
-    def __init__(self, body=HEAD):
+    def __init__(self, body: str | None = HEAD):
         self.body = body
 
     def get_document_chunks(self, content_hash):

@@ -2,9 +2,11 @@
 
 import json
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
+from drivers.llm import AnswerDriver
 from metadata.classifier import Classification, LLMTypeClassifier, TypeProposal
 from models import DocumentType, TypeStatus
 
@@ -27,7 +29,7 @@ class ScriptedLLM:
 
 def _classify(reply, text="TEXT BODY"):
     llm = ScriptedLLM(reply if isinstance(reply, str) else json.dumps(reply))
-    return LLMTypeClassifier(llm).classify(text, TYPES), llm
+    return LLMTypeClassifier(cast(AnswerDriver, llm)).classify(text, TYPES), llm
 
 
 def test_it_picks_an_existing_type_and_keeps_the_quote():
@@ -71,7 +73,7 @@ def test_the_prompt_lists_every_type_with_its_status_and_description_and_the_tex
 def test_the_prompt_says_none_yet_when_no_type_is_known():
     llm = ScriptedLLM(json.dumps({"type": None, "proposal": None, "evidence": ""}))
 
-    LLMTypeClassifier(llm).classify("t", [])
+    LLMTypeClassifier(cast(AnswerDriver, llm)).classify("t", [])
 
     assert "(none yet)" in llm.prompts[0]
 
