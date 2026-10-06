@@ -32,7 +32,11 @@ from functools import lru_cache
 from config import settings
 from drivers.gcloud_auth import get_access_token
 from drivers.gcloud_auth import invalidate as invalidate_gcloud_token
-from retry_policy import TransientAPIError, retry_on_transient_error
+from retry_policy import (
+    TransientAPIError,
+    is_retryable_status,
+    retry_on_transient_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -579,7 +583,7 @@ class GeminiEmbeddingDriver(EmbeddingDriver):
             raise TransientAPIError(f"Gemini embeddings network error: {exc}") from exc
         except APIError as exc:
             status = getattr(exc, "code", None)
-            if status == 429 or (status is not None and status >= 500):
+            if is_retryable_status(status):
                 raise TransientAPIError(
                     f"Gemini embeddings request status {status}"
                 ) from exc

@@ -41,7 +41,11 @@ from typing import TYPE_CHECKING, cast
 
 from config import settings
 from models import RetrievedChunk
-from retry_policy import TransientAPIError, retry_on_transient_error
+from retry_policy import (
+    TransientAPIError,
+    is_retryable_status,
+    retry_on_transient_error,
+)
 
 if TYPE_CHECKING:
     # Only for type annotations — the real import is deferred to inside each
@@ -701,7 +705,7 @@ class GeminiAnswerDriver(AnswerDriver):
 
                 invalidate_gcloud_token()
                 raise TransientAPIError("Gemini generate_content status 401") from exc
-            if status == 429 or (status is not None and status >= 500):
+            if is_retryable_status(status):
                 raise TransientAPIError(
                     f"Gemini generate_content status {status}"
                 ) from exc

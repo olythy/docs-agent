@@ -87,7 +87,7 @@ class LLMTypeClassifier(TypeClassifier):
             or ""
         )
         try:
-            data = extract_json(reply)
+            data = extract_json(reply, reject_duplicate_keys=True)
         except (ValueError, json.JSONDecodeError):
             return Classification(failed=True)
         chosen, raw = data.get("type"), data.get("proposal")

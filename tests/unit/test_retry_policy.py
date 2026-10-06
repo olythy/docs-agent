@@ -78,3 +78,12 @@ def test_non_transient_error_propagates_immediately(monkeypatch):
 
     assert attempts["count"] == 1
     fake_sleep.assert_not_called()
+
+
+def test_which_api_statuses_are_retried():
+    from retry_policy import is_retryable_status
+
+    assert all(is_retryable_status(code) for code in (429, 499, 500, 502, 503, 504))
+    assert not any(
+        is_retryable_status(code) for code in (None, 200, 400, 401, 403, 404)
+    )

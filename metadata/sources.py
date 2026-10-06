@@ -169,7 +169,7 @@ class LLMMetaSource(MetaSource):
             or ""
         )
         try:
-            data = extract_json(reply)
+            data = extract_json(reply, reject_duplicate_keys=True)
         except (ValueError, json.JSONDecodeError):
             return SourceResult(failed=True)
         wanted = {k.key for k in keys}

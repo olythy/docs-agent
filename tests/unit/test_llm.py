@@ -420,6 +420,57 @@ def test_gemini_driver_run_tool_calling_turn_retries_on_429_then_succeeds(
     assert fake_client.models.generate_content.call_count == 2
 
 
+@pytest.mark.parametrize("status", [429, 499, 500, 503])
+def test_gemini_driver_retries_a_transient_status_then_succeeds(
+    monkeypatch, settings_override, status
+):
+    """499 CANCELLED aborted a whole eval run once, then did not recur on the next try."""
+    from google.genai.errors import APIError
+
+    monkeypatch.setattr(
+        llm_module, "settings", settings_override(LLM_REQUEST_DELAY_SECONDS=0.0)
+    )
+    fake_response = MagicMock(text="ok", candidates=[MagicMock(content=None)])
+    fake_client = MagicMock()
+    fake_client.models.generate_content.side_effect = [
+        APIError(code=status, response_json={"error": {"message": "transient"}}),
+        fake_response,
+    ]
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    result = GeminiAnswerDriver(model="m").run_tool_calling_turn(
+        [{"role": "user", "content": "hey"}]
+    )
+
+    assert result.content == "ok"
+    assert fake_client.models.generate_content.call_count == 2
+
+
+@pytest.mark.parametrize("status", [400, 403, 404])
+def test_gemini_driver_does_not_retry_a_client_error(
+    monkeypatch, settings_override, status
+):
+    from google.genai.errors import APIError
+
+    monkeypatch.setattr(
+        llm_module, "settings", settings_override(LLM_REQUEST_DELAY_SECONDS=0.0)
+    )
+    fake_client = MagicMock()
+    fake_client.models.generate_content.side_effect = APIError(
+        code=status, response_json={"error": {"message": "bad request"}}
+    )
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
+    monkeypatch.setattr("time.sleep", MagicMock())
+
+    with pytest.raises(APIError):
+        GeminiAnswerDriver(model="m").run_tool_calling_turn(
+            [{"role": "user", "content": "hey"}]
+        )
+
+    assert fake_client.models.generate_content.call_count == 1
+
+
 def test_gemini_driver_retries_network_error_then_succeeds(
     monkeypatch, settings_override
 ):

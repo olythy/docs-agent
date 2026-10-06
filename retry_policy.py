@@ -1,6 +1,7 @@
 """Shared retry-with-backoff policy for outbound calls to rate-limited external APIs.
 
 Exports:
+    - ``is_retryable_status()``: which API error statuses are retried (429, 499, 5xx).
     - ``TransientAPIError``: the exception a call site raises to mark a
       failure as retryable (network error, 429, 5xx).
     - ``retry_on_transient_error()``: a ``tenacity`` decorator factory with
@@ -22,6 +23,20 @@ from tenacity import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+#: HTTP statuses retried like a server error: 429 (rate limit) and 499 (``CANCELLED``:
+#: confirmed live once, in the middle of a run, and gone on the very next try).
+RETRYABLE_STATUSES = frozenset({429, 499})
+
+
+def is_retryable_status(status: int | None) -> bool:
+    """Whether an API error status is worth retrying: 429, 499 or any 5xx.
+
+    Args:
+        status: The HTTP status code of the error, if it has one.
+    """
+    return status is not None and (status in RETRYABLE_STATUSES or status >= 500)
 
 
 class TransientAPIError(OSError):
