@@ -375,9 +375,16 @@ class Settings:
                               (3/3 on q0010); the partial-coverage wording
                               plus a note that the excerpts are a *sample* of
                               a larger collection brought that to 0/3. The
-                              exact refusal sentence is kept. Off by default
-                              pending a regression check on the personas that
-                              are at 100% (see docs/decisions.md).
+                              exact refusal sentence is kept. Its regression
+                              check passed on 2026-10-05 (the adversarial
+                              questions are still declined, the single-
+                              document ones do not regress; see
+                              docs/decisions.md). It stays *off by default
+                              while the system is being developed*, so runs
+                              can be compared with and without it; the plan
+                              is to make it the only behaviour, and delete
+                              this switch, once the full end-of-work run
+                              confirms it.
         QUERY_ROUTER          Whether ``query_knowledge_base`` first asks the
                               query planner what kind of question this is
                               (default: ``False``). Counting, listing and
