@@ -1,0 +1,148 @@
+"""The observers: what is logged for a step, and that the old trace stays unchanged."""
+
+import json
+import logging
+
+from logger import EventLogger
+from models import ChunkMetadata, RetrievedChunk
+from query.context import RetrievalContext
+from query.facts import QueryFacts
+from query.gate_steps import RelevanceGateStep
+from query.legacy_trace import LegacyTraceProjection
+from query.observers import AuditLogObserver, CompositeObserver, ProgressLogObserver
+from query.runner import PipelineRun, StageRecord
+from query.step import Continue, RetrievalStep
+
+
+def chunk(chunk_id: int, score: float) -> RetrievedChunk:
+    return RetrievedChunk(
+        id=chunk_id,
+        content="",
+        metadata=ChunkMetadata(source_file="a.docx", page_number=None, chunk_index=0),
+        score=score,
+    )
+
+
+def context(*scores: float) -> RetrievalContext:
+    return RetrievalContext(
+        facts=QueryFacts("the question"),
+        dense_pool=tuple(chunk(i, s) for i, s in enumerate(scores, start=1)),
+    )
+
+
+def events(path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+class TestAuditLog:
+    def test_a_passed_gate_writes_the_same_event_as_before(self, tmp_path):
+        path = tmp_path / "log.jsonl"
+        gate = RelevanceGateStep(depth=2, min_score=0.5)
+        before = context(0.9, 0.1, 0.1)
+
+        AuditLogObserver(EventLogger(path)).on_step(gate, before, gate.run(before), 0.0)
+
+        (event,) = events(path)
+        assert event["action"] == "relevance_gate_checked"
+        assert event["data"] == {
+            "question": "the question",
+            "passed": True,
+            "top_score": 0.9,
+            "top_k": 2,
+            "min_score": 0.5,
+            "candidate_count": 3,
+        }
+
+    def test_a_failed_gate_is_logged_too(self, tmp_path):
+        path = tmp_path / "log.jsonl"
+        gate = RelevanceGateStep(depth=2, min_score=0.5)
+        before = context(0.2)
+
+        AuditLogObserver(EventLogger(path)).on_step(gate, before, gate.run(before), 0.0)
+
+        assert events(path)[0]["data"]["passed"] is False
+
+    def test_a_step_without_an_event_writes_nothing(self, tmp_path):
+        path = tmp_path / "log.jsonl"
+
+        class Plain(RetrievalStep):
+            name = "dense_search"
+
+            def run(self, context):
+                return Continue(context)
+
+        before = context(0.9)
+        AuditLogObserver(EventLogger(path)).on_step(
+            Plain(), before, Continue(before), 0.0
+        )
+
+        assert not path.exists() or path.read_text() == ""
+
+
+class TestProgress:
+    def test_it_logs_a_line_per_step_with_the_sizes(self, caplog):
+        gate = RelevanceGateStep(depth=2, min_score=0.5)
+        before = context(0.9)
+
+        with caplog.at_level(logging.INFO, logger="query.progress"):
+            ProgressLogObserver().on_step(gate, before, gate.run(before), 0.012)
+
+        assert "relevance_gate" in caplog.text
+
+    def test_a_refusal_is_logged_with_its_reason(self, caplog):
+        gate = RelevanceGateStep(depth=2, min_score=0.5)
+        before = context(0.1)
+
+        with caplog.at_level(logging.INFO, logger="query.progress"):
+            ProgressLogObserver().on_step(gate, before, gate.run(before), 0.0)
+
+        assert "declined (not_relevant)" in caplog.text
+
+
+class TestComposite:
+    def test_it_forwards_to_every_observer_in_order(self):
+        seen: list[str] = []
+
+        class Tag:
+            def __init__(self, tag):
+                self.tag = tag
+
+            def on_step(self, step, before, result, seconds):
+                seen.append(self.tag)
+
+        gate = RelevanceGateStep(depth=1, min_score=0.5)
+        before = context(0.9)
+
+        CompositeObserver([Tag("a"), Tag("b")]).on_step(
+            gate, before, gate.run(before), 0.0
+        )
+
+        assert seen == ["a", "b"]
+
+
+class TestLegacyNotes:
+    def test_only_the_notes_the_old_trace_had_reach_it(self):
+        """Steps report more notes (for the logs); the old trace must not grow."""
+        record = StageRecord(
+            step="relevance_gate",
+            inputs={},
+            outputs={},
+            aux={},
+            notes={
+                "gate_passed": True,
+                "gate_top_score": 0.9,
+                "gate_min_score": 0.5,
+                "gate_depth": 4,
+                "gate_candidates": 20,
+            },
+            seconds=0.0,
+        )
+        run = PipelineRun(outcome=None, context=context(), halted_by=None)  # type: ignore[arg-type]
+
+        trace = LegacyTraceProjection().project([record], run)
+
+        assert trace.notes == {
+            "gate_passed": True,
+            "gate_top_score": 0.9,
+            "gate_min_score": 0.5,
+        }

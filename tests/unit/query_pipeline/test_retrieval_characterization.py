@@ -29,11 +29,11 @@ import pytest
 import query.retrieval as retrieval_module
 from drivers.reranker import CrossEncoderRerankerDriver
 from models import ChunkMetadata, RetrievalTrace, RetrievedChunk
-from query.retrieval import (
-    HybridRetrievalStrategy,
-    VectorRetrievalStrategy,
-    retrieve_chunks,
-)
+from query.facts import QueryFactsReader
+from query.outcome import Answerable
+from query.profiles import PipelineFactory, ProfileResolver
+from query.retrieval import retrieve_chunks
+from query.service import RetrievalRequest, RetrievalService
 
 CASE = "10.P.20.100/2022/5"
 CASE2 = "20.P.20.200/2021/3"
@@ -171,26 +171,35 @@ class FakeListwise:
         return list(reversed(chunks))
 
 
-def _run(
+_BASE_SETTINGS = {
+    "RETRIEVAL_STRATEGY": "hybrid",
+    "RETRIEVAL_TOP_K": 4,
+    "RETRIEVAL_CANDIDATE_POOL_SIZE": 6,
+    "RETRIEVAL_MIN_SCORE": 0.25,
+    "RERANKER_MIN_SCORE": 0.5,
+    "RETRIEVAL_PERIOD_FILTER": False,
+    "RETRIEVAL_DIVERSIFY_GUARANTEES": True,
+    "LISTWISE_RERANK_ENABLED": False,
+}
+
+
+def _run_legacy(
     monkeypatch,
     settings_override,
     question,
     *,
-    strategy=None,
     store=None,
     reranker=None,
     metadata_filter=None,
     **settings,
 ):
-    base = {
-        "RETRIEVAL_TOP_K": 4,
-        "RETRIEVAL_CANDIDATE_POOL_SIZE": 6,
-        "RETRIEVAL_MIN_SCORE": 0.25,
-        "RERANKER_MIN_SCORE": 0.5,
-        "RETRIEVAL_PERIOD_FILTER": False,
-        "LISTWISE_RERANK_ENABLED": False,
-    }
-    base.update(settings)
+    """Run the original pipeline (``retrieve_chunks`` with the strategy classes).
+
+    A scenario is described engine-neutrally (settings overrides, a store, a reranker,
+    a metadata filter); an engine turns that into a run and returns the ids each
+    recorded stage held and the final ids.
+    """
+    base = {**_BASE_SETTINGS, **settings}
     monkeypatch.setattr(retrieval_module, "settings", settings_override(**base))
     monkeypatch.setattr(
         retrieval_module, "get_embedding_driver", lambda: FakeEmbedding()
@@ -205,7 +214,6 @@ def _run(
     trace = RetrievalTrace()
     chunks = retrieve_chunks(
         question,
-        strategy=strategy,
         store=store or FakeStore(),  # type: ignore[arg-type]
         trace=trace,
         metadata_filter=metadata_filter,
@@ -215,8 +223,61 @@ def _run(
     ]
 
 
-def hybrid(**kwargs):
-    return HybridRetrievalStrategy(**kwargs)
+def _run_v2(
+    monkeypatch,
+    settings_override,
+    question,
+    *,
+    store=None,
+    reranker=None,
+    metadata_filter=None,
+    **settings,
+):
+    """Run the new pipeline (``RetrievalService``) on the same neutral description."""
+    merged = {**_BASE_SETTINGS, **settings}
+    config = settings_override(**merged)
+    embedding = FakeEmbedding()
+    service = RetrievalService(
+        QueryFactsReader(),
+        ProfileResolver(config),
+        PipelineFactory(embedding),  # type: ignore[arg-type]
+        embedding,  # type: ignore[arg-type]
+    )
+    result = service.retrieve(
+        RetrievalRequest(
+            question,
+            profile=config.RETRIEVAL_STRATEGY,
+            metadata_filter=metadata_filter,
+        ),
+        store or FakeStore(),  # type: ignore[arg-type]
+    )
+    final = (
+        [c.id for c in result.outcome.chunks]
+        if isinstance(result.outcome, Answerable)
+        else []
+    )
+    return {k: [c.id for c in v] for k, v in result.trace.stages.items()}, final
+
+
+#: engine name -> how to run a scenario on it. A new pipeline implementation is added
+#: here and must reproduce every ``EXPECTED`` result unchanged.
+ENGINES = {"legacy": _run_legacy, "v2": _run_v2}
+
+#: The scenarios the new engine can run so far (it grows with the steps; the rest are
+#: run on the legacy engine only until their steps exist).
+V2_READY = {
+    "vector_strategy",
+    "vector_cosine_gate_fails",
+    "vector_metadata_filter",
+    "vector_similarity_cut",
+    "vector_top_k_above_pool",
+    "vector_top_k_two",
+}
+
+
+def runnable(engine: str) -> list[str]:
+    """The scenario names ``engine`` can run."""
+    return list(SCENARIOS) if engine == "legacy" else sorted(V2_READY)
 
 
 QUESTION = "What about the costs of the proceedings?"
@@ -237,10 +298,7 @@ SCENARIOS = {
             "and reserves half of the slots for those years"
         ),
         "costs of the proceedings in 2021 and 2022",
-        lambda: {
-            "RETRIEVAL_PERIOD_FILTER": True,
-            "strategy": hybrid(period_filter=True),
-        },
+        lambda: {"RETRIEVAL_PERIOD_FILTER": True},
     ),
     "one_identifier": (
         (
@@ -257,12 +315,12 @@ SCENARIOS = {
             "round-robin between the two documents"
         ),
         f"Compare {CASE} and {CASE2}",
-        lambda: {"strategy": hybrid(diversify_guarantees=True)},
+        lambda: {"RETRIEVAL_DIVERSIFY_GUARANTEES": True},
     ),
     "two_identifiers_not_diversified": (
         "the same without it: the first document takes every slot",
         f"Compare {CASE} and {CASE2}",
-        lambda: {"strategy": hybrid(diversify_guarantees=False)},
+        lambda: {"RETRIEVAL_DIVERSIFY_GUARANTEES": False},
     ),
     "identifier_and_topic": (
         (
@@ -296,7 +354,39 @@ SCENARIOS = {
     "vector_strategy": (
         "the plain vector strategy: no fusion, no rerank, only the similarity cut",
         QUESTION,
-        lambda: {"strategy": VectorRetrievalStrategy()},
+        lambda: {"RETRIEVAL_STRATEGY": "vector"},
+    ),
+    "vector_cosine_gate_fails": (
+        "the same gate in the vector profile: only the vector stage, no final",
+        QUESTION,
+        lambda: {"RETRIEVAL_STRATEGY": "vector", "RETRIEVAL_MIN_SCORE": 0.95},
+    ),
+    "vector_metadata_filter": (
+        "the vector profile passes the metadata filter to its search",
+        QUESTION,
+        lambda: {
+            "RETRIEVAL_STRATEGY": "vector",
+            "metadata_filter": {"source_file": "b.docx"},
+        },
+    ),
+    "vector_similarity_cut": (
+        "the vector profile drops candidates below the similarity threshold",
+        QUESTION,
+        lambda: {
+            "RETRIEVAL_STRATEGY": "vector",
+            "RETRIEVAL_MIN_SCORE": 0.7,
+            "RETRIEVAL_TOP_K": 6,
+        },
+    ),
+    "vector_top_k_above_pool": (
+        "a top_k larger than the configured pool still gets a pool of top_k candidates",
+        QUESTION,
+        lambda: {"RETRIEVAL_STRATEGY": "vector", "RETRIEVAL_TOP_K": 8},
+    ),
+    "vector_top_k_two": (
+        "the vector profile's top_k limits the final context",
+        QUESTION,
+        lambda: {"RETRIEVAL_STRATEGY": "vector", "RETRIEVAL_TOP_K": 2},
     ),
     "metadata_filter": (
         "a metadata filter restricts every search it is passed to",
@@ -445,6 +535,26 @@ EXPECTED = {
         },
         [1, 3, 5, 7],
     ),
+    "vector_cosine_gate_fails": (
+        {"vector": [1, 3, 5, 7, 2, 4]},
+        [],
+    ),
+    "vector_metadata_filter": (
+        {"vector": [3, 4], "final": [3, 4]},
+        [3, 4],
+    ),
+    "vector_similarity_cut": (
+        {"vector": [1, 3, 5, 7, 2, 4], "final": [1, 3, 5, 7]},
+        [1, 3, 5, 7],
+    ),
+    "vector_top_k_above_pool": (
+        {"vector": [1, 3, 5, 7, 2, 4, 6, 8], "final": [1, 3, 5, 7, 2, 4, 6, 8]},
+        [1, 3, 5, 7, 2, 4, 6, 8],
+    ),
+    "vector_top_k_two": (
+        {"vector": [1, 3, 5, 7, 2, 4], "final": [1, 3]},
+        [1, 3],
+    ),
     "metadata_filter": (
         {
             "vector": [3, 4],
@@ -496,36 +606,43 @@ EXPECTED = {
 }
 
 
-@pytest.mark.parametrize("name", list(SCENARIOS))
+@pytest.mark.parametrize(
+    ("engine", "name"), [(e, n) for e in ENGINES for n in runnable(e)]
+)
 def test_the_pipeline_still_does_exactly_what_it_did(
-    name, monkeypatch, settings_override
+    engine, name, monkeypatch, settings_override
 ):
     """The recorded stages and the final context of every scenario are unchanged."""
     _, question, how = SCENARIOS[name]
 
-    stages, final = _run(monkeypatch, settings_override, question, **how())
+    stages, final = ENGINES[engine](monkeypatch, settings_override, question, **how())
 
     assert (stages, final) == EXPECTED[name]
 
 
-def test_two_runs_of_a_scenario_give_the_same_result(monkeypatch, settings_override):
+@pytest.mark.parametrize("engine", ["legacy"])
+def test_two_runs_of_a_scenario_give_the_same_result(
+    engine, monkeypatch, settings_override
+):
     """The pinned results only mean something if the fixtures are deterministic."""
     _, question, how = SCENARIOS["one_identifier"]
+    run = ENGINES[engine]
 
-    first = _run(monkeypatch, settings_override, question, **how())
-    second = _run(monkeypatch, settings_override, question, **how())
+    first = run(monkeypatch, settings_override, question, **how())
+    second = run(monkeypatch, settings_override, question, **how())
 
     assert first == second
 
 
+@pytest.mark.parametrize("engine", ["legacy"])
 def test_the_scenarios_cover_every_stage_name_the_funnel_reads(
-    monkeypatch, settings_override
+    engine, monkeypatch, settings_override
 ):
     """Stage names are a contract with corpus/commands/funnel.py: if one stops being
     produced, the funnel silently loses a column."""
     seen: set[str] = set()
     for _, question, how in SCENARIOS.values():
-        stages, _ = _run(monkeypatch, settings_override, question, **how())
+        stages, _ = ENGINES[engine](monkeypatch, settings_override, question, **how())
         seen |= set(stages)
 
     assert seen >= {
