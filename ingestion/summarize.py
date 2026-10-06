@@ -24,7 +24,7 @@ _SUMMARY_PROMPT_TEMPLATE = (
     "konkrét hely/azonosító, érintett felek/szervezet neve, pontos téma).\n"
     "2. mondat (Eredmény/lényeg): a dokumentum TÉNYLEGES, KONKRÉT "
     "eredménye vagy fő állítása -- ne csak egy általános szót írj (pl. "
-    "\"megsemmisítette\" vagy \"elutasította\" önmagában -- ezek a szavak "
+    '"megsemmisítette" vagy "elutasította" önmagában -- ezek a szavak '
     "majdnem minden hasonló dokumentumban előfordulnak a sablonos "
     "kereteződésben), írd le PONTOSAN mi történt vagy mi a konklúzió.\n"
     "Csak a két mondatot add vissza, semmi mást.\n\n"

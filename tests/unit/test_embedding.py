@@ -676,9 +676,7 @@ def _fake_jina_response(status_code: int, embeddings: list[list[float]] | None =
     response.status_code = status_code
     if embeddings is not None:
         response.json.return_value = {
-            "data": [
-                {"index": i, "embedding": vec} for i, vec in enumerate(embeddings)
-            ]
+            "data": [{"index": i, "embedding": vec} for i, vec in enumerate(embeddings)]
         }
     else:
         response.text = "error"
@@ -702,7 +700,9 @@ def test_jina_driver_embed_documents_sends_passage_task(monkeypatch, settings_ov
         embedding_module,
         "settings",
         settings_override(
-            EMBEDDING_DIMENSION=384, EMBEDDING_API_KEY="fake-key", EMBEDDING_MODEL="jina-embeddings-v3"
+            EMBEDDING_DIMENSION=384,
+            EMBEDDING_API_KEY="fake-key",
+            EMBEDDING_MODEL="jina-embeddings-v3",
         ),
     )
     fake_post = MagicMock(
@@ -773,7 +773,9 @@ def test_jina_driver_retries_on_429_then_succeeds(monkeypatch, settings_override
     assert fake_post.call_count == 2
 
 
-def test_jina_driver_retries_network_error_then_succeeds(monkeypatch, settings_override):
+def test_jina_driver_retries_network_error_then_succeeds(
+    monkeypatch, settings_override
+):
     import httpx
 
     monkeypatch.setattr(
@@ -837,7 +839,9 @@ def test_get_embedding_driver_returns_jina(monkeypatch, settings_override):
     assert isinstance(get_embedding_driver(), JinaEmbeddingDriver)
 
 
-def _fake_vertex_response(status_code: int, embeddings: list[list[float]] | None = None):
+def _fake_vertex_response(
+    status_code: int, embeddings: list[list[float]] | None = None
+):
     response = MagicMock()
     response.status_code = status_code
     if embeddings is not None:
@@ -872,7 +876,9 @@ def test_vertex_driver_builds_regional_endpoint(monkeypatch, settings_override):
     monkeypatch.setattr(
         embedding_module,
         "settings",
-        settings_override(VERTEX_PROJECT_ID="my-project", VERTEX_LOCATION="us-central1"),
+        settings_override(
+            VERTEX_PROJECT_ID="my-project", VERTEX_LOCATION="us-central1"
+        ),
     )
     driver = VertexEmbeddingDriver(model="text-embedding-005")
     assert driver._endpoint == (
@@ -887,9 +893,7 @@ def test_vertex_driver_embed_documents_sends_retrieval_document_task(
     monkeypatch.setattr(
         embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
     )
-    monkeypatch.setattr(
-        "subprocess.run", MagicMock(return_value=_fake_gcloud_token())
-    )
+    monkeypatch.setattr("subprocess.run", MagicMock(return_value=_fake_gcloud_token()))
     fake_post = MagicMock(
         return_value=_fake_vertex_response(200, [[0.1, 0.2], [0.3, 0.4]])
     )
@@ -901,7 +905,10 @@ def test_vertex_driver_embed_documents_sends_retrieval_document_task(
     call = fake_post.call_args
     instances = call.kwargs["json"]["instances"]
     assert instances[0] == {"content": "first chunk", "task_type": "RETRIEVAL_DOCUMENT"}
-    assert instances[1] == {"content": "second chunk", "task_type": "RETRIEVAL_DOCUMENT"}
+    assert instances[1] == {
+        "content": "second chunk",
+        "task_type": "RETRIEVAL_DOCUMENT",
+    }
     assert call.kwargs["json"]["parameters"]["outputDimensionality"] == 384
     assert call.kwargs["headers"]["Authorization"] == "Bearer fake-access-token"
 
@@ -940,7 +947,9 @@ def test_vertex_driver_caches_access_token_across_calls(monkeypatch, settings_ov
     fake_gcloud.assert_called_once()
 
 
-def test_vertex_driver_raises_if_gcloud_token_fetch_fails(monkeypatch, settings_override):
+def test_vertex_driver_raises_if_gcloud_token_fetch_fails(
+    monkeypatch, settings_override
+):
     monkeypatch.setattr(
         embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
     )
@@ -971,7 +980,9 @@ def test_vertex_driver_retries_on_429_then_succeeds(monkeypatch, settings_overri
     assert fake_post.call_count == 2
 
 
-def test_vertex_driver_retries_network_error_then_succeeds(monkeypatch, settings_override):
+def test_vertex_driver_retries_network_error_then_succeeds(
+    monkeypatch, settings_override
+):
     import httpx
 
     monkeypatch.setattr(
@@ -1020,7 +1031,10 @@ def test_vertex_driver_invalidates_token_and_retries_on_401(
         embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=384)
     )
     fake_gcloud = MagicMock(
-        side_effect=[_fake_gcloud_token("stale-token"), _fake_gcloud_token("fresh-token")]
+        side_effect=[
+            _fake_gcloud_token("stale-token"),
+            _fake_gcloud_token("fresh-token"),
+        ]
     )
     monkeypatch.setattr("subprocess.run", fake_gcloud)
     fake_post = MagicMock(
@@ -1037,11 +1051,19 @@ def test_vertex_driver_invalidates_token_and_retries_on_401(
     assert result == [[0.1, 0.2]]
     assert fake_post.call_count == 2
     assert fake_gcloud.call_count == 2
-    assert fake_post.call_args_list[0].kwargs["headers"]["Authorization"] == "Bearer stale-token"
-    assert fake_post.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer fresh-token"
+    assert (
+        fake_post.call_args_list[0].kwargs["headers"]["Authorization"]
+        == "Bearer stale-token"
+    )
+    assert (
+        fake_post.call_args_list[1].kwargs["headers"]["Authorization"]
+        == "Bearer fresh-token"
+    )
 
 
-def test_vertex_driver_splits_batches_over_max_batch_size(monkeypatch, settings_override):
+def test_vertex_driver_splits_batches_over_max_batch_size(
+    monkeypatch, settings_override
+):
     monkeypatch.setattr(
         embedding_module, "settings", settings_override(EMBEDDING_DIMENSION=2)
     )

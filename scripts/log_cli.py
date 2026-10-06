@@ -311,7 +311,9 @@ def cmd_watch(argv: list[str]) -> int:
         total = sum(counts.values())
         breakdown = ", ".join(f"{act}={n}" for act, n in counts.most_common(3))
         suffix = f" ({breakdown})" if breakdown else ""
-        text = f"⏳ watching... {mins:02d}:{secs:02d} elapsed | {total} event(s){suffix}"
+        text = (
+            f"⏳ watching... {mins:02d}:{secs:02d} elapsed | {total} event(s){suffix}"
+        )
         return f"{COLOR_DIM}{text}{COLOR_RESET}" if use_color else text
 
     try:
@@ -354,7 +356,10 @@ def cmd_watch(argv: list[str]) -> int:
             print(format_event(entry, color=use_color))
             print()
 
-            if args.checkpoint_every > 0 and sum(counts.values()) % args.checkpoint_every == 0:
+            if (
+                args.checkpoint_every > 0
+                and sum(counts.values()) % args.checkpoint_every == 0
+            ):
                 elapsed = int(time.time() - start_time)
                 mins, secs = divmod(elapsed, 60)
                 breakdown = ", ".join(f"{act}={n}" for act, n in counts.most_common())

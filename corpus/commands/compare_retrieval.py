@@ -144,7 +144,11 @@ def compare_retrieval(
         ("all (exact_match yardstick)", all_hit, True),
         ("any (loose independent_fact proxy)", any_hit, True),
         ("document recall", recall, False),
-        ("in-period (final top_k chunks inside the question's years)", in_period, False),
+        (
+            "in-period (final top_k chunks inside the question's years)",
+            in_period,
+            False,
+        ),
     ):
         print(f"\n{title}")
         print(f"{'persona':<22}{'n':>4}" + "".join(f"{n:>11}" for n in names))

@@ -791,7 +791,9 @@ class TestIdentifiersPrefix:
     IDS = ("103.K.703.261/2020", "103.K.703.261/2020/13")
 
     def test_identifiers_prefix_joins_with_space(self):
-        assert _identifiers_prefix(self.IDS) == "103.K.703.261/2020 103.K.703.261/2020/13"
+        assert (
+            _identifiers_prefix(self.IDS) == "103.K.703.261/2020 103.K.703.261/2020/13"
+        )
 
     def test_empty_identifiers_leaves_content_unchanged(self):
         assert _strip_identifiers_prefix("hello world", ()) == "hello world"
@@ -974,7 +976,9 @@ def test_chunk_document_with_word_header_map(monkeypatch, settings_override):
     assert chunks[1].metadata.header_path == "# Main > ## Overview"
 
 
-def test_chunk_document_embeds_identifiers_in_every_chunk(monkeypatch, settings_override):
+def test_chunk_document_embeds_identifiers_in_every_chunk(
+    monkeypatch, settings_override
+):
     """Regression for the real gap documented in docs/decisions.md: a
     document's case number used to only live in whichever chunk happened
     to contain the header line (typically chunk 0) -- chunk_document must
@@ -1056,7 +1060,9 @@ def test_chunk_document_passes_through_document_summary_to_every_chunk(
         assert chunk.content.startswith(f"{summary}\n\n")
 
 
-def test_chunk_document_defaults_document_summary_to_none(monkeypatch, settings_override):
+def test_chunk_document_defaults_document_summary_to_none(
+    monkeypatch, settings_override
+):
     """Omitting document_summary (e.g. GENERATE_DOCUMENT_SUMMARY=False) must
     not embed anything or break chunk_document()."""
     monkeypatch.setattr(

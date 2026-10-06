@@ -142,7 +142,10 @@ def test_jina_driver_reorders_and_scores_by_relevance(monkeypatch, settings_over
     monkeypatch.setattr(
         reranker_module,
         "settings",
-        settings_override(RERANKER_API_KEY="fake-key", RERANKER_MODEL="jina-reranker-v2-base-multilingual"),
+        settings_override(
+            RERANKER_API_KEY="fake-key",
+            RERANKER_MODEL="jina-reranker-v2-base-multilingual",
+        ),
     )
     chunks = [_chunk("low relevance"), _chunk("high relevance")]
     fake_post = MagicMock(
@@ -349,7 +352,10 @@ def test_vertex_ranker_invalidates_token_and_retries_on_401(monkeypatch):
     """Regression test for a real, live 401 mid-bulk-ingest -- see
     test_embedding.py's matching test for the full explanation."""
     fake_gcloud = MagicMock(
-        side_effect=[_fake_gcloud_token("stale-token"), _fake_gcloud_token("fresh-token")]
+        side_effect=[
+            _fake_gcloud_token("stale-token"),
+            _fake_gcloud_token("fresh-token"),
+        ]
     )
     monkeypatch.setattr("subprocess.run", fake_gcloud)
     fake_post = MagicMock(
@@ -366,8 +372,14 @@ def test_vertex_ranker_invalidates_token_and_retries_on_401(monkeypatch):
     assert reranked[0].score == 0.5
     assert fake_post.call_count == 2
     assert fake_gcloud.call_count == 2
-    assert fake_post.call_args_list[0].kwargs["headers"]["Authorization"] == "Bearer stale-token"
-    assert fake_post.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer fresh-token"
+    assert (
+        fake_post.call_args_list[0].kwargs["headers"]["Authorization"]
+        == "Bearer stale-token"
+    )
+    assert (
+        fake_post.call_args_list[1].kwargs["headers"]["Authorization"]
+        == "Bearer fresh-token"
+    )
 
 
 def test_get_reranker_driver_returns_vertex(monkeypatch, settings_override):

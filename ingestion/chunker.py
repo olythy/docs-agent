@@ -622,7 +622,9 @@ def enrich_chunk_content(content: str, header_path: str) -> str:
     return f"{header_path}\n\n{content}"
 
 
-def extract_document_identifiers(full_text: str, head_chars: int = 100) -> tuple[str, ...]:
+def extract_document_identifiers(
+    full_text: str, head_chars: int = 100
+) -> tuple[str, ...]:
     """Pull out identifier-like tokens from the start of a document.
 
     Reuses :func:`store.extract_identifier_tokens`'s document-type-agnostic

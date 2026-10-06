@@ -80,7 +80,9 @@ def get_access_token() -> str:
                 f"{_GCLOUD_TIMEOUT_SECONDS}s"
             ) from exc
         if result.returncode != 0:
-            raise RuntimeError(f"gcloud auth print-access-token failed: {result.stderr}")
+            raise RuntimeError(
+                f"gcloud auth print-access-token failed: {result.stderr}"
+            )
         _cached_token = result.stdout.strip()
         _token_fetched_at = time.monotonic()
     assert _cached_token is not None

@@ -1,5 +1,3 @@
-
-
 def test_extract_json_tolerates_a_raw_newline_inside_a_string():
     """Regression: a grader reply with a literal newline in "reason" crashed
     a whole eval run (json.loads strict mode)."""
@@ -15,7 +13,9 @@ def test_extract_json_repairs_a_backslash_that_is_not_a_valid_escape():
     eval run ('Invalid \\escape') even after strict=False."""
     from corpus.verification import extract_json
 
-    result = extract_json(r'{"verdict": "SUPPORTED", "reason": "az 5:84. \§ (1) szerint"}')
+    result = extract_json(
+        r'{"verdict": "SUPPORTED", "reason": "az 5:84. \§ (1) szerint"}'
+    )
 
     assert result["verdict"] == "SUPPORTED"
     assert "§" in result["reason"]

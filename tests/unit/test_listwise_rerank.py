@@ -50,7 +50,11 @@ def test_listwise_rerank_promotes_chosen_document_to_the_front():
 
     result = listwise_rerank("some question", chunks, driver)
 
-    assert [c.metadata.source_file for c in result] == ["docB.pdf", "docA.pdf", "docC.pdf"]
+    assert [c.metadata.source_file for c in result] == [
+        "docB.pdf",
+        "docA.pdf",
+        "docC.pdf",
+    ]
 
 
 def test_listwise_rerank_preserves_multiple_chunks_of_the_chosen_document():

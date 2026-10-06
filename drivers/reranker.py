@@ -185,7 +185,9 @@ class JinaRerankerDriver(RerankerDriver):
             return []
 
         results = self._rerank_one_batch(question, [c.content for c in chunks])
-        return [replace(chunks[r["index"]], score=r["relevance_score"]) for r in results]
+        return [
+            replace(chunks[r["index"]], score=r["relevance_score"]) for r in results
+        ]
 
     @retry_on_transient_error(max_attempts=3)
     def _rerank_one_batch(self, question: str, documents: list[str]) -> list[dict]:
@@ -328,7 +330,9 @@ class VertexRankerDriver(RerankerDriver):
             # matching comment -- confirmed live that the cached gcloud
             # token can stop working before our ~1-hour assumption expects.
             invalidate_gcloud_token()
-            raise TransientAPIError(f"Vertex AI rank request status 401: {response.text}")
+            raise TransientAPIError(
+                f"Vertex AI rank request status 401: {response.text}"
+            )
         if response.status_code == 429 or response.status_code >= 500:
             raise TransientAPIError(
                 f"Vertex AI rank request status {response.status_code}: {response.text}"

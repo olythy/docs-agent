@@ -113,8 +113,7 @@ def listwise_rerank(
         return chunks
 
     summaries = {
-        source_file: chunks[i].metadata.document_summary
-        for source_file, i in documents
+        source_file: chunks[i].metadata.document_summary for source_file, i in documents
     }
     if not any(summaries.values()):
         return chunks

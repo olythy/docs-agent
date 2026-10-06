@@ -61,7 +61,9 @@ def test_get_access_token_passes_a_timeout_to_subprocess_run(monkeypatch):
 
     get_access_token()
 
-    assert fake_run.call_args.kwargs.get("timeout") == gcloud_auth._GCLOUD_TIMEOUT_SECONDS
+    assert (
+        fake_run.call_args.kwargs.get("timeout") == gcloud_auth._GCLOUD_TIMEOUT_SECONDS
+    )
 
 
 def test_get_access_token_raises_transient_error_on_timeout(monkeypatch):

@@ -838,12 +838,9 @@ class VertexEmbeddingDriver(EmbeddingDriver):
         current_tokens = 0.0
         for text in texts:
             text_tokens = len(text.split()) * self._ESTIMATED_TOKENS_PER_WORD
-            would_overflow = (
-                current
-                and (
-                    len(current) >= self._MAX_BATCH_SIZE
-                    or current_tokens + text_tokens > self._MAX_TOKENS_PER_BATCH
-                )
+            would_overflow = current and (
+                len(current) >= self._MAX_BATCH_SIZE
+                or current_tokens + text_tokens > self._MAX_TOKENS_PER_BATCH
             )
             if would_overflow:
                 batches.append(current)
@@ -898,7 +895,9 @@ class VertexEmbeddingDriver(EmbeddingDriver):
                 timeout=60.0,
             )
         except httpx.TransportError as exc:
-            raise TransientAPIError(f"Vertex AI embeddings network error: {exc}") from exc
+            raise TransientAPIError(
+                f"Vertex AI embeddings network error: {exc}"
+            ) from exc
 
         if response.status_code == 401:
             # Confirmed live during a real multi-hour bulk ingest: the

@@ -50,7 +50,5 @@ def test_get_connection_sets_hnsw_ef_search(monkeypatch, settings_override):
     db.get_connection()
 
     fake_cursor = fake_conn.cursor.return_value.__enter__.return_value
-    fake_cursor.execute.assert_called_once_with(
-        "SET hnsw.ef_search = %s", (500,)
-    )
+    fake_cursor.execute.assert_called_once_with("SET hnsw.ef_search = %s", (500,))
     fake_conn.commit.assert_called_once()
