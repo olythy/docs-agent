@@ -1,6 +1,6 @@
 # Query pipeline: design of the rewrite
 
-Status: **design; implementation in progress** (slice 1, see section 6).
+Status: **slice 1 implemented and proven equal on a six-question sample under five settings** (see section 6 and `docs/decisions.md`, 2026-10-06); nothing in production uses the new pipeline yet, except behind the temporary `QUERY_ENGINE=v2` switch.
 It builds on `docs/query-workflow.md` (the as-is map and its tangles) and on an
 independent design review (Opus, read-only) of the first draft. Items marked
 **[to confirm]** are proposals that still need an explicit decision.
