@@ -406,14 +406,25 @@ class Settings:
                               structured metadata; content questions run
                               the normal retrieval, restricted to the
                               documents the planner's filters select. A
-                              question naming a case/document identifier
-                              always runs the normal retrieval without
-                              asking the planner. The planner chooses
+                              question naming a case/document identifier is
+                              planned too (the identifier is a parameter, not
+                              an intent) and is not restricted by the plan's
+                              filters. The planner chooses
                               the document type itself from the approved
                               types' descriptions (nothing to configure).
                               Needs the metadata catalog and extracted values (see
                               docs/structured-metadata-design.md). Off by
                               default pending the planner's measurement.
+        QUERY_ENGINE          TEMPORARY, for testing the retrieval rewrite
+                              (docs/query-pipeline-design.md): ``legacy``
+                              (default) runs the original ``retrieve_chunks``
+                              pipeline, ``v2`` the step-based one. The two
+                              must give identical results (see
+                              ``retrieval-snapshot --compare``); the switch and
+                              the original code are deleted once that is
+                              proven. ``v2`` takes the profile from
+                              RETRIEVAL_STRATEGY and does not accept a
+                              strategy object.
         EXPOSE_DOCUMENT_DATE  Whether each excerpt's document date is shown to
                               the answer LLM (default: ``False``). When
                               ``True``, the excerpt header gets
@@ -566,6 +577,7 @@ class Settings:
         os.getenv("ANSWER_PARTIAL_COVERAGE", "false").lower() == "true"
     )
     QUERY_ROUTER: bool = os.getenv("QUERY_ROUTER", "false").lower() == "true"
+    QUERY_ENGINE: str = os.getenv("QUERY_ENGINE", "legacy")
     EXPOSE_DOCUMENT_DATE: bool = (
         os.getenv("EXPOSE_DOCUMENT_DATE", "false").lower() == "true"
     )

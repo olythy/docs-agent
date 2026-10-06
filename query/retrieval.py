@@ -585,6 +585,18 @@ def retrieve_chunks(
         RuntimeError: If the active embedding driver's dimension doesn't
             match the existing document_chunks.embedding column.
     """
+    engine = settings.QUERY_ENGINE.lower()
+    if engine == "v2":
+        return _retrieve_chunks_v2(
+            question, top_k, min_score, strategy, query_vector, metadata_filter,
+            store, trace,
+        )  # fmt: skip
+    if engine != "legacy":
+        raise ValueError(
+            f"Unknown QUERY_ENGINE: '{settings.QUERY_ENGINE}'. "
+            "Valid options are: 'legacy', 'v2'."
+        )
+
     k = top_k if top_k is not None else settings.RETRIEVAL_TOP_K
     threshold = min_score if min_score is not None else settings.RETRIEVAL_MIN_SCORE
     candidate_k = max(k, settings.RETRIEVAL_CANDIDATE_POOL_SIZE)
@@ -694,6 +706,49 @@ def retrieve_chunks(
             "[query] Using %d chunk(s) as context. Scores: %s", len(chunks), scores_str
         )
         return chunks
+
+
+def _retrieve_chunks_v2(
+    question: str,
+    top_k: int | None,
+    min_score: float | None,
+    strategy: RetrievalStrategy | None,
+    query_vector: list[float] | None,
+    metadata_filter: dict | None,
+    store: VectorStore | None,
+    trace: RetrievalTrace | None,
+) -> list[RetrievedChunk]:
+    """The step-based retrieval (``QUERY_ENGINE=v2``), as ``retrieve_chunks`` returns it.
+
+    The profile comes from ``RETRIEVAL_STRATEGY``; a strategy object has no meaning
+    there, so passing one is an error rather than something silently ignored.
+    """
+    from query.composition import build_retrieval_service
+    from query.outcome import Answerable
+    from query.service import RetrievalRequest
+
+    if strategy is not None:
+        raise ValueError(
+            "QUERY_ENGINE=v2 takes the profile from RETRIEVAL_STRATEGY; "
+            "a strategy object cannot be passed."
+        )
+    result = build_retrieval_service(settings).retrieve(
+        RetrievalRequest(
+            question,
+            profile=settings.RETRIEVAL_STRATEGY,
+            metadata_filter=metadata_filter,
+            query_vector=query_vector,
+            top_k=top_k,
+            min_score=min_score,
+        ),
+        store if store is not None else VectorStore(),
+    )
+    if trace is not None:
+        trace.stages.update(result.trace.stages)
+        trace.notes.update(result.trace.notes)
+    if isinstance(result.outcome, Answerable):
+        return list(result.outcome.chunks)
+    return []
 
 
 def query_knowledge_base(

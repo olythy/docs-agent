@@ -26,8 +26,10 @@ from dataclasses import replace
 
 import pytest
 
+import query.composition as composition_module
 import query.retrieval as retrieval_module
 from drivers.reranker import CrossEncoderRerankerDriver, RerankerDriver
+from logger import EventLogger
 from models import ChunkMetadata, RetrievalTrace, RetrievedChunk
 from query.facts import QueryFactsReader
 from query.outcome import Answerable
@@ -183,6 +185,7 @@ class FakeListwise:
 
 
 _BASE_SETTINGS = {
+    "QUERY_ENGINE": "legacy",
     "RETRIEVAL_STRATEGY": "hybrid",
     "RERANKER_DRIVER": "cross_encoder",
     "RETRIEVAL_TOP_K": 4,
@@ -275,9 +278,48 @@ def _run_v2(
     return {k: [c.id for c in v] for k, v in result.trace.stages.items()}, final
 
 
+def _run_switch(
+    monkeypatch,
+    settings_override,
+    question,
+    *,
+    store=None,
+    reranker=None,
+    metadata_filter=None,
+    **settings,
+):
+    """Run the new pipeline the way production reaches it: ``retrieve_chunks`` with
+    ``QUERY_ENGINE=v2``, which builds the service from the settings and the drivers."""
+    config = settings_override(**{**_BASE_SETTINGS, "QUERY_ENGINE": "v2", **settings})
+    monkeypatch.setattr(retrieval_module, "settings", config)
+    monkeypatch.setattr(
+        composition_module, "get_embedding_driver", lambda: FakeEmbedding()
+    )
+    monkeypatch.setattr(
+        composition_module,
+        "get_reranker_driver",
+        lambda *a, **k: reranker or FakeCrossEncoder(),
+    )
+    monkeypatch.setattr(composition_module, "get_answer_driver", lambda: object())
+    monkeypatch.setattr(composition_module, "listwise_rerank", FakeListwise())
+    monkeypatch.setattr(
+        composition_module, "get_logger", lambda: EventLogger("/dev/null")
+    )
+    trace = RetrievalTrace()
+    chunks = retrieve_chunks(
+        question,
+        store=store or FakeStore(),  # type: ignore[arg-type]
+        trace=trace,
+        metadata_filter=metadata_filter,
+    )
+    return {k: [c.id for c in v] for k, v in trace.stages.items()}, [
+        c.id for c in chunks
+    ]
+
+
 #: engine name -> how to run a scenario on it. A new pipeline implementation is added
 #: here and must reproduce every ``EXPECTED`` result unchanged.
-ENGINES = {"legacy": _run_legacy, "v2": _run_v2}
+ENGINES = {"legacy": _run_legacy, "v2": _run_v2, "switch": _run_switch}
 
 
 QUESTION = "What about the costs of the proceedings?"
