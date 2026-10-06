@@ -241,3 +241,51 @@ def test_search_fulltext_with_metadata_filter_against_real_postgres(db_conn):
     assert len(results) == 1
     assert results[0].metadata.source_file == "doc_1.pdf"
     assert results[0].content == "Player Central booking system"
+
+
+def test_search_fulltext_breaks_equal_ranks_by_id_so_a_run_can_be_repeated(db_conn):
+    """Equal ts_rank used to come back in an arbitrary order, and the LIMIT could cut
+    through the tie differently on each run: identical retrieval runs then differed
+    (confirmed live: 6 of 33 golden questions)."""
+    driver = get_embedding_driver()
+    vector = driver.embed_text("the costs of the proceedings")
+    for i in range(40):  # forty chunks with exactly the same text, so the same rank
+        _insert_chunk(
+            db_conn, "the costs of the proceedings", vector, source_file=f"tie_{i}.pdf"
+        )
+    # Shuffle the physical order: updating a row moves it to the end of the heap, so
+    # the physical order is no longer the id order (it would be, by luck, otherwise).
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE document_chunks SET content = content WHERE id % 3 = 0;")
+        cur.execute("UPDATE document_chunks SET content = content WHERE id % 5 = 0;")
+    db_conn.commit()
+
+    ids = [c.id for c in VectorStore().search_fulltext("costs", top_k=10)]
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id FROM document_chunks ORDER BY id LIMIT 10;")
+        lowest = [r[0] for r in cur.fetchall()]
+    assert ids == lowest  # a tie is broken by the lowest ids: the same ten, every time
+
+
+def test_search_by_identifier_returns_a_stable_selection_under_its_limit(db_conn):
+    driver = get_embedding_driver()
+    for i in range(6):
+        _insert_chunk(
+            db_conn,
+            "case 10.P.20.100/2022/5 text",
+            driver.embed_text("case 10.P.20.100/2022/5 text"),
+            source_file="same.pdf",
+            chunk_index=i,
+        )
+
+    first = [
+        c.id
+        for c in VectorStore().search_by_identifier(["10.P.20.100/2022/5"], top_k=3)
+    ]
+    second = [
+        c.id
+        for c in VectorStore().search_by_identifier(["10.P.20.100/2022/5"], top_k=3)
+    ]
+
+    assert first == second == sorted(first)

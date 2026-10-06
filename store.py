@@ -851,7 +851,10 @@ class VectorStore:
 
         Returns:
             A list of :class:`models.RetrievedChunk` ordered by descending
-            ``ts_rank`` (see :meth:`search`'s docstring for why ``id``
+            ``ts_rank``, ties broken by ``id`` (without a tie-breaker equal ranks come
+            back in an arbitrary order, and the cut at ``top_k`` can pick a different
+            member of the tie on each run: confirmed live, identical retrieval runs
+            differed in 6 of 33 golden questions) (see :meth:`search`'s docstring for why ``id``
             matters). This score is a ``ts_rank`` value, on a completely
             different scale than :meth:`search`'s cosine similarity — never
             compare the two directly, only their *ranks* (which is exactly
@@ -885,7 +888,7 @@ class VectorStore:
             FROM document_chunks
             WHERE content_tsv @@ websearch_to_tsquery('hungarian', %s)
             {where_filter}
-            ORDER BY score DESC
+            ORDER BY score DESC, id
             LIMIT %s;
         """
         with self._connection() as conn, conn.cursor() as cur:
@@ -990,6 +993,7 @@ class VectorStore:
                 SELECT id, content, metadata
                 FROM document_chunks
                 WHERE ({conditions}){plain_scope_sql}
+                ORDER BY id
                 LIMIT %s;
             """
             query_params = tuple(params)
