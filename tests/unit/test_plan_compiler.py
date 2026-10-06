@@ -425,3 +425,55 @@ def test_contains_also_ignores_a_trailing_sentence_full_stop(compiler):
     )
 
     assert "%Kúria%" in compiled.params
+
+
+class TestDateSet:
+    """Several separate periods of one date key are one filter, any of them may hold."""
+
+    def _compile(self, compiler, value):
+        return compiler.compile(
+            _plan(filters=[{"key": "decision_date", "op": "in", "value": value}]), KEYS
+        )
+
+    def test_two_years_are_an_or_of_two_ranges(self, compiler):
+        compiled = self._compile(
+            compiler,
+            [{"kind": "calendar", "year": 2021}, {"kind": "calendar", "year": 2023}],
+        )
+
+        assert compiled.sql.count("EXISTS") == 1  # one filter, not two
+        assert " OR " in compiled.sql
+        assert compiled.params == (
+            "court_decision",
+            "decision_date",
+            date(2021, 1, 1), date(2021, 12, 31),
+            date(2023, 1, 1), date(2023, 12, 31),
+        )  # fmt: skip
+        assert compiled.explanation == (
+            "court_decision documents: decision_date in "
+            "[2021-01-01..2021-12-31, 2023-01-01..2023-12-31]"
+        )
+        assert compiled.sql.count("%s") == len(compiled.params)
+
+    def test_a_single_period_in_a_list_is_that_period(self, compiler):
+        compiled = self._compile(compiler, [{"kind": "calendar", "year": 2022}])
+
+        assert compiled.params[-2:] == (date(2022, 1, 1), date(2022, 12, 31))
+
+    @pytest.mark.parametrize("value", [[], "2021", {"kind": "calendar", "year": 2021}])
+    def test_the_value_must_be_a_non_empty_list(self, compiler, value):
+        with pytest.raises(PlanError, match="non-empty list"):
+            self._compile(compiler, value)
+
+    def test_a_bad_spec_in_the_list_is_named(self, compiler):
+        with pytest.raises(PlanError, match="invalid date"):
+            self._compile(compiler, [{"kind": "calendar", "year": 2021}, {"kind": "x"}])
+
+    def test_it_does_not_fit_a_text_key_of_another_kind_by_accident(self, compiler):
+        """`in` was always valid for text; a date set must not change that."""
+        compiled = compiler.compile(
+            _plan(filters=[{"key": "issuing_body", "op": "in", "value": ["A", "B"]}]),
+            KEYS,
+        )
+
+        assert "= ANY(%s)" in compiled.sql

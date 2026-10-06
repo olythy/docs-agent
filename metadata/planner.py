@@ -263,7 +263,7 @@ DOCUMENT TYPES (the kinds of document that exist, and the keys of each)
 Choose ONE document type that the question is about and put its exact name in "document_type". The filters, "group_by" and "sum_key" may use only the keys of that type. "count", "list", "sum" and "overview" ALWAYS need a document type: an exact answer is only possible for one kind of document. {type_rule} Use null ONLY for a question about the CONTENT of documents (what a ruling says, why, who ...) that names no listed type; then the operation must be "lookup" and "filters" must be [].
 
 FILTERS: a list of {{"key", "op", "value"}} that must ALL hold.
-- ops: eq, ne, in (value is a list), contains (text substring), gt, gte, lt, lte, between (value is [low, high]).
+- ops: eq, ne, in (value is a list; for a date key, a list of date specs), contains (text substring), gt, gte, lt, lte, between (value is [low, high]).
 - Text values are copied in the language of the documents (the question's own wording, e.g. a court's name). Keys with allowed values take exactly one of those English tokens.
 - Number values are plain numbers (no separators, no currency).
 - Date keys take a date spec instead of a value, in this closed grammar:
@@ -273,7 +273,7 @@ FILTERS: a list of {{"key", "op", "value"}} that must ALL hold.
   {{"kind": "rolling", "unit": "day|week|month|year", "count": 30, "direction": "past|future"}}   the last/next N units including today
   {{"kind": "absolute", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}}
   {{"kind": "between", "from": <spec>, "to": <spec>}}
-  A named period ("last year", "March 2023", "last quarter", "next week") is ALWAYS a closed range: the filter is {{"key": <date key>, "op": "between", "value": <ONE spec from the list above>}}, e.g. last year = {{"key": "decision_date", "op": "between", "value": {{"kind": "relative", "unit": "year", "offset": -1}}}}. Every spec, including the value of "between", has a "kind". The "between" KIND is only for spanning two different specs ("from March to May 2023"). "The last N days/weeks/months" is a rolling spec. Use "gte"/"lt" etc. with a spec only for open-ended questions ("after March 2023", "before 2020").
+  A named period ("last year", "March 2023", "last quarter", "next week") is ALWAYS a closed range: the filter is {{"key": <date key>, "op": "between", "value": <ONE spec from the list above>}}, e.g. last year = {{"key": "decision_date", "op": "between", "value": {{"kind": "relative", "unit": "year", "offset": -1}}}}. Every spec, including the value of "between", has a "kind". The "between" KIND is only for spanning two different specs ("from March to May 2023"). "The last N days/weeks/months" is a rolling spec. Use "gte"/"lt" etc. with a spec only for open-ended questions ("after March 2023", "before 2020"). SEVERAL SEPARATE periods of the same date key ("in 2021 and in 2023", "in March and in June") are ONE filter with op "in" and a list of specs, e.g. {{"key": <date key>, "op": "in", "value": [{{"kind": "calendar", "year": 2021}}, {{"kind": "calendar", "year": 2023}}]}}. NEVER write two filters on the same date key for them: all filters must hold at once, so two different periods would match no document. A span from one period to another ("from 2020 to 2022", "between 2020 and 2022") is not a set: it is one "between" range.
 
 RULES
 - Use only the keys of the chosen type. If part of the question has no matching key, put that part in "residual" (a short string in the question's language) and keep the rest as filters.

@@ -48,6 +48,7 @@ _ALLOWED_OPS = {
     },
     ValueType.DATE: {
         FilterOp.EQ,
+        FilterOp.IN,
         FilterOp.GT,
         FilterOp.GTE,
         FilterOp.LT,
@@ -381,6 +382,17 @@ class PlanCompiler:
         return f"{column} {symbol} %s", (value,), f"{symbol} {value}"
 
     def _date(self, flt: Filter, column: str) -> tuple[str, tuple[Any, ...], str]:
+        if flt.op is FilterOp.IN:
+            # Several separate periods ("2021 and 2023"): any one of them. Two filters
+            # on the same key could never both hold, so this is one filter.
+            if not isinstance(flt.value, list) or not flt.value:
+                raise PlanError("a date 'in' needs a non-empty list of date specs")
+            spans = [self._range(v) for v in flt.value]
+            return (
+                "(" + " OR ".join(f"{column} BETWEEN %s AND %s" for _ in spans) + ")",
+                tuple(bound for span in spans for bound in (span.start, span.end)),
+                "in [" + ", ".join(f"{span.start}..{span.end}" for span in spans) + "]",
+            )
         span = self._range(flt.value)
         if flt.op in (FilterOp.EQ, FilterOp.BETWEEN):
             return (
