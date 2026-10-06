@@ -5,7 +5,7 @@ a fake driver subclass.
 """
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import pytest
 
@@ -51,7 +51,7 @@ def test_build_prompt_includes_numbered_sources_and_question():
 
 
 def test_build_prompt_places_best_ranked_chunk_last_before_the_question():
-    """"Lost in the middle" mitigation (see docs/decisions.md): the
+    """ "Lost in the middle" mitigation (see docs/decisions.md): the
     highest-ranked chunk (first in context_chunks) must end up physically
     last in the context block, right before "Question:", not first."""
     chunks = [
@@ -240,7 +240,7 @@ def test_gemini_driver_answer_sends_prompt_and_returns_text(
         llm_module, "settings", settings_override(LLM_REQUEST_DELAY_SECONDS=0.0)
     )
     fake_client = _fake_gemini_client(text="the answer")
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
 
     driver = GeminiAnswerDriver(model="gemini-2.5-flash")
     result = driver.answer("What is X?", [_chunk("X is Y")])
@@ -265,9 +265,11 @@ def test_gemini_driver_disables_thinking_by_default(monkeypatch, settings_overri
         settings_override(LLM_REQUEST_DELAY_SECONDS=0.0, LLM_THINKING_BUDGET=0),
     )
     fake_client = _fake_gemini_client(text="the answer")
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
 
-    GeminiAnswerDriver(model="gemini-2.5-flash").answer("What is X?", [_chunk("X is Y")])
+    GeminiAnswerDriver(model="gemini-2.5-flash").answer(
+        "What is X?", [_chunk("X is Y")]
+    )
 
     call = fake_client.models.generate_content.call_args
     assert call.kwargs["config"].thinking_config.thinking_budget == 0
@@ -280,7 +282,7 @@ def test_gemini_driver_answer_returns_empty_string_when_text_is_none(
         llm_module, "settings", settings_override(LLM_REQUEST_DELAY_SECONDS=0.0)
     )
     fake_client = _fake_gemini_client(text=None)
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
 
     driver = GeminiAnswerDriver(model="gemini-2.5-flash")
     assert driver.answer("q", []) == ""
@@ -293,7 +295,7 @@ def test_gemini_driver_run_tool_calling_turn_returns_direct_reply(
         llm_module, "settings", settings_override(LLM_REQUEST_DELAY_SECONDS=0.0)
     )
     fake_client = _fake_gemini_client(text="hi")
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
 
     driver = GeminiAnswerDriver(model="gemini-2.5-flash")
     result = driver.run_tool_calling_turn([{"role": "user", "content": "hey"}])
@@ -318,7 +320,7 @@ def test_gemini_driver_run_tool_calling_turn_returns_tool_call_requests(
         thought_signature=b"sig-bytes",
     )
     fake_client = _fake_gemini_client(text=None, function_call_parts=[part])
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
 
     driver = GeminiAnswerDriver(model="gemini-2.5-flash")
     result = driver.run_tool_calling_turn(
@@ -357,7 +359,7 @@ def test_gemini_driver_run_tool_calling_turn_round_trips_tool_result(
         llm_module, "settings", settings_override(LLM_REQUEST_DELAY_SECONDS=0.0)
     )
     fake_client = _fake_gemini_client(text="Final answer")
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
 
     driver = GeminiAnswerDriver(model="gemini-2.5-flash")
     messages = [
@@ -408,7 +410,7 @@ def test_gemini_driver_run_tool_calling_turn_retries_on_429_then_succeeds(
         APIError(code=429, response_json={"error": {"message": "rate limited"}}),
         fake_response,
     ]
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
     monkeypatch.setattr("time.sleep", MagicMock())
 
     driver = GeminiAnswerDriver(model="gemini-2.5-flash")
@@ -436,7 +438,7 @@ def test_gemini_driver_retries_network_error_then_succeeds(
         httpx.ConnectError("No route to host"),
         fake_response,
     ]
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
     monkeypatch.setattr("time.sleep", MagicMock())
 
     driver = GeminiAnswerDriver(model="gemini-2.5-flash")
@@ -478,6 +480,7 @@ def test_vertex_driver_get_client_uses_vertexai_mode(monkeypatch, settings_overr
         project="my-project",
         location="us-central1",
         credentials="fake-credentials",
+        http_options=ANY,  # the request time limit; see test_api_timeouts.py
     )
 
 
@@ -607,7 +610,7 @@ def test_gemini_driver_tolerates_a_function_call_without_an_id(
         None, "query_knowledge_base", {"question": "What is X?"}
     )
     fake_client = _fake_gemini_client(text=None, function_call_parts=[part])
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
 
     result = GeminiAnswerDriver(model="gemini-2.5-flash").run_tool_calling_turn(
         [{"role": "user", "content": "hey"}],
@@ -699,7 +702,9 @@ def _prompt_chunks():
     ]
 
 
-def test_build_prompt_keeps_the_strict_refusal_by_default(monkeypatch, settings_override):
+def test_build_prompt_keeps_the_strict_refusal_by_default(
+    monkeypatch, settings_override
+):
     from drivers.llm import _build_prompt
 
     monkeypatch.setattr(

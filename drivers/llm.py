@@ -97,6 +97,19 @@ class AgentTurnResult:
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
 
 
+def _http_options():
+    """The ``google-genai`` HTTP options: a request is abandoned after the configured time.
+
+    The SDK takes the limit in *milliseconds*. Without it a request that never gets an
+    answer blocks forever; with it the SDK raises ``httpx.TimeoutException`` (a
+    ``httpx.TransportError``), which :meth:`GeminiAnswerDriver._generate` already turns
+    into a retryable ``TransientAPIError``. See ``settings.API_REQUEST_TIMEOUT_SECONDS``.
+    """
+    from google.genai import types
+
+    return types.HttpOptions(timeout=int(settings.API_REQUEST_TIMEOUT_SECONDS * 1000))
+
+
 class AnswerDriver(ABC):
     """Abstract base class for all LLM answer-generation backends.
 
@@ -397,7 +410,10 @@ class OpenAIAnswerDriver(_OpenAICompatibleAnswerDriver):
         if self._client is None:
             from openai import OpenAI
 
-            self._client = OpenAI(api_key=settings.LLM_API_KEY)
+            self._client = OpenAI(
+                api_key=settings.LLM_API_KEY,
+                timeout=settings.API_REQUEST_TIMEOUT_SECONDS,
+            )
         return self._client
 
 
@@ -444,6 +460,7 @@ class OpenRouterAnswerDriver(_OpenAICompatibleAnswerDriver):
                 base_url=self._BASE_URL,
                 # OpenRouter requires HTTP-Referer for free-tier rate limiting
                 default_headers={"HTTP-Referer": "https://github.com/docs-agent"},
+                timeout=settings.API_REQUEST_TIMEOUT_SECONDS,
             )
         return self._client
 
@@ -604,7 +621,9 @@ class GeminiAnswerDriver(AnswerDriver):
         if self._client is None:
             from google import genai
 
-            self._client = genai.Client(api_key=settings.LLM_API_KEY)
+            self._client = genai.Client(
+                api_key=settings.LLM_API_KEY, http_options=_http_options()
+            )
         return self._client
 
     @retry_on_transient_error(max_attempts=3)
@@ -812,6 +831,7 @@ class VertexAnswerDriver(GeminiAnswerDriver):
                 project=settings.VERTEX_PROJECT_ID,
                 location=settings.VERTEX_LOCATION,
                 credentials=get_credentials(),
+                http_options=_http_options(),
             )
         return self._client
 

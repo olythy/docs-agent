@@ -339,7 +339,10 @@ class OpenAIEmbeddingDriver(EmbeddingDriver):
         """
         from openai import OpenAI
 
-        client = OpenAI(api_key=settings.EMBEDDING_API_KEY)
+        client = OpenAI(
+            api_key=settings.EMBEDDING_API_KEY,
+            timeout=settings.API_REQUEST_TIMEOUT_SECONDS,
+        )
         response = client.embeddings.create(
             input=texts, model=self._model, dimensions=self.dimension
         )
@@ -488,8 +491,14 @@ class GeminiEmbeddingDriver(EmbeddingDriver):
         """
         if self._client is None:
             from google import genai
+            from google.genai import types
 
-            self._client = genai.Client(api_key=settings.EMBEDDING_API_KEY)
+            self._client = genai.Client(
+                api_key=settings.EMBEDDING_API_KEY,
+                http_options=types.HttpOptions(
+                    timeout=int(settings.API_REQUEST_TIMEOUT_SECONDS * 1000)
+                ),
+            )
         return self._client
 
     @property

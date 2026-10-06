@@ -218,6 +218,19 @@ class Settings:
                               current limit on your own AI Studio quota page
                               rather than assuming a number here, since
                               free-tier limits change over time.
+        API_REQUEST_TIMEOUT_SECONDS
+                              How long one request to an LLM or embedding API
+                              may take before it is abandoned (default:
+                              ``120``). Applied to the SDK clients (Gemini,
+                              Vertex, the OpenAI-compatible ones, the
+                              embedding ``genai`` client); the REST calls to
+                              the ranker and embedding endpoints keep their
+                              own fixed limits. Without it a request that
+                              never gets an answer blocks forever: confirmed
+                              live, an eval run sat idle for 21 minutes on
+                              one hung call. A timed-out request is retried
+                              like any other transient failure (3 tries), and
+                              raises if all of them time out.
         LLM_THINKING_BUDGET   Gemini's thinking-token budget for
                               ``LLM_DRIVER`` ``gemini``/``vertex`` (default:
                               0, i.e. thinking disabled). Confirmed live on a
@@ -525,6 +538,9 @@ class Settings:
         os.getenv("LLM_REQUEST_DELAY_SECONDS", "0.0")
     )
     LLM_THINKING_BUDGET: int = int(os.getenv("LLM_THINKING_BUDGET", "0"))
+    API_REQUEST_TIMEOUT_SECONDS: float = float(
+        os.getenv("API_REQUEST_TIMEOUT_SECONDS", "120")
+    )
 
     # --- Retrieval ---
     RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "4"))

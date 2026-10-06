@@ -87,7 +87,7 @@ def test_openai_driver_embed_batch_passes_dimensions(monkeypatch, settings_overr
     )
     fake_client = MagicMock()
     fake_client.embeddings.create.return_value = fake_response
-    monkeypatch.setattr("openai.OpenAI", lambda api_key: fake_client)
+    monkeypatch.setattr("openai.OpenAI", lambda api_key, **kwargs: fake_client)
 
     result = OpenAIEmbeddingDriver().embed_batch(["a", "b"])
 
@@ -498,7 +498,7 @@ def test_gemini_driver_embed_batch_sends_correct_request(
         ),
     )
     fake_client = _fake_gemini_client([[0.1, 0.2], [0.3, 0.4]])
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
 
     driver = GeminiEmbeddingDriver(model="gemini-embedding-001")
     result = driver.embed_batch(["first chunk", "second chunk"])
@@ -517,7 +517,7 @@ def test_gemini_driver_sleeps_before_each_request(monkeypatch, settings_override
         settings_override(EMBEDDING_DIMENSION=384, EMBEDDING_REQUEST_DELAY_SECONDS=5.0),
     )
     fake_client = _fake_gemini_client([[0.1] * 384])
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
     fake_sleep = MagicMock()
     monkeypatch.setattr("time.sleep", fake_sleep)
 
@@ -535,7 +535,7 @@ def test_gemini_driver_does_not_sleep_when_delay_is_zero(
         settings_override(EMBEDDING_DIMENSION=384, EMBEDDING_REQUEST_DELAY_SECONDS=0.0),
     )
     fake_client = _fake_gemini_client([[0.1] * 384])
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
     fake_sleep = MagicMock()
     monkeypatch.setattr("time.sleep", fake_sleep)
 
@@ -558,7 +558,7 @@ def test_gemini_driver_splits_batches_over_250_items(monkeypatch, settings_overr
 
     fake_client = MagicMock()
     fake_client.models.embed_content.side_effect = fake_embed_content
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
 
     texts = [f"chunk {i}" for i in range(300)]
     result = GeminiEmbeddingDriver().embed_batch(texts)
@@ -581,7 +581,7 @@ def test_gemini_driver_retries_on_429_then_succeeds(monkeypatch, settings_overri
         APIError(code=429, response_json={"error": {"message": "rate limited"}}),
         fake_response,
     ]
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
     monkeypatch.setattr("time.sleep", MagicMock())
 
     result = GeminiEmbeddingDriver().embed_batch(["text"])
@@ -610,7 +610,7 @@ def test_gemini_driver_retries_network_error_then_succeeds(
         httpx.ConnectError("No route to host"),
         fake_response,
     ]
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
     monkeypatch.setattr("time.sleep", MagicMock())
 
     result = GeminiEmbeddingDriver().embed_batch(["text"])
@@ -633,7 +633,7 @@ def test_gemini_driver_raises_immediately_on_non_retryable_error(
     fake_client.models.embed_content.side_effect = APIError(
         code=400, response_json={"error": {"message": "bad request"}}
     )
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
 
     with pytest.raises(APIError):
         GeminiEmbeddingDriver().embed_batch(["text"])
@@ -655,7 +655,7 @@ def test_gemini_driver_raises_after_exhausting_retries_on_persistent_429(
     fake_client.models.embed_content.side_effect = APIError(
         code=429, response_json={"error": {"message": "rate limited"}}
     )
-    monkeypatch.setattr("google.genai.Client", lambda api_key: fake_client)
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
     monkeypatch.setattr("time.sleep", MagicMock())
 
     with pytest.raises(TransientAPIError, match="status 429"):

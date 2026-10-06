@@ -907,11 +907,19 @@ def eval(
     print(
         f"Evaluating {len(questions)} question(s){runs} with strategy={strategy} ...\n"
     )
-    results = [
-        _evaluate_one_with_retry(q, strategy, personas)
-        for q in questions
-        for _ in range(repeat)
-    ]
+    # One line per finished run, flushed: the report only appears at the end, and
+    # without progress a hung run looks exactly like a slow one.
+    import time
+
+    jobs = [q for q in questions for _ in range(repeat)]
+    results = []
+    for index, q in enumerate(jobs, start=1):
+        started = time.monotonic()
+        results.append(_evaluate_one_with_retry(q, strategy, personas))
+        print(
+            f"  [{index}/{len(jobs)}] {q['id']} done in {time.monotonic() - started:.0f}s",
+            flush=True,
+        )
     print_report(results)
     if repeat > 1:
         print_repeat_summary(results)
