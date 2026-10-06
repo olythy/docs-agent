@@ -239,7 +239,7 @@ Typed per-document facts for counting/listing questions -- see `docs/structured-
 
 | Command | Equivalent / Description |
 |---|---|
-| `make documents-sync` | `uv run python scripts/meta_cli.py sync-documents` — make the `documents` table match the ingested chunks (idempotent) |
+| `make documents-sync` | `uv run python scripts/meta_cli.py sync-documents` — remove documents that have no chunks (what an ingest that failed between registering the document and saving its chunks leaves; idempotent) |
 | `uv run python scripts/meta_cli.py load-catalog corpus/data/meta_catalog.json` | validate a catalog file (`{"types": [{type, name, description, keys}]}`, many types allowed) and import its types and keys into `document_types` and `meta_keys` (a changed key definition bumps its version) |
 | `make extract-meta limit=50 [seed=7]` | `uv run python scripts/meta_cli.py extract-meta --limit 50 [--seed 7]` — extract the catalog's keys (**one LLM call per document**); idempotent and resumable; start small; `--seed` takes a random, reproducible sample instead of the first N by file name |
 | `make classify-documents limit=20 seed=1` | give each document that has no type one: an LLM picks a known type or proposes a new one (stored `proposed`, unusable until approved), with a quote the code verifies; **LLM calls** |
