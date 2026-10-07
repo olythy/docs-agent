@@ -38,27 +38,108 @@ The new code is built **beside** the old one, proven equal, then the old code is
 
 ## 3. Overview
 
-```
-QueryRequest ─► QueryService
-                 │
-                 ├─ QueryFactsReader.read(question)         → QueryFacts   (identifiers, years: ONCE)
-                 ├─ Decider.decide(facts, request)          → Decision
-                 │     ├─ AnswerExactly(plan)   → ExactAnswerer (executor + phraser)
-                 │     ├─ Refuse(Declined)      → RefusalRenderer
-                 │     └─ ReadDocuments(profile name, scope, anchors)
-                 │            │
-                 │            ├─ ProfileResolver  (name + settings overrides → ResolvedProfile)
-                 │            ├─ PipelineFactory.build(profile, deps, scoped store)   per query
-                 │            └─ RetrievalPipeline.run(state, observer)
-                 │                    steps ─► Answerable(chunks) | Declined(reason, stage)
-                 │                 → GroundedAnswerer (prompt policy + answer driver)
-                 └─► QueryResult(text, outcome, explain)
+### 3.1 The whole path, and how far it is built
+
+```mermaid
+flowchart TD
+    Q(["Question"]) --> SVC["QueryService.answer()<br/>one entry point"]
+    SVC --> FR["QueryFactsReader<br/>identifiers + years, read ONCE"]
+    FR --> DEC{"Decider.decide()<br/>the ONE place that decides"}
+
+    DEC --> PL["Planner (LLM)<br/>what kind of question? which type, filters?"]
+    DEC --> SR["ScopeResolver<br/>WHICH documents may be looked at"]
+    DEC --> PS["ProfileSelector<br/>WHICH steps run (a profile NAME)"]
+    SR --> PF["planner's filters<br/>(dates, courts ...)"]
+    SR --> IR["IdentifierResolver<br/>question's identifiers -> documents"]
+
+    DEC -->|"count / list / sum / overview"| EX["ExactAnswerer<br/>SQL executor + phraser"]
+    DEC -->|"not supported / could not interpret"| RF["Refuse(Declined)<br/>RefusalRenderer"]
+    DEC -->|"read the documents"| RS["RetrievalService.retrieve()<br/>profile name + scoped store"]
+
+    RS --> PR["ProfileResolver<br/>name + settings -> numbers"]
+    PR --> PIPE["RetrievalPipeline<br/>embed, search, gate, fuse, rerank, cut"]
+    PIPE -->|"Answerable(chunks)"| GA["GroundedAnswerer<br/>prompt policy + LLM"]
+    PIPE -->|"Declined(reason, stage)"| RF
+    EX --> RES
+    RF --> RES
+    GA --> RES(["QueryResult<br/>text + outcome + explain"])
+    PIPE -.-> OBS["observers: trace, progress, audit log"]
+    OBS -.-> RES
+
+    classDef built fill:#d6f5d6,stroke:#2e7d32,color:#000
+    classDef todo fill:#fff3c4,stroke:#b8860b,color:#000
+    classDef box fill:#eeeeee,stroke:#888,color:#000
+    class FR,IR,RS,PR,PIPE,OBS built
+    class SVC,DEC,SR,PS,PF,EX,RF,GA,RES todo
+    class PL box
 ```
 
-Two entry methods share the same decision: `answer()` (full) and `retrieve()` (passages
-only, for the MCP search tool and the eval).
+Green = built and tested; yellow = still to build (slice 2); grey = exists and is reused as
+it is (the planner, whose output is a `QueryPlan`). The retrieval half is done; the
+decision half and the answering half are not. **Today's `QueryRouter` plus
+`query_knowledge_base` do the work of the yellow boxes in one tangled piece, and stay as the
+reference until the new ones are proven equal.**
+
+### 3.2 What each box answers
+
+| Box | The one question it answers | Today it lives in |
+|---|---|---|
+| `QueryFactsReader` | What plain facts does the question text hold (identifiers, years)? | detected in the router **and** in the retrieval |
+| `Decider` | Which way does the question go: exact, refuse, or read? | `QueryRouter.route` |
+| `Planner` | What kind of question is it, which type and filters? | `LLMQueryPlanner` (unchanged) |
+| `ScopeResolver` / `Scope` | **Which documents** may the retrieval look at? | `Routing.selection` + `apply_routing` |
+| `IdentifierResolver` | Which documents carry the identifier the question names? | the identifier pin (text search over chunks) |
+| `ProfileSelector` | **Which steps** run? (a name: `hybrid`, `vector`, later others) | `RETRIEVAL_STRATEGY` read inside retrieval |
+| `RetrievalService` | Run that profile over that scope: which chunks? | `retrieve_chunks` + `HybridRetrievalStrategy` |
+| `GroundedAnswerer` | Write the answer from the chunks | `_answer_from_documents` + `_build_prompt` |
+| `Declined` | Who refused, and why (a value, not an empty list) | four places, three wordings |
+
+The two questions people mix up: **`Scope` is about documents** (decided from the metadata,
+before any ranking), **a profile is about steps** (what the retrieval does inside the
+scope). The retrieval decides neither: it receives both.
+
+### 3.3 Three questions, followed through
+
+*"What did the court decide in case 4.P.20.409/2023/4?"* (an identifier)
+1. `QueryFactsReader`: identifiers = [`4.P.20.409/2023/4`].
+2. `Decider`: the planner says "read". `IdentifierResolver` finds the one document that carries
+   the number, so the **scope is that document**; the profile is the default.
+3. `RetrievalService`: the pipeline runs over that document's chunks only. Nothing is pinned
+   ahead of relevance, the ranking picks the best four.
+4. `GroundedAnswerer` answers; the explain record says "identifier resolved to 1 document".
+
+*"How many judgments did the Debrecen court give last year?"* (exact)
+1. `Decider`: the planner says "count" with a court filter and a date range, covering the
+   whole question.
+2. `ExactAnswerer`: SQL counts, the phraser words it. **No retrieval at all.**
+
+*"Which cases are similar to case X?"* (not supported yet)
+1. `Decider`: the planner says "unsupported"; the answer is `Refuse(NOT_SUPPORTED)` with the
+   planner's reason. No retrieval.
+
+### 3.4 Where the original and the new meet
+
+```mermaid
+flowchart LR
+    subgraph legacy["QUERY_ENGINE=legacy (the default; the reference)"]
+        L1["query_knowledge_base"] --> L2["QueryRouter<br/>(QUERY_ROUTER)"] --> L3["retrieve_chunks<br/>HybridRetrievalStrategy"] --> L4["_build_prompt + LLM"]
+    end
+    subgraph v2["QUERY_ENGINE=v2"]
+        N1["QueryService (to build)"] --> N2["Decider (to build)"] --> N3["RetrievalService (built)"] --> N4["GroundedAnswerer (to build)"]
+    end
+    L3 -. "same chunks, proven" .- N3
+```
+
+Today only the retrieval half exists on the right, reached through `retrieve_chunks` when
+`QUERY_ENGINE=v2`; the decision and the answer are still the original's. Replacing the other
+two boxes is slice 2, and then the left column is deleted.
+
+Two entry methods share the same decision: `answer()` (full) and `retrieve()` (chunks only,
+for the eval; the MCP search tool stays as it is).
 
 ## 4. Modules and classes
+
+**Built:** `facts`, `outcome`, `context`, `step`, `candidate_steps`, `ranking_steps`, `gate_steps`, `selection_steps`, `profiles`, `runner`, `observers`, `legacy_trace`, `composition`, and `service.py` as far as `RetrievalService` and its request / result. **To build (slice 2):** `decision` (`Decision`, `Decider`, `Scope`, `ScopeResolver`, `ProfileSelector`), `answering` (`GroundedAnswerer`, `ExactAnswerer`, `AnswerPolicy`), the `RefusalRenderer` in `outcome`, and `QueryService.answer` with its `Explain`.
 
 | Module | Contents |
 |---|---|
