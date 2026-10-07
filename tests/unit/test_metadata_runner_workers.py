@@ -20,6 +20,7 @@ from metadata.runner import MetaExtractionRunner
 from metadata.sources import Candidate, MetaSource, SourceResult
 from models import Document
 from models import MetaSource as Kind
+from retry_policy import TransientAPIError
 
 
 def _documents(n: int) -> list[Document]:
@@ -198,6 +199,72 @@ class TestFailure:
 
         failed_hash = _documents(10)[3].content_hash
         assert (failed_hash, "court") not in docs.statuses  # nothing is recorded for it
+
+
+class TestProviderFailure:
+    """A provider that keeps failing for one document costs that document, not the run."""
+
+    @staticmethod
+    def _fail_on(marker):
+        def before(content):
+            if _marker(marker) in content:
+                raise TransientAPIError("Gemini generate_content status 499")
+
+        return before
+
+    @pytest.mark.parametrize("workers", [1, 3])
+    def test_the_run_goes_on_and_names_the_document_that_failed(self, workers):
+        docs, report = _run(8, workers, source=EchoSource(before=self._fail_on("03")))
+
+        failed = _documents(8)[3]
+        assert report.failed_files == (failed.source_file,)
+        assert report.failed == 1  # its one key stays pending
+        assert report.documents == 8 and report.present == 7
+        assert (failed.content_hash, "court") not in docs.statuses
+        assert all(
+            (d.content_hash, "court") in docs.statuses
+            for d in _documents(8)
+            if d is not failed and d.content_hash != failed.content_hash
+        )
+
+    def test_it_is_logged_with_the_reason(self, caplog):
+        with caplog.at_level("WARNING", logger="metadata.runner"):
+            _run(4, 1, source=EchoSource(before=self._fail_on("01")))
+
+        assert "d1.docx" in caplog.text and "status 499" in caplog.text
+        assert "next run will try it again" in caplog.text
+
+    def test_the_failed_document_is_tried_again_by_the_next_run(self):
+        docs = FakeDocuments([_key("court")], _documents(5))
+        _run(5, 2, source=EchoSource(before=self._fail_on("02")), documents=docs)
+
+        _, second = _run(5, 2, documents=docs)  # the provider is back
+
+        assert second.documents == 1 and second.present == 1
+        assert second.failed_files == ()
+        assert len(docs.statuses) == 5
+
+    def test_the_failures_of_several_documents_are_all_named(self):
+        def fail(content):
+            if _marker("01") in content or _marker("04") in content:
+                raise TransientAPIError("status 504")
+
+        _, report = _run(6, 3, source=EchoSource(before=fail))
+
+        assert sorted(report.failed_files) == ["d1.docx", "d4.docx"]
+        assert report.failed == 2
+
+    def test_a_bug_is_still_not_swallowed(self):
+        """Only a provider that gave up is a failure of one document."""
+
+        def bug(content):
+            raise KeyError("a bug")
+
+        with pytest.raises(KeyError):
+            _run(3, 2, source=EchoSource(before=bug))
+
+        with pytest.raises(KeyError):
+            _run(3, 1, source=EchoSource(before=bug))
 
 
 class TestProgress:

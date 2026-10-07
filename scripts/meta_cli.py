@@ -234,6 +234,11 @@ def cmd_extract_meta(args: list[str]) -> int:
             f"{report.confirmed_absent} confirmed absent, {report.unverified} unverified, "
             f"{report.failed} failed (will be retried), {report.proposed_keys} key(s) proposed."
         )
+        for name in report.failed_files:
+            print(
+                f"{_RED}  the provider kept failing for {name}: nothing stored, "
+                f"run extract-meta again to retry it.{_RESET}"
+            )
     untyped = store.count_by_type().get(None, 0)
     if untyped:
         print(

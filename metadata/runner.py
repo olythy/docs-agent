@@ -20,6 +20,7 @@ Key exports:
     RunReport            -- What a run did.
 """
 
+import logging
 from collections.abc import Callable, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
@@ -41,6 +42,9 @@ from models import (
     RetrievedChunk,
     ValueType,
 )
+from retry_policy import TransientAPIError
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentRepository(Protocol):
@@ -81,6 +85,8 @@ class RunReport:
         unverified: Keys whose value could not be confirmed against its quote.
         failed: Keys left pending because the source gave no usable answer.
         proposed_keys: New keys the extractor suggested (stored as ``proposed``).
+        failed_files: The documents whose model or rerank call kept failing after
+            every retry (their keys are counted in ``failed`` and stay pending).
     """
 
     documents: int = 0
@@ -89,6 +95,7 @@ class RunReport:
     unverified: int = 0
     failed: int = 0
     proposed_keys: int = 0
+    failed_files: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -98,6 +105,14 @@ class _Plan:
     document: Document
     bodies: list[RetrievedChunk]
     groups: list[tuple[MetaSource, list[MetaKey]]]
+
+
+@dataclass(frozen=True)
+class _Outcome:
+    """What the API work for one document came to: the extractions, or why it gave up."""
+
+    extractions: "list[_Extraction]"
+    error: TransientAPIError | None = None
 
 
 @dataclass(frozen=True)
@@ -183,12 +198,14 @@ class MetaExtractionRunner:
         A document's chunks are read on this thread just before it is handed to a
         worker, and only ``2 * workers`` documents are in flight, so memory does not
         grow with the corpus. Results are written here, in the order they finish.
-        An unexpected error in a worker stops the run (as it does without workers):
-        what was already written stays, and the next run continues from there.
+        An unexpected error in a worker (a bug, a bad login) stops the run, as it does
+        without workers: what was already written stays, and the next run continues
+        from there. A provider that keeps failing for one document does not (see
+        :meth:`_extract`).
         """
         report = RunReport()
         done = 0
-        in_flight: dict[Future[list[_Extraction]], _Plan] = {}
+        in_flight: dict[Future[_Outcome], _Plan] = {}
         remaining = iter(todo)
         exhausted = False
 
@@ -216,13 +233,11 @@ class MetaExtractionRunner:
                 for future in completed:
                     plan = in_flight.pop(future)
                     try:
-                        extractions = future.result()
+                        outcome = future.result()
                     except BaseException:
                         pool.shutdown(wait=True, cancel_futures=True)
                         raise
-                    report = self._merge(
-                        report, self._commit(plan, extractions, doc_type)
-                    )
+                    report = self._merge(report, self._commit(plan, outcome, doc_type))
                     finished_one()
 
     def _process(
@@ -250,38 +265,58 @@ class MetaExtractionRunner:
         ]
         return _Plan(document, bodies, self._assign(pending))
 
-    def _extract(self, plan: "_Plan") -> "list[_Extraction]":
+    def _extract(self, plan: "_Plan") -> "_Outcome":
         """The API work for one document: choose the evidence and ask the sources.
 
-        Touches no database, so it is safe to run on a worker thread.
+        Touches no database, so it is safe to run on a worker thread. A provider that
+        keeps failing after every retry (:class:`retry_policy.TransientAPIError`) is
+        a failure of *this document*, not of the run: it is returned as such, counted
+        and named in the report, and the document stays pending for the next run.
+        Any other error is not caught: it is a bug or a bad login, and hiding it
+        would make a broken run look like a slow one.
         """
         extractions = []
-        for source, source_keys in plan.groups:
-            shown = (
-                self._selector.select(plan.bodies, source_keys)
-                if source.needs_verification
-                else plan.bodies
-            )
-            verifier = (
-                EvidenceVerifier("\n".join(c.content for c in shown), self._date_parser)
-                if source.needs_verification
-                else None
-            )
-            extractions.append(
-                _Extraction(
-                    source,
-                    source_keys,
-                    shown,
-                    source.extract(shown, source_keys),
-                    verifier,
+        try:
+            for source, source_keys in plan.groups:
+                shown = (
+                    self._selector.select(plan.bodies, source_keys)
+                    if source.needs_verification
+                    else plan.bodies
                 )
-            )
-        return extractions
+                verifier = (
+                    EvidenceVerifier(
+                        "\n".join(c.content for c in shown), self._date_parser
+                    )
+                    if source.needs_verification
+                    else None
+                )
+                extractions.append(
+                    _Extraction(
+                        source,
+                        source_keys,
+                        shown,
+                        source.extract(shown, source_keys),
+                        verifier,
+                    )
+                )
+        except TransientAPIError as error:
+            return _Outcome([], error)
+        return _Outcome(extractions)
 
-    def _commit(
-        self, plan: "_Plan", extractions: "list[_Extraction]", doc_type: str
-    ) -> RunReport:
+    def _commit(self, plan: "_Plan", outcome: "_Outcome", doc_type: str) -> RunReport:
         """Record what the sources returned (database writes; main thread only)."""
+        if outcome.error is not None:
+            logger.warning(
+                "[extract] %s: the provider kept failing (%s); nothing was stored "
+                "for it and the next run will try it again.",
+                plan.document.source_file,
+                outcome.error,
+            )
+            return RunReport(
+                documents=1,
+                failed=sum(len(keys) for _, keys in plan.groups),
+                failed_files=(plan.document.source_file,),
+            )
         counts = {
             "present": 0,
             "absent": 0,
@@ -289,7 +324,7 @@ class MetaExtractionRunner:
             "failed": 0,
             "proposed": 0,
         }
-        for e in extractions:
+        for e in outcome.extractions:
             for key in e.keys:
                 self._record(
                     plan.document, key, e.source, e.result, e.shown, e.verifier, counts
@@ -398,4 +433,5 @@ class MetaExtractionRunner:
             unverified=a.unverified + b.unverified,
             failed=a.failed + b.failed,
             proposed_keys=a.proposed_keys + b.proposed_keys,
+            failed_files=a.failed_files + b.failed_files,
         )
