@@ -11,6 +11,7 @@ Key exports:
 """
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Self
 
@@ -18,6 +19,7 @@ import psycopg2.errors
 
 from connection_scope import ConnectionScope
 from db import get_connection
+from metadata.identifiers import normalized_sql
 from models import (
     Document,
     DocumentType,
@@ -589,6 +591,47 @@ class DocumentStore:
             cur.execute(sql, (key, doc_type, doc_type, limit + 1))
             rows = [row[0] for row in cur.fetchall()]
         return rows if len(rows) <= limit else None
+
+    def documents_with_identifiers(
+        self, wanted: Sequence[str]
+    ) -> list[tuple[int, int]]:
+        """The documents whose identifier is, or is a written variant of, a wanted one.
+
+        Looks at every approved key of type ``identifier`` (of the document's own type) and
+        applies the rule of :mod:`metadata.identifiers`: the stored value, normalised in
+        SQL, equals the wanted one or continues it with something that is not a digit.
+
+        Args:
+            wanted: Identifiers **already normalised** with
+                :func:`metadata.identifiers.normalize_identifier` and not empty.
+
+        Returns:
+            ``(position, document_id)`` pairs, once each: ``position`` is the 1-based
+            position of the wanted identifier in ``wanted``. Documents of an identifier that
+            matches none are simply absent.
+        """
+        if not wanted:
+            return []
+        stored = normalized_sql("m.value_text")
+        sql = f"""
+            SELECT DISTINCT w.position, m.document_id
+            FROM unnest(%s::text[]) WITH ORDINALITY AS w(wish, position)
+            JOIN (
+                SELECT m.document_id, {stored} AS normalized
+                FROM document_meta m
+                JOIN documents d ON d.id = m.document_id
+                JOIN meta_keys k ON k.doc_type = d.document_type AND k.key = m.key
+                WHERE k.value_type = 'identifier' AND k.status = 'approved'
+                  AND m.value_text IS NOT NULL
+            ) m ON m.normalized = w.wish
+                OR (starts_with(m.normalized, w.wish)
+                    AND substr(m.normalized, length(w.wish) + 1, 1) !~ '[0-9]')
+            WHERE w.wish <> ''
+            ORDER BY w.position, m.document_id;
+        """
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (list(wanted),))
+            return [(row[0], row[1]) for row in cur.fetchall()]
 
     def execute_query(
         self, sql: str, params: tuple, timeout_ms: int = 10_000

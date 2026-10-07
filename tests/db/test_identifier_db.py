@@ -194,3 +194,173 @@ def test_after_the_migration_an_identifier_key_can_be_stored(db_conn):
         row = cur.fetchone()
 
     assert row is not None and row[0] == "identifier"
+
+
+# ---- the resolver's lookup: DocumentStore.documents_with_identifiers --------------------
+
+
+def _doc(
+    store,
+    n,
+    doc_type,
+    key,
+    value,
+    key_type=ValueType.IDENTIFIER,
+    status=KeyStatus.APPROVED,
+):
+    """A document of a type, with one value under a key of the given type and status."""
+    store.ensure_type(doc_type)
+    store.upsert_key(MetaKey(doc_type, key, key_type, "d", status=status))
+    store.upsert_document(Document(_h(n), f"d{n}.docx", summary="s"))
+    store.set_document_type(_h(n), doc_type)
+    store.add_value(MetaValue(_h(n), key, 1, MetaSource.LLM, value_text=value))
+
+
+def _ids(store, rows, names):
+    """(position, document_id) rows as {wanted: {file names}}."""
+    by_name = dict(store.execute_query("SELECT id, source_file FROM documents", ()))
+    out: dict[str, set[str]] = {}
+    for position, document_id in rows:
+        out.setdefault(names[position - 1], set()).add(by_name[document_id])
+    return out
+
+
+class TestDocumentsWithIdentifiers:
+    def test_it_applies_the_same_rule_as_the_python_one(self, world):
+        wanted = [w for w in WISHED if w.strip()]
+        from metadata.identifiers import normalize_identifier
+
+        normalised = list(dict.fromkeys(normalize_identifier(w) for w in wanted))
+
+        rows = world.documents_with_identifiers(normalised)
+
+        found = _ids(world, rows, normalised)
+        for n in normalised:
+            expected = {
+                f"doc_{i}.docx"
+                for i, v in enumerate(STORED)
+                if identifier_matches(v, n)
+            }
+            assert found.get(n, set()) == expected
+
+    def test_it_finds_the_document_by_a_written_variant(self, world):
+        rows = world.documents_with_identifiers(
+            ["8.p.21.329/2024/12", "8.p.xi.21.329/2024/12"]
+        )
+
+        assert _ids(world, rows, ["a", "b"]) == {
+            "a": {"doc_11.docx"},
+            "b": {"doc_12.docx"},
+        }
+
+    def test_a_longer_number_is_not_found_by_its_shorter_prefix(self, world):
+        rows = world.documents_with_identifiers(["4.p.20.409/2023/4"])
+
+        found = _ids(world, rows, ["w"])["w"]
+        assert "doc_2.docx" not in found  # ".../40"
+        assert {"doc_0.docx", "doc_1.docx"} <= found
+
+    def test_each_pair_comes_once_even_when_a_document_has_several_matching_values(
+        self, db_conn
+    ):
+        store = DocumentStore()
+        _doc(store, 1, "t", "k", "AB-1")
+        store.add_value(  # a second written form of the same number, under the same key
+            MetaValue(
+                _h(1), "k", 1, MetaSource.LLM, value_text="AB-1-ítélet", ordinal=1
+            )
+        )
+
+        rows = store.documents_with_identifiers(["ab-1"])
+
+        document_id = store.execute_query("SELECT id FROM documents", ())[0][0]
+        assert rows == [(1, document_id)]  # once, although two values match
+
+    def test_nothing_is_asked_nothing_is_found(self, world):
+        assert world.documents_with_identifiers([]) == []
+
+    def test_an_empty_wish_matches_nothing(self, world):
+        assert world.documents_with_identifiers([""]) == []
+
+    def test_positions_follow_the_order_of_the_wishes(self, world):
+        rows = world.documents_with_identifiers(
+            ["104.k.702.368/2022/22", "10.p.20.277/2019/77"]
+        )
+
+        positions = {p for p, _ in rows}
+        assert positions == {1, 2}
+        assert [p for p, _ in rows] == sorted(p for p, _ in rows)
+
+    def test_only_keys_of_type_identifier_count(self, db_conn):
+        store = DocumentStore()
+        _doc(store, 1, "t", "number_key", "AB-1", ValueType.IDENTIFIER)
+        _doc(
+            store, 2, "t", "free_text", "AB-1", ValueType.TEXT
+        )  # the same text, another type
+
+        rows = store.documents_with_identifiers(["ab-1"])
+
+        assert _ids(store, rows, ["w"]) == {"w": {"d1.docx"}}
+
+    def test_a_key_that_is_not_approved_does_not_count(self, db_conn):
+        store = DocumentStore()
+        _doc(store, 1, "t", "k_ok", "AB-1")
+        _doc(store, 2, "t", "k_retired", "AB-1", status=KeyStatus.RETIRED)
+        _doc(store, 3, "t", "k_proposed", "AB-1", status=KeyStatus.PROPOSED)
+
+        rows = store.documents_with_identifiers(["ab-1"])
+
+        assert _ids(store, rows, ["w"]) == {"w": {"d1.docx"}}
+
+    def test_several_identifier_keys_of_one_type_are_all_searched(self, db_conn):
+        store = DocumentStore()
+        _doc(store, 1, "t", "case_id", "AB-1")
+        store.upsert_key(
+            MetaKey(
+                "t", "invoice_id", ValueType.IDENTIFIER, "d", status=KeyStatus.APPROVED
+            )
+        )
+        store.upsert_document(Document(_h(2), "d2.docx", summary="s"))
+        store.set_document_type(_h(2), "t")
+        store.add_value(
+            MetaValue(_h(2), "invoice_id", 1, MetaSource.LLM, value_text="AB-1")
+        )
+
+        rows = store.documents_with_identifiers(["ab-1"])
+
+        assert _ids(store, rows, ["w"]) == {"w": {"d1.docx", "d2.docx"}}
+
+    def test_a_key_of_another_document_type_does_not_apply_to_a_document(self, db_conn):
+        """The key must belong to the document's own type."""
+        store = DocumentStore()
+        _doc(store, 1, "t", "k", "AB-1")
+        store.ensure_type("u")
+        store.upsert_key(
+            MetaKey("u", "other", ValueType.IDENTIFIER, "d", status=KeyStatus.APPROVED)
+        )
+        store.upsert_document(Document(_h(2), "d2.docx", summary="s"))
+        store.set_document_type(_h(2), "u")
+        store.add_value(
+            MetaValue(_h(2), "k", 1, MetaSource.LLM, value_text="AB-1")
+        )  # a key of "t"
+
+        rows = store.documents_with_identifiers(["ab-1"])
+
+        assert _ids(store, rows, ["w"]) == {"w": {"d1.docx"}}
+
+    def test_a_resolver_over_the_real_store_end_to_end(self, world):
+        from metadata.identifier_resolver import IdentifierResolver
+
+        result = IdentifierResolver(world).resolve(
+            ["8.P.XI.21.329/2024/12", "4.P.20.409/2023/40", "no/such/1"]
+        )
+
+        def id_of(name):
+            return world.execute_query(
+                "SELECT id FROM documents WHERE source_file = %s", (name,)
+            )[0][0]
+
+        assert result.documents["8.P.XI.21.329/2024/12"] == (id_of("doc_12.docx"),)
+        # ".../40" is its own document
+        assert result.documents["4.P.20.409/2023/40"] == (id_of("doc_2.docx"),)
+        assert result.unresolved == ("no/such/1",)

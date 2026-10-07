@@ -15,6 +15,7 @@ digit (a suffix). It must not be a digit, or ``...2023/4`` would also match
 Key exports:
     normalize_identifier -- The normalised form.
     identifier_matches   -- The matching rule.
+    normalized_sql       -- The same normalisation as a SQL expression.
     IDENTIFIER_TRIM      -- The punctuation trimmed from both ends.
 """
 
@@ -55,3 +56,19 @@ def identifier_matches(stored: str, wanted: str) -> bool:
     if not w:
         return False
     return s == w or (s.startswith(w) and not s[len(w)].isdigit())
+
+
+def normalized_sql(column: str) -> str:
+    """The SQL expression that normalises ``column`` the way :func:`normalize_identifier` does.
+
+    The compiled filters and the resolver's lookup both compare identifiers in SQL, and
+    both use this one expression, so there is a single SQL spelling of the rule (a
+    database test holds it equal to the Python one).
+
+    Args:
+        column: A text column or expression, e.g. ``m.value_text``.
+    """
+    return (
+        f"btrim(regexp_replace(lower(normalize({column}, NFKC)), '\\s+', '', 'g'), "
+        f"'{IDENTIFIER_TRIM}')"
+    )

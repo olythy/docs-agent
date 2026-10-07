@@ -25,7 +25,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from metadata.date_ranges import DateRange, DateRangeResolver, DateSpecError
-from metadata.identifiers import IDENTIFIER_TRIM, normalize_identifier
+from metadata.identifiers import normalize_identifier, normalized_sql
 from metadata.plan import Filter, FilterOp, Operation, PlanError, QueryPlan
 from models import DocumentSelection, KeyStatus, MetaKey, ValueType
 
@@ -370,12 +370,7 @@ class PlanCompiler:
         The SQL repeats the Python rule: the stored value, normalised the same way,
         equals the wanted one or continues it with something that is not a digit.
         """
-        # Same steps as normalize_identifier: compatibility form, lower case, no
-        # whitespace, no punctuation at either end.
-        stored = (
-            f"btrim(regexp_replace(lower(normalize({column}, NFKC)), '\\s+', '', 'g'), "
-            f"'{IDENTIFIER_TRIM}')"
-        )
+        stored = normalized_sql(column)
 
         def wanted(value: object) -> str:
             if not isinstance(value, str) or not normalize_identifier(value):
