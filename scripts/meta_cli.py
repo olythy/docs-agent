@@ -24,7 +24,7 @@ Commands:
                       recognisably stale); a key that already matches is left alone.
                       Example: corpus/data/meta_catalog.json.
 
-    extract-meta [--doc-type T] [--limit N [--seed S]]
+    extract-meta [--doc-type T] [--limit N [--seed S]] [--workers W]
                       Extract every pending approved key of up to N documents of each
                       document type (or of type T only); a type's keys are asked only of
                       its own documents, and documents with no type are skipped (default:
@@ -35,6 +35,10 @@ Commands:
                       document for the LLM-sourced keys. Start with --limit 50. Without --seed the first
                       N by file name are taken (files are named by court, so that is one
                       court's sample); with --seed S, a random, reproducible sample.
+                      With --workers W the model calls of W documents run at once (the
+                      run is waiting for the network, so W=8 is about 8 times faster,
+                      until the provider's rate limit); the stored result does not
+                      depend on W, and the database is only written from one thread.
     keys [--doc-type T]
                       List the catalog's keys with their status. A key the extractor
                       proposed stays 'proposed' (unusable in queries) until approved.
@@ -136,7 +140,12 @@ _GREEN = "\033[32m"
 _RESET = "\033[0m"
 
 
-def _parse(args: list[str], description: str, with_limit: bool) -> argparse.Namespace:
+def _parse(
+    args: list[str],
+    description: str,
+    with_limit: bool,
+    with_workers: bool = False,
+) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="meta_cli.py", description=description)
     parser.add_argument(
         "--doc-type",
@@ -152,6 +161,13 @@ def _parse(args: list[str], description: str, with_limit: bool) -> argparse.Name
             type=int,
             default=None,
             help="with --limit: a random sample fixed by this seed (default: the first N by file name)",
+        )
+    if with_workers:
+        parser.add_argument(
+            "--workers",
+            type=int,
+            default=1,
+            help="documents whose model calls run at once (default 1: one after the other)",
         )
     return parser.parse_args(args)
 
@@ -174,8 +190,14 @@ def cmd_extract_meta(args: list[str]) -> int:
     documents that have no type yet are not touched (classify them first).
     """
     options = _parse(
-        args, "Extract the catalog's keys from the documents.", with_limit=True
+        args,
+        "Extract the catalog's keys from the documents.",
+        with_limit=True,
+        with_workers=True,
     )
+    if options.workers < 1:
+        print("--workers must be at least 1.")
+        return 1
     store = DocumentStore()
     doc_types = _types_with_keys(store, options.doc_type)
     if not doc_types:
@@ -194,6 +216,7 @@ def cmd_extract_meta(args: list[str]) -> int:
             LLMMetaSource(get_answer_driver()),
         ],
         on_progress=progress,
+        workers=options.workers,
     )
     for doc_type in doc_types:
         if not store.list_keys(doc_type):

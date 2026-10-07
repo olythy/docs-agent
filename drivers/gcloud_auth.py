@@ -28,6 +28,7 @@ Key exports:
 """
 
 import subprocess
+import threading
 import time
 
 from retry_policy import TransientAPIError
@@ -45,6 +46,10 @@ _GCLOUD_TIMEOUT_SECONDS = 15
 
 _cached_token: str | None = None
 _token_fetched_at: float = 0.0
+
+#: Guards the refresh: several threads that find the token stale must start one
+#: ``gcloud`` process, not one each, and must not see the cache reset under them.
+_refresh_lock = threading.Lock()
 
 
 def get_access_token() -> str:
@@ -65,28 +70,30 @@ def get_access_token() -> str:
     """
     global _cached_token, _token_fetched_at
 
-    if is_stale():
-        try:
-            result = subprocess.run(
-                ["gcloud", "auth", "print-access-token"],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=_GCLOUD_TIMEOUT_SECONDS,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise TransientAPIError(
-                f"gcloud auth print-access-token timed out after "
-                f"{_GCLOUD_TIMEOUT_SECONDS}s"
-            ) from exc
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"gcloud auth print-access-token failed: {result.stderr}"
-            )
-        _cached_token = result.stdout.strip()
-        _token_fetched_at = time.monotonic()
-    assert _cached_token is not None
-    return _cached_token
+    with _refresh_lock:
+        if is_stale():
+            try:
+                result = subprocess.run(
+                    ["gcloud", "auth", "print-access-token"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=_GCLOUD_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise TransientAPIError(
+                    f"gcloud auth print-access-token timed out after "
+                    f"{_GCLOUD_TIMEOUT_SECONDS}s"
+                ) from exc
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"gcloud auth print-access-token failed: {result.stderr}"
+                )
+            _cached_token = result.stdout.strip()
+            _token_fetched_at = time.monotonic()
+        token = _cached_token
+    assert token is not None
+    return token
 
 
 def is_stale() -> bool:
@@ -100,8 +107,9 @@ def is_stale() -> bool:
 def invalidate() -> None:
     """Force the next :func:`get_access_token` call to refetch a token."""
     global _cached_token, _token_fetched_at
-    _cached_token = None
-    _token_fetched_at = 0.0
+    with _refresh_lock:
+        _cached_token = None
+        _token_fetched_at = 0.0
 
 
 def get_credentials():

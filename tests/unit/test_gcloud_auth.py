@@ -105,3 +105,31 @@ def test_credentials_refresh_fetches_a_new_token_after_invalidate(monkeypatch):
 
     assert creds.token == "new"
     assert creds.expired is False
+
+
+def test_threads_that_find_the_token_stale_start_one_gcloud_not_one_each(monkeypatch):
+    """With several workers the first calls arrive together: only one may refresh."""
+    import threading
+    import time
+
+    calls = []
+
+    def slow_gcloud(*args, **kwargs):
+        calls.append(threading.current_thread().name)
+        time.sleep(0.2)  # long enough for the other threads to arrive meanwhile
+        return _fake_gcloud_token()
+
+    monkeypatch.setattr("subprocess.run", slow_gcloud)
+    tokens: list[str] = []
+    threads = [
+        threading.Thread(target=lambda: tokens.append(get_access_token()))
+        for _ in range(8)
+    ]
+
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert len(calls) == 1
+    assert len(tokens) == 8 and len(set(tokens)) == 1
