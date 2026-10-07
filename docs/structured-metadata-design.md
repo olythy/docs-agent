@@ -31,7 +31,7 @@ Top-k chunk retrieval is good at *lookup* ("who represents the second defendant 
 | column | meaning |
 |---|---|
 | `doc_type`, `key` | scope and English snake_case name |
-| `value_type` | `text`, `number`, `date`, `bool` |
+| `value_type` | `text`, `number`, `date`, `bool`, `identifier` (stored as text, compared in a normalised form: see `metadata/identifiers.py`) |
 | `description`, `example` | what the extractor reads to decide whether a key fits |
 | `allowed_values` | for categorical keys: canonical English tokens |
 | `multi_valued` | whether several rows per document are expected |

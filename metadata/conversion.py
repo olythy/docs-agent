@@ -51,7 +51,7 @@ def to_meta_value(
         )
 
     try:
-        if key.value_type is ValueType.TEXT:
+        if key.value_type in (ValueType.TEXT, ValueType.IDENTIFIER):
             return build(value_text=text)
         if key.value_type is ValueType.NUMBER:
             return build(value_number=Decimal(text))

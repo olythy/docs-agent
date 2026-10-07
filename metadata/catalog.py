@@ -19,7 +19,7 @@ Key exports:
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 
@@ -162,6 +162,8 @@ class ImportResult:
         unchanged: Keys that already matched.
         types_added: Document types that did not exist.
         types_updated: Types whose name, description or status changed.
+        retyped: Keys whose type changed between ``text`` and ``identifier`` and
+            nothing else: the stored values stay valid, so the version is kept.
     """
 
     added: int
@@ -169,6 +171,7 @@ class ImportResult:
     unchanged: int
     types_added: int = 0
     types_updated: int = 0
+    retyped: int = 0
 
 
 class KeyCatalog:
@@ -201,7 +204,12 @@ class KeyCatalog:
                 self._store.upsert_type(doc_type)
         keys = self.import_seed(catalog.keys)
         return ImportResult(
-            keys.added, keys.revised, keys.unchanged, types_added, types_updated
+            keys.added,
+            keys.revised,
+            keys.unchanged,
+            types_added,
+            types_updated,
+            keys.retyped,
         )
 
     def import_seed(self, keys: list[MetaKey]) -> ImportResult:
@@ -212,7 +220,7 @@ class KeyCatalog:
         so values produced under the old definition are recognisably stale. A key
         that already matches is left alone, which makes re-importing a no-op.
         """
-        added = revised = unchanged = 0
+        added = revised = unchanged = retyped = 0
         for doc_type in dict.fromkeys(key.doc_type for key in keys):
             self._store.ensure_type(doc_type)
         for key in keys:
@@ -224,10 +232,15 @@ class KeyCatalog:
                 added += 1
             elif _same_definition(existing, key):
                 unchanged += 1
+            elif _only_retyped(existing, key):
+                # text <-> identifier: the values are stored and extracted the same
+                # way, so they stay valid. Keep the version, change the type.
+                self._store.upsert_key(_with_version(key, existing.version))
+                retyped += 1
             else:
                 self._store.upsert_key(_with_version(key, existing.version + 1))
                 revised += 1
-        return ImportResult(added, revised, unchanged)
+        return ImportResult(added, revised, unchanged, retyped=retyped)
 
 
 def _same_definition(a: MetaKey, b: MetaKey) -> bool:
@@ -238,6 +251,20 @@ def _same_definition(a: MetaKey, b: MetaKey) -> bool:
         and a.allowed_values == b.allowed_values
         and a.multi_valued == b.multi_valued
         and a.status == b.status
+    )
+
+
+#: Types that store and extract their values in the same way (a text column).
+_TEXT_LIKE = {ValueType.TEXT, ValueType.IDENTIFIER}
+
+
+def _only_retyped(a: MetaKey, b: MetaKey) -> bool:
+    """Whether ``b`` is ``a`` with its type changed between two text-like types, and nothing else."""
+    return (
+        a.value_type != b.value_type
+        and a.value_type in _TEXT_LIKE
+        and b.value_type in _TEXT_LIKE
+        and _same_definition(replace(a, value_type=b.value_type), b)
     )
 
 

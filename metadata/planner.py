@@ -266,6 +266,7 @@ FILTERS: a list of {{"key", "op", "value"}} that must ALL hold.
 - ops: eq, ne, in (value is a list; for a date key, a list of date specs), contains (text substring), gt, gte, lt, lte, between (value is [low, high]).
 - Text values are copied in the language of the documents (the question's own wording, e.g. a court's name). Keys with allowed values take exactly one of those English tokens.
 - Number values are plain numbers (no separators, no currency).
+- Identifier values (keys of type identifier: a case number, an invoice number ...) are copied as written. They are compared ignoring case, spaces and a trailing full stop, and an identifier also matches a longer written form of it that continues with a non-digit (a suffix such as -ítélet), so use "eq" for one identifier and "in" for several; never "contains" for a whole identifier.
 - Date keys take a date spec instead of a value, in this closed grammar:
   {{"kind": "calendar", "year": 2022, "month": 3}}          a month (omit "month" for a whole year; "quarter": 1-4; "day": 1-31)
   {{"kind": "calendar", "year_offset": -1, "month": 10}}    October of last year (year_offset is relative to today's year)

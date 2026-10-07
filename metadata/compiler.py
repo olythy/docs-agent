@@ -25,6 +25,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from metadata.date_ranges import DateRange, DateRangeResolver, DateSpecError
+from metadata.identifiers import IDENTIFIER_TRIM, normalize_identifier
 from metadata.plan import Filter, FilterOp, Operation, PlanError, QueryPlan
 from models import DocumentSelection, KeyStatus, MetaKey, ValueType
 
@@ -33,6 +34,7 @@ _VALUE_COLUMN = {
     ValueType.NUMBER: "value_number",
     ValueType.DATE: "value_date",
     ValueType.BOOL: "value_bool",
+    ValueType.IDENTIFIER: "value_text",
 }
 
 _ALLOWED_OPS = {
@@ -56,6 +58,7 @@ _ALLOWED_OPS = {
         FilterOp.BETWEEN,
     },
     ValueType.BOOL: {FilterOp.EQ},
+    ValueType.IDENTIFIER: {FilterOp.EQ, FilterOp.IN, FilterOp.CONTAINS},
 }
 
 _COMPARISON = {
@@ -302,6 +305,8 @@ class PlanCompiler:
             return self._number(flt, column)
         if kind is ValueType.DATE:
             return self._date(flt, column)
+        if kind is ValueType.IDENTIFIER:
+            return self._identifier(flt, key, column)
         if not isinstance(flt.value, bool):
             raise PlanError(
                 f"{key.key!r} is a bool key: the value must be true or false"
@@ -355,6 +360,60 @@ class PlanCompiler:
                 f"= {value!r}",
             )
         return f"{column} {symbol} %s", (value,), f"{symbol} {value!r}"
+
+    @staticmethod
+    def _identifier(
+        flt: Filter, key: MetaKey, column: str
+    ) -> tuple[str, tuple[Any, ...], str]:
+        """An identifier compared in its normalised form (see :mod:`metadata.identifiers`).
+
+        The SQL repeats the Python rule: the stored value, normalised the same way,
+        equals the wanted one or continues it with something that is not a digit.
+        """
+        # Same steps as normalize_identifier: compatibility form, lower case, no
+        # whitespace, no punctuation at either end.
+        stored = (
+            f"btrim(regexp_replace(lower(normalize({column}, NFKC)), '\\s+', '', 'g'), "
+            f"'{IDENTIFIER_TRIM}')"
+        )
+
+        def wanted(value: object) -> str:
+            if not isinstance(value, str) or not normalize_identifier(value):
+                raise PlanError(
+                    f"{key.key!r}: an identifier must be a non-empty string, got {value!r}"
+                )
+            return normalize_identifier(value)
+
+        def escaped(text: str) -> str:
+            return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+        if flt.op is FilterOp.CONTAINS:
+            needle = wanted(flt.value)
+            return (
+                f"{stored} LIKE %s ESCAPE '\\'",
+                (f"%{escaped(needle)}%",),
+                f"contains {flt.value!r}",
+            )
+        if flt.op is FilterOp.IN:
+            if not isinstance(flt.value, list) or not flt.value:
+                raise PlanError(f"{key.key!r}: 'in' needs a non-empty list")
+            values = [wanted(v) for v in flt.value]
+        else:
+            values = [wanted(flt.value)]
+        # equal, or the stored identifier continues the wanted one with a non-digit
+        one = (
+            f"({stored} = %s OR ({stored} LIKE %s ESCAPE '\\' "
+            f"AND substr({stored}, %s + 1, 1) !~ '[0-9]'))"
+        )
+        params: list[Any] = []
+        for value in values:
+            params += [value, f"{escaped(value)}%", len(value)]
+        words = f"is {flt.value!r}" if flt.op is FilterOp.EQ else f"in {flt.value!r}"
+        return (
+            "(" + " OR ".join([one] * len(values)) + ")",
+            tuple(params),
+            f"{words} (as an identifier: case, spaces and a suffix are ignored)",
+        )
 
     @staticmethod
     def _number(flt: Filter, column: str) -> tuple[str, tuple[Any, ...], str]:

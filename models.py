@@ -228,12 +228,17 @@ class RetrievalTrace:
 
 
 class ValueType(StrEnum):
-    """The type of a metadata key's values; selects which ``value_*`` column holds them."""
+    """The type of a metadata key's values; selects which ``value_*`` column holds them.
+
+    ``IDENTIFIER`` is stored exactly like ``TEXT`` (``value_text``): the type tells the
+    system that the text is an identifier, to be compared by the rule in
+    :mod:`metadata.identifiers`."""
 
     TEXT = "text"
     NUMBER = "number"
     DATE = "date"
     BOOL = "bool"
+    IDENTIFIER = "identifier"  # text stored as written, compared in a normalised form
 
 
 class KeyStatus(StrEnum):

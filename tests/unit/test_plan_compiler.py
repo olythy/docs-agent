@@ -26,6 +26,7 @@ KEYS = [
     _k("document_kind", ValueType.TEXT, allowed=("judgment", "order", "other")),
     _k("legal_costs", ValueType.NUMBER),
     _k("appealed", ValueType.BOOL),
+    _k("document_identifier", ValueType.IDENTIFIER),
     _k("draft_key", ValueType.TEXT, status=KeyStatus.PROPOSED),
 ]
 
@@ -477,3 +478,76 @@ class TestDateSet:
         )
 
         assert "= ANY(%s)" in compiled.sql
+
+
+class TestIdentifierKey:
+    """An identifier is compared in its normalised form, by the rule of metadata.identifiers."""
+
+    def _compile(self, compiler, op, value):
+        return compiler.compile(
+            _plan(filters=[{"key": "document_identifier", "op": op, "value": value}]),
+            KEYS,
+        )
+
+    def test_eq_binds_the_normalised_wish_its_prefix_form_and_its_length(
+        self, compiler
+    ):
+        compiled = self._compile(compiler, "eq", " 4.P.20.409/2023/4. ")
+
+        assert compiled.params == (
+            "court_decision",
+            "document_identifier",
+            "4.p.20.409/2023/4",  # equal to ...
+            "4.p.20.409/2023/4%",  # ... or continued by something
+            17,  # (that is not a digit: checked at this length)
+        )
+        assert "~ '[0-9]'" in compiled.sql
+        assert compiled.sql.count("%s") == len(compiled.params)
+
+    def test_the_stored_value_is_normalised_in_the_sql_the_same_way(self, compiler):
+        sql = self._compile(compiler, "eq", "A1/2").sql
+
+        for step in ("normalize(m.value_text, NFKC)", "lower(", "'\\s+'", "btrim("):
+            assert step in sql
+
+    def test_in_is_an_or_of_the_same_condition(self, compiler):
+        compiled = self._compile(compiler, "in", ["A1/2", "B3/4"])
+
+        assert (
+            compiled.sql.count(" OR ") >= 3
+        )  # one per identifier, plus the two inside
+        assert compiled.params[2:5] == ("a1/2", "a1/2%", 4)
+        assert compiled.params[5:8] == ("b3/4", "b3/4%", 4)
+
+    def test_contains_is_a_substring_of_the_normalised_form(self, compiler):
+        compiled = self._compile(compiler, "contains", "P.20.409")
+
+        assert "LIKE %s" in compiled.sql
+        assert compiled.params[-1] == "%p.20.409%"
+
+    def test_like_characters_in_the_wish_are_escaped(self, compiler):
+        compiled = self._compile(compiler, "eq", "a_b%c")
+
+        assert compiled.params[3] == "a\\_b\\%c%"
+
+    def test_the_value_is_never_part_of_the_sql(self, compiler):
+        evil = "x'; DROP TABLE documents; --"
+
+        compiled = self._compile(compiler, "eq", evil)
+
+        assert "DROP" not in compiled.sql
+
+    @pytest.mark.parametrize("value", ["", "  ", " ./ ", 5, None])
+    def test_a_wish_without_an_identifier_in_it_is_refused(self, compiler, value):
+        with pytest.raises(PlanError, match="non-empty string"):
+            self._compile(compiler, "eq", value)
+
+    @pytest.mark.parametrize("value", [[], "x", ["a", " "]])
+    def test_in_needs_a_list_of_identifiers(self, compiler, value):
+        with pytest.raises(PlanError):
+            self._compile(compiler, "in", value)
+
+    @pytest.mark.parametrize("op", ["ne", "gt", "between"])
+    def test_other_operators_do_not_fit_an_identifier(self, compiler, op):
+        with pytest.raises(PlanError, match="does not fit identifier key"):
+            self._compile(compiler, op, "A1/2")
