@@ -123,3 +123,22 @@ def test_a_selection_with_several_bound_parameters_keeps_them_in_order(two_docum
 
     assert _files(found) == ["a.pdf", "b.pdf"]
     assert _files(store.search_fulltext("booking", top_k=5)) == ["a.pdf", "b.pdf"]
+
+
+def test_a_selection_by_document_ids_restricts_every_search(two_documents, db_conn):
+    """The scope of a question that names its documents by an identifier is a list of ids
+    in an ``ANY(%s)``: the array parameter must travel through every search path."""
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id FROM documents WHERE source_file = 'a.pdf';")
+        a_id = cur.fetchone()[0]
+    vec = two_documents.embed_text("booking invoice")
+    store = VectorStore(
+        selection=DocumentSelection(
+            "SELECT id FROM documents WHERE id = ANY(%s)", ([a_id],)
+        )
+    )
+
+    assert _files(store.search(vec, top_k=5, min_score=0.0)) == ["a.pdf"]
+    assert _files(store.search_fulltext("booking", top_k=5)) == ["a.pdf"]
+    assert _files(store.search_by_identifier(["Pfv.100"], top_k=5)) == ["a.pdf"]
+    assert store.search_by_identifier(["Pfv.200"], top_k=5) == []

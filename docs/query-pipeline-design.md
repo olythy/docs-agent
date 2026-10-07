@@ -54,7 +54,9 @@ flowchart TD
 
     DEC -->|"count / list / sum / overview"| EX["ExactAnswerer<br/>SQL executor + phraser"]
     DEC -->|"not supported / could not interpret"| RF["Refuse(Declined)<br/>RefusalRenderer"]
-    DEC -->|"read the documents"| RS["RetrievalService.retrieve()<br/>profile name + scoped store"]
+    DEC -->|"read the documents"| RS["RetrievalService.retrieve()<br/>runs a profile over a scoped store"]
+    SR ==>|"Scope: WHICH documents<br/>(store.restricted_to)"| RS
+    PS ==>|"profile NAME: WHICH steps"| RS
 
     RS --> PR["ProfileResolver<br/>name + settings -> numbers"]
     PR --> PIPE["RetrievalPipeline<br/>embed, search, gate, fuse, rerank, cut"]
@@ -75,7 +77,9 @@ flowchart TD
 ```
 
 Green = built and tested; yellow = still to build (slice 2); grey = exists and is reused as
-it is (the planner, whose output is a `QueryPlan`). The retrieval half is done; the
+it is (the planner, whose output is a `QueryPlan`). The two thick arrows into
+`RetrievalService` are the only two things the decision hands to the retrieval: the **scope**
+(which documents) and the **profile name** (which steps). The retrieval decides neither. The retrieval half is done; the
 decision half and the answering half are not. **Today's `QueryRouter` plus
 `query_knowledge_base` do the work of the yellow boxes in one tangled piece, and stay as the
 reference until the new ones are proven equal.**

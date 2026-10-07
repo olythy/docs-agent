@@ -434,3 +434,62 @@ def test_a_filter_value_with_a_trailing_full_stop_still_finds_the_stored_value(w
     )
 
     assert with_stop.count == 1 and in_list.count == 1
+
+
+def _ids(store, *files):
+    rows = store.execute_query("SELECT id, source_file FROM documents", ())
+    by_file = {name: i for i, name in rows}
+    return [by_file[f] for f in files]
+
+
+def _executor():
+    return PlanExecutor(
+        DocumentStore(), PlanCompiler(DateRangeResolver(FixedClock(TODAY)))
+    )
+
+
+def test_members_says_which_of_some_documents_a_plan_selects(world):
+    """Used to see whether the question's filter agrees with the documents an identifier named."""
+    debrecen_1, debrecen_2, eger = _ids(
+        world, "Debreceni__doc_1.docx", "Debreceni__doc_2.docx", "Egri__doc_4.docx"
+    )
+    plan = parse_plan(
+        {
+            "document_type": DT,
+            "operation": "lookup",
+            "filters": [
+                {"key": "issuing_body", "op": "eq", "value": "Debreceni Ítélőtábla"}
+            ],
+        },
+        [DT],
+    )
+
+    membership = _executor().members(plan, [debrecen_1, eger, debrecen_2])
+
+    assert membership.inside == {debrecen_1, debrecen_2}  # not the Eger one
+    assert "issuing_body" in membership.explanation
+
+
+def test_members_of_a_plan_with_no_filters_is_the_documents_of_its_type(world):
+    ids = _ids(world, "Debreceni__doc_1.docx", "Egri__doc_4.docx")
+    plan = parse_plan({"document_type": DT, "operation": "lookup", "filters": []}, [DT])
+
+    assert _executor().members(plan, ids).inside == set(ids)
+
+
+def test_members_asked_about_no_documents_is_empty(world):
+    plan = parse_plan({"document_type": DT, "operation": "lookup", "filters": []}, [DT])
+
+    assert _executor().members(plan, []).inside == frozenset()
+
+
+def test_members_does_not_see_documents_outside_the_plans_type(world):
+    """A document of another type is not selected by a plan about this type."""
+    world.ensure_type("invoice")
+    _put(world, 9, "Somewhere", date(2025, 10, 3), "judgment", doc_type="invoice")
+    (other,) = _ids(world, "Somewhere__doc_9.docx")
+    plan = parse_plan(
+        {"document_type": DT, "operation": "lookup", "filters": []}, [DT, "invoice"]
+    )
+
+    assert _executor().members(plan, [other]).inside == frozenset()

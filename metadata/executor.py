@@ -11,6 +11,7 @@ Key exports:
     PlanResult   -- What came back.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Protocol
@@ -66,6 +67,19 @@ class PlanResult:
     selection: DocumentSelection | None = None
 
 
+@dataclass(frozen=True)
+class Membership:
+    """Which of some documents a plan's filters select.
+
+    Attributes:
+        explanation: The plan's filter in words.
+        inside: The asked documents that the plan's filters select.
+    """
+
+    explanation: str
+    inside: frozenset[int]
+
+
 class PlanExecutor:
     """Compiles and runs plans.
 
@@ -77,6 +91,29 @@ class PlanExecutor:
     def __init__(self, store: PlanStore, compiler: PlanCompiler) -> None:
         self._store = store
         self._compiler = compiler
+
+    def members(self, plan: QueryPlan, document_ids: Sequence[int]) -> Membership:
+        """Which of ``document_ids`` the plan's filters select.
+
+        Lets a caller that has named some documents some other way (by an identifier)
+        see whether the question's filters agree with them, without running the plan
+        over the whole corpus.
+
+        Raises:
+            metadata.plan.PlanError: If the plan does not fit the catalog.
+        """
+        keys = (
+            self._store.list_keys(plan.doc_type, KeyStatus.APPROVED)
+            if plan.doc_type is not None
+            else []
+        )
+        query = self._compiler.compile(plan, keys)
+        assert query.selection is not None
+        rows = self._store.execute_query(
+            f"SELECT s.id FROM ({query.selection.sql}) s WHERE s.id = ANY(%s)",
+            (*query.selection.params, list(document_ids)),
+        )
+        return Membership(query.explanation, frozenset(row[0] for row in rows))
 
     def execute(self, plan: QueryPlan) -> PlanResult:
         """Run ``plan``.
