@@ -71,16 +71,18 @@ flowchart TD
     classDef built fill:#d6f5d6,stroke:#2e7d32,color:#000
     classDef todo fill:#fff3c4,stroke:#b8860b,color:#000
     classDef box fill:#eeeeee,stroke:#888,color:#000
-    class FR,IR,RS,PR,PIPE,OBS built
-    class SVC,DEC,SR,PS,PF,EX,RF,GA,RES todo
+    class FR,IR,DEC,SR,PS,PF,RS,PR,PIPE,OBS built
+    class SVC,EX,RF,GA,RES todo
     class PL box
 ```
 
 Green = built and tested; yellow = still to build (slice 2); grey = exists and is reused as
-it is (the planner, whose output is a `QueryPlan`). The two thick arrows into
+it is (the planner, whose output is a `QueryPlan`). The decision half is built (the
+`Decider`, the `ScopeResolver`, the `ProfileSelector`) but **nothing calls it yet**: what
+turns its decision into an answer (the yellow boxes) is next. The two thick arrows into
 `RetrievalService` are the only two things the decision hands to the retrieval: the **scope**
-(which documents) and the **profile name** (which steps). The retrieval decides neither. The retrieval half is done; the
-decision half and the answering half are not. **Today's `QueryRouter` plus
+(which documents) and the **profile name** (which steps). The retrieval decides neither. The retrieval half and the
+decision half are done; the answering half is not. **Today's `QueryRouter` plus
 `query_knowledge_base` do the work of the yellow boxes in one tangled piece, and stay as the
 reference until the new ones are proven equal.**
 
@@ -129,21 +131,22 @@ flowchart LR
         L1["query_knowledge_base"] --> L2["QueryRouter<br/>(QUERY_ROUTER)"] --> L3["retrieve_chunks<br/>HybridRetrievalStrategy"] --> L4["_build_prompt + LLM"]
     end
     subgraph v2["QUERY_ENGINE=v2"]
-        N1["QueryService (to build)"] --> N2["Decider (to build)"] --> N3["RetrievalService (built)"] --> N4["GroundedAnswerer (to build)"]
+        N1["QueryService (to build)"] --> N2["Decider (built, not wired yet)"] --> N3["RetrievalService (built)"] --> N4["GroundedAnswerer (to build)"]
     end
     L3 -. "same chunks, proven" .- N3
 ```
 
-Today only the retrieval half exists on the right, reached through `retrieve_chunks` when
-`QUERY_ENGINE=v2`; the decision and the answer are still the original's. Replacing the other
-two boxes is slice 2, and then the left column is deleted.
+Today the retrieval half is reached through `retrieve_chunks` when `QUERY_ENGINE=v2`; the
+decider exists but is not connected, and the answer is still the original's. Connecting the
+decider and building the answering half is the rest of slice 2, and then the left column is
+deleted.
 
 Two entry methods share the same decision: `answer()` (full) and `retrieve()` (chunks only,
 for the eval; the MCP search tool stays as it is).
 
 ## 4. Modules and classes
 
-**Built:** `facts`, `outcome`, `context`, `step`, `candidate_steps`, `ranking_steps`, `gate_steps`, `selection_steps`, `profiles`, `runner`, `observers`, `legacy_trace`, `composition`, and `service.py` as far as `RetrievalService` and its request / result. **To build (slice 2):** `decision` (`Decision`, `Decider`, `Scope`, `ScopeResolver`, `ProfileSelector`), `answering` (`GroundedAnswerer`, `ExactAnswerer`, `AnswerPolicy`), the `RefusalRenderer` in `outcome`, and `QueryService.answer` with its `Explain`.
+**Built:** `facts`, `outcome`, `context`, `step`, `candidate_steps`, `ranking_steps`, `gate_steps`, `selection_steps`, `profiles`, `runner`, `observers`, `legacy_trace`, `composition`, and `service.py` as far as `RetrievalService` and its request / result. **Built, not yet connected:** `decision` (`Scope`, `ScopeResolver`, `Decision`, `PlanningDecider`, `UnplannedDecider`, `ProfileSelector`; it still imports `as_routed` from the original router, which moves when the router is deleted). **To build (slice 2):** `answering` (`GroundedAnswerer`, `ExactAnswerer`, `AnswerPolicy`), the `RefusalRenderer` in `outcome`, and `QueryService.answer` with its `Explain`.
 
 | Module | Contents |
 |---|---|
@@ -329,10 +332,12 @@ contract. Therefore its own commit, behind the router flag.
 Also built: the observers (progress and audit log), and a `funnel` that reads the step
 records (per step in / out / time / which step dropped a golden document).
 
-**Slice 2 – the decision side: not started.** The decider (port the router test cases), the
-`Scope`, `QueryService.answer` behind the flag, golden eval on both engines (retrieval
-identical, answers within LLM noise), then the switch. The identifier and date resolvers
-(section 8) come first inside it; the MCP stays out.
+**Slice 2 – the decision and the answer: in progress.** Done: the `IdentifierResolver`, the
+`Scope` and `ScopeResolver` (rules for combining an identifier and the filters, below), and
+the `Decider` with its test against the original router on the same cases (the differences
+are the intended ones). Next: `ExactAnswerer`, `RefusalRenderer`, `GroundedAnswerer`, then
+`QueryService.answer` with its explain record behind the flag; then the golden eval on both
+engines, the removal of the identifier pin (section 8), and the switch. The MCP stays out.
 
 **End:** delete the legacy code and `QUERY_ENGINE`; the eval and `funnel` read `explain`;
 the prompt-builder driver change.
