@@ -34,7 +34,7 @@
           "key": "document_identifier",
           "value_type": "text",
           "multi_valued": true,
-          "description": "Identifier(s) of this document, such as its case number, exactly as written in the document. A document often carries several written variants of the same number (with or without a suffix); all are stored. Filter with eq or in for one known number, or contains for a part (for example a case-type prefix).",
+          "description": "Every identifier this document states for ITSELF in its own text, exactly as written, one value per distinct written form: the case number (ügyszám, normally after 'Az ügy száma:'), the decision's own number (after 'Az ítélet száma:' or 'A határozat száma:', and the number printed in the page header or title), and any other number the document gives as its own. The case number and the decision's number can differ (by a sequence number, a suffix such as -III or -ítélet, or a part such as a roman numeral), and both must be stored when the document states both. Do NOT include the number of another case that the text only mentions (a first-instance or earlier case, a cited decision). Filter with eq or in for one known number, or contains for a part (for example a case-type prefix).",
           "example": "27.P.20.093/2020/13"
         }
       ]

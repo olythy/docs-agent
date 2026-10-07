@@ -130,9 +130,14 @@ def cmd_load_catalog(args: list[str]) -> int:
 #: Catalog keys that this project's ingestion already extracts deterministically
 #: into the chunk metadata (chunker.extract_document_date). Configuration of the
 #: *court-decision corpus*, not of the generic core: another corpus passes none.
+#:
+#: ``document_identifier`` is deliberately NOT here. Ingestion reads the identifiers
+#: from the first 100 characters of the text, which holds the number printed in the
+#: header but not the case number a decision states a few lines further down ("Az ügy
+#: száma: ..."), so a document's second number was never stored. The key is extracted
+#: by the language model instead, which sees both and must quote each.
 _DETERMINISTIC_FIELDS = {
     "decision_date": "document_date",
-    "document_identifier": "document_identifiers",
 }
 
 _RED = "\033[31;1m"
