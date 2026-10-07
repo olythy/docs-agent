@@ -51,6 +51,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── compiler.py          # PlanCompiler: plan + catalog -> parameterised SQL (no value ever in the SQL text)
 │   ├── executor.py          # PlanExecutor: compile, run read-only, return counts with "+K unknown"
 │   ├── identifiers.py       # normalize_identifier / identifier_matches: the one rule for comparing identifiers (the SQL repeats it)
+│   ├── identifier_resolver.py  # IdentifierResolver: the identifiers a question names -> the documents that carry them
 │   └── planner.py           # LLMQueryPlanner: question -> QueryPlan (type, operation, filters), strict JSON, one retry
 ├── llm_json.py             # extract_json: tolerant parsing of a model's JSON reply (shared by corpus tooling and metadata)
 ├── logger.py                # Structured JSONL telemetry/event logging
@@ -69,14 +70,15 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   └── ingest.py             # add_document and add_directory orchestration
 ├── query/
 │   ├── retrieval.py          # query_knowledge_base + the original retrieve_chunks / HybridRetrievalStrategy (QUERY_ENGINE=legacy, the default)
-│   ├── router.py             # QueryRouter (opt-in QUERY_ROUTER): exact answers for count/list/sum questions, "not supported yet", restricted lookup otherwise
+│   ├── router.py             # QueryRouter (opt-in QUERY_ROUTER): exact answers for count/list/sum questions, "not supported yet", restricted lookup otherwise (the original; it imports the new modules, never the reverse)
 │   ├── hybrid.py             # reciprocal_rank_fusion: pure RRF fusion logic
 │   ├── listwise_rerank.py    # Optional final LLM disambiguation pass over near-duplicate candidates
 │   ├── time_filter.py        # extract_years(): the years a question names (for the opt-in period-aware retrieval)
 │   ├── decline_detection.py  # Shared "did the model honestly decline" heuristic (eval + scripts/eval_cli.py)
 │   │   # The step-based retrieval (QUERY_ENGINE=v2), built beside the original; see docs/query-pipeline-design.md
 │   ├── facts.py              # QueryFacts / QueryFactsReader: identifiers and years read from the question, once
-│   ├── outcome.py            # Answerable / Declined(reason, stage): a refusal is a value, not an empty list
+│   ├── outcome.py            # Answerable / Declined(reason, stage) (a refusal is a value, not an empty list), RefusalRenderer and the wording of every refusal, in one place
+│   ├── decision.py           # Scope / ScopeResolver (which documents), Decision (ReadDocuments | AnswerExactly | Refuse), PlanningDecider, ProfileSelector
 │   ├── context.py            # RetrievalContext (one frozen context) + Slot: what the steps share
 │   ├── step.py               # RetrievalStep (the contract: requires/provides/run), Continue / Halt, StepName
 │   ├── candidate_steps.py    # embed, dense search, year widening, CSLS reorder, keyword search, identifier pin

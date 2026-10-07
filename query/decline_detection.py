@@ -21,8 +21,13 @@ _DECLINE_PHRASES = [
     "nem tér ki",
     "nem derül ki",
     "nem állapítható meg",
-    # the router's own plain refusal when the named thing matches no document
+    # the router's own plain refusals: the named thing matches no document, the kind of
+    # request is not supported yet, the question could not be interpreted. All are honest
+    # declines, so for an unanswerable question they are right, and for an answerable one
+    # they are a plain failure rather than an answer.
     "no documents match",
+    "not supported yet",
+    "could not interpret",
 ]
 
 

@@ -32,6 +32,7 @@ The rules, all stated in the notes and the explain record rather than applied si
 
 Key exports:
     Scope            -- Which documents the retrieval may look at, and why.
+    as_routed        -- The plan as treated: a residual means read, not count.
     ScopeResolver    -- Builds a scope from the plan and the question's identifiers.
     Decision         -- ReadDocuments | AnswerExactly | Refuse.
     ProfileSelector  -- Which profile (steps) a question to read gets.
@@ -41,7 +42,7 @@ Key exports:
 
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 from metadata.executor import Membership, PlanResult
@@ -58,7 +59,6 @@ from metadata.planner import (
 from models import DocumentSelection
 from query.facts import QueryFacts
 from query.outcome import Declined, DeclineReason
-from query.router import as_routed
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +164,25 @@ class ScopeResolver:
 
 
 # ------------------------------------------------------------------------ the decision
+
+
+def as_routed(plan: QueryPlan) -> QueryPlan:
+    """The plan as the decider treats it: an exact plan with a residual is read instead.
+
+    Part of the question is covered by no key, so a count / list / sum / overview over the
+    keys alone would answer a different, easier question and present it as exact. The
+    documents have to be read; the filters still narrow which ones. Anything else is
+    returned unchanged (the same object).
+
+    Args:
+        plan: A plan as the planner produced it.
+    """
+    if plan.residual and plan.operation not in (
+        Operation.LOOKUP,
+        Operation.UNSUPPORTED,
+    ):
+        return replace(plan, operation=Operation.LOOKUP, group_by=None, sum_key=None)
+    return plan
 
 
 @dataclass(frozen=True)

@@ -108,7 +108,7 @@ def routing_eval(
         collect_known_values,
         load_catalogs,
     )
-    from query.router import as_routed
+    from query.decision import as_routed
     from store import extract_identifier_tokens
 
     clock = SystemClock()

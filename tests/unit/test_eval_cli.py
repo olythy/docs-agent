@@ -74,3 +74,20 @@ def test_the_routers_own_plain_refusal_counts_as_a_decline():
         "contains 'PK-987654')."
     )
     assert not looks_like_a_decline("A bíróság a keresetet elutasította.")
+
+
+def test_the_routers_other_plain_refusals_are_declines_too():
+    """Every refusal the system itself words must read as one to the eval."""
+    from query.decline_detection import looks_like_a_decline
+
+    assert looks_like_a_decline(
+        "This kind of question is not supported yet, so I will not guess at an answer. "
+        "(five cases similar to the 27.P.20.339/2021/37 case)"
+    )
+    assert looks_like_a_decline(
+        "I could not interpret this question well enough to answer it from the "
+        "structured data, and I did not want to guess."
+    )
+    assert not looks_like_a_decline(
+        "The supported claim was granted."
+    )  # not just any "support"

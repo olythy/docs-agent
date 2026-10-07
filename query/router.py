@@ -42,7 +42,7 @@ Key exports:
 
 import logging
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Protocol
 
 from metadata.executor import PlanExecutor, PlanResult
@@ -56,21 +56,15 @@ from metadata.planner import (
     load_catalogs,
 )
 from models import DocumentSelection
+from query.decision import as_routed
+from query.outcome import (
+    COULD_NOT_INTERPRET_MESSAGE,
+    NOT_SUPPORTED_MESSAGE,
+    no_matching_documents_message,
+)
 from store import extract_identifier_tokens
 
 logger = logging.getLogger(__name__)
-
-#: Said when the request is of a kind the system cannot do yet; the planner's reason
-#: (in the question's language) follows it.
-NOT_SUPPORTED_MESSAGE = (
-    "This kind of question is not supported yet, so I will not guess at an answer."
-)
-
-#: Returned when the planner cannot turn the question into a valid plan.
-COULD_NOT_INTERPRET_MESSAGE = (
-    "I could not interpret this question well enough to answer it from the "
-    "structured data, and I did not want to guess."
-)
 
 #: How many documents/groups are shown in a rendered answer.
 _SHOWN = 50
@@ -109,25 +103,6 @@ class Phraser(Protocol):
     """Turns an exact result into an answer in the question's language."""
 
     def phrase(self, question: str, plan: QueryPlan, result: PlanResult) -> str: ...
-
-
-def as_routed(plan: QueryPlan) -> QueryPlan:
-    """The plan as the router will treat it: an exact plan with a residual is read instead.
-
-    Part of the question is covered by no key, so a count/list/sum/overview over the
-    keys alone would answer a different, easier question and present it as exact. The
-    documents have to be read; the filters still narrow which ones. Anything else is
-    returned unchanged (the same object).
-
-    Args:
-        plan: A plan as the planner produced it.
-    """
-    if plan.residual and plan.operation not in (
-        Operation.LOOKUP,
-        Operation.UNSUPPORTED,
-    ):
-        return replace(plan, operation=Operation.LOOKUP, group_by=None, sum_key=None)
-    return plan
 
 
 def render_result(plan: QueryPlan, result: PlanResult) -> str:
@@ -309,10 +284,7 @@ class QueryRouter:
         )
         if not result.count:
             return Routing(
-                answer=(
-                    f"No documents match the filter ({result.explanation})."
-                    + (f" {note}" if note else "")
-                )
+                answer=no_matching_documents_message(result.explanation, note)
             )
         return Routing(selection=result.selection, note=note)
 

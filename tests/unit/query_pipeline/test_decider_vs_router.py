@@ -38,11 +38,8 @@ from query.decision import (
     ScopeResolver,
 )
 from query.facts import QueryFactsReader
-from query.router import (
-    COULD_NOT_INTERPRET_MESSAGE,
-    NOT_SUPPORTED_MESSAGE,
-    QueryRouter,
-)
+from query.outcome import COULD_NOT_INTERPRET_MESSAGE, NOT_SUPPORTED_MESSAGE
+from query.router import QueryRouter
 
 DT = "court_decision"
 CASE = "4.P.20.409/2023/4"

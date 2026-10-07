@@ -28,6 +28,13 @@ The new code is built **beside** the old one, proven equal, then the old code is
 
 ## 2. Principles
 
+0. **The new code never imports the original.** `query/retrieval.py` (the original
+   `retrieve_chunks` and strategies) and `query/router.py` are the reference the new pipeline
+   is proven against and are deleted when it has been; that is a deletion, not a rewrite,
+   only if the dependency goes one way. The original may import the new (the wording of a
+   refusal, the plan treatment); the reverse is refused by
+   `tests/unit/query_pipeline/test_separation.py`.
+
 1. One class, one reason to change. Flat modules under `query/`, one concept per file.
 2. Steps never read `Settings`; parameters and collaborators arrive by constructor.
    `Settings` is read in exactly one place, the composition root (`build_query_service`).
@@ -146,7 +153,7 @@ for the eval; the MCP search tool stays as it is).
 
 ## 4. Modules and classes
 
-**Built:** `facts`, `outcome`, `context`, `step`, `candidate_steps`, `ranking_steps`, `gate_steps`, `selection_steps`, `profiles`, `runner`, `observers`, `legacy_trace`, `composition`, and `service.py` as far as `RetrievalService` and its request / result. **Built, not yet connected:** `decision` (`Scope`, `ScopeResolver`, `Decision`, `PlanningDecider`, `UnplannedDecider`, `ProfileSelector`; it still imports `as_routed` from the original router, which moves when the router is deleted). **To build (slice 2):** `answering` (`GroundedAnswerer`, `ExactAnswerer`, `AnswerPolicy`), the `RefusalRenderer` in `outcome`, and `QueryService.answer` with its `Explain`.
+**Built:** `facts`, `outcome`, `context`, `step`, `candidate_steps`, `ranking_steps`, `gate_steps`, `selection_steps`, `profiles`, `runner`, `observers`, `legacy_trace`, `composition`, and `service.py` as far as `RetrievalService` and its request / result. **Built, not yet connected:** `decision` (`Scope`, `ScopeResolver`, `Decision`, `PlanningDecider`, `UnplannedDecider`, `ProfileSelector`, `as_routed`), and the `RefusalRenderer` with the wording of every refusal in `outcome`; the original `router.py` and `retrieval.py` import these, not the reverse. **To build (slice 2):** `answering` (`GroundedAnswerer`, `ExactAnswerer`, `AnswerPolicy`), the `RefusalRenderer` in `outcome`, and `QueryService.answer` with its `Explain`.
 
 | Module | Contents |
 |---|---|

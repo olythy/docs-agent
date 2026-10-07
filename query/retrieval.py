@@ -42,6 +42,7 @@ from logger import LogAction, get_logger
 from models import RetrievalTrace, RetrievedChunk
 from query.hybrid import reciprocal_rank_fusion
 from query.listwise_rerank import listwise_rerank
+from query.outcome import NO_RESULTS_MESSAGE
 from query.router import Routing, get_query_router
 from query.time_filter import extract_years
 from store import VectorStore, extract_identifier_tokens
@@ -52,13 +53,6 @@ from store import VectorStore, extract_identifier_tokens
 # here broke a real client's message parsing mid-call). logging defaults to
 # stderr, safe for every caller (CLI scripts, agent.py, mcp_server.py alike).
 logger = logging.getLogger(__name__)
-
-# Returned when no chunk clears the relevance threshold.
-# Using a constant avoids scatter: every caller sees the same wording,
-# and the agent layer (step 6) can test for this exact string if needed.
-NO_RESULTS_MESSAGE = (
-    "I could not find relevant information about this in the provided documents."
-)
 
 
 class RetrievalStrategy(ABC):
