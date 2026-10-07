@@ -1,6 +1,6 @@
 # Query pipeline: design of the rewrite
 
-Status: **slice 1 implemented and proven equal on a six-question sample under five settings** (see section 6 and `docs/decisions.md`, 2026-10-06); nothing in production uses the new pipeline yet, except behind the temporary `QUERY_ENGINE=v2` switch.
+Status: **slice 1 (the retrieval) is implemented and proven equal to the original** on every characterization scenario and on a six-question live snapshot under five settings (see section 6 and `docs/decisions.md`, 2026-10-06); nothing in production uses the new pipeline except behind the temporary `QUERY_ENGINE=v2` switch. The decision side (slice 2) and the identifier resolver (section 8) are next.
 It builds on `docs/query-workflow.md` (the as-is map and its tangles) and on an
 independent design review (Opus, read-only) of the first draft. Items marked
 **[to confirm]** are proposals that still need an explicit decision.
@@ -228,23 +228,26 @@ contract. Therefore its own commit, behind the router flag.
 
 ## 6. Build plan
 
-**Slice 1 – retrieval only, no user-visible change**
-1. `test:` parametrise the characterization harness over engines (`legacy` only; green).
-2. `feat(query):` facts, outcome types, state, step contract, runner, trace recorder, legacy
-   projection; unit tests with toy steps (order validation, decline stops the run, projection
-   quirks).
-3. Vector profile steps + `vector` profile; add `v2` to the harness.
+**Slice 1 – retrieval only, no user-visible change: DONE** (commits `e6d7739`, `a710672`,
+`a98f612`, and the funnel `eec1a0f`; the evidence and what the tests missed are in
+`docs/decisions.md`, 2026-10-06)
+1. The characterization harness runs every scenario on an engine-neutral description.
+2. Facts, outcome types, context, step contract, runner, trace recorder, legacy projection.
+3. The vector profile's steps and profile.
 4. CSLS, keyword, RRF, identifier pin, rerank, score gate, top-k.
-5. Year widening, year quota, listwise; all 14 scenarios green on both engines.
-6. `QueryService.retrieve` + a temporary `QUERY_ENGINE=legacy|v2` read only in the
-   composition root; `retrieval-snapshot` honours it. **Decided: yes, but only for testing**
-   (it exists to compare the two engines and is removed at the end). Live gate: baseline twice (matches itself), then `--compare` v2 = IDENTICAL; repeat
-   under `RETRIEVAL_PERIOD_FILTER=true`, `RERANKER_DRIVER=cross_encoder`,
-   `RETRIEVAL_STRATEGY=vector`.
+5. Year widening, year quota, listwise.
+6. `RetrievalService.retrieve`, `build_retrieval_service`, the temporary `QUERY_ENGINE`.
+   Live gate: the original engine identical to itself, then `--compare` v2 IDENTICAL on six
+   questions under five settings (default, period filter, vector profile, cross-encoder,
+   and all three together); restricted retrieval identical on the real database too.
 
-**Slice 2:** the decider (port the router test cases), `QueryService.answer` behind the flag,
-golden eval on both engines (retrieval identical, answers within LLM noise), then the MCP
-change as its own commit, then the switch.
+Also built: the observers (progress and audit log), and a `funnel` that reads the step
+records (per step in / out / time / which step dropped a golden document).
+
+**Slice 2 – the decision side: not started.** The decider (port the router test cases), the
+`Scope`, `QueryService.answer` behind the flag, golden eval on both engines (retrieval
+identical, answers within LLM noise), then the switch. The identifier and date resolvers
+(section 8) come first inside it; the MCP stays out.
 
 **End:** delete the legacy code and `QUERY_ENGINE`; the eval and `funnel` read `explain`;
 the prompt-builder driver change.
@@ -267,38 +270,55 @@ profiles, trace key renames, map-reduce, comparison, similarity.
 - Two pipelines must not live side by side for long: the flag, the parity proof and the
   deletion of the old code are the definition of done.
 
-## 8. After parity: facts resolved into the scope
+## 8. Facts resolved into the scope
 
 Today neither the identifier nor the date reaches the retrieval from the metadata: the
-planner's filters (over `document_meta`) become the `Scope`, while the retrieval has its
-own regex facts (`extract_years` filters the chunk's `document_date`; identifier tokens
-drive `search_by_identifier`). Two mechanisms, one of them narrowing and one widening or
-pinning. The direction after parity, **measured, never as part of the parity slices**:
+planner's filters (over `document_meta`) become the restriction of the store, while the
+retrieval has its own regex facts (`extract_years` filters the chunk's `document_date`;
+identifier tokens drive `search_by_identifier`). Two mechanisms, one narrowing and one
+widening or pinning.
 
-- A **fact resolver** per kind of fact (identifier, date, later others) turns a fact of the
-  question into a set of documents or a document condition; the `Scope` is composed from
-  them. `ScopeResolver` becomes a composition of `ScopeSource`s: the planner's filters
-  (which already resolve dates, with `DateRangeResolver`) and a deterministic
-  `IdentifierResolver` (no LLM).
-- **Combination:** between kinds of fact AND (they narrow); within one kind OR (several
-  identifiers, several years).
-- **`IdentifierResolver`:** normalises (punctuation, case, known suffixes) and matches the
-  normalised identifiers of the documents (exactly, or by prefix); it returns, per
-  identifier, a **set** of document ids (zero, one or several: the same value can be an
-  invoice number and another document's case number, and nothing is picked between them;
-  ranking decides by content). The scope is the union.
-- With a resolved scope the retrieval runs only over those documents, so the pin is not
-  needed for them. `IdentifierPinStep` remains for **unresolved** identifiers (a reference
-  to a case rather than the case itself, or missing metadata) and the explain record says
-  so. The round-robin by document stays, a multi-document scope needs it.
-- **Safeguards (the step-1 regression):** every narrowing reports the documents it could not
-  decide; a scope of zero documents is an explicit `Declined`, never a silent empty search;
-  a partly resolved question (one identifier found, one not) keeps the found ones in the
-  scope and searches the text for the rest.
-- **Open, to measure:** when the plan already narrows by date, does the regex year
-  widening (`YearDenseWideningStep`, the year quota) still add anything? And for
-  identifiers: single-document questions (fact_finder, adversarial, practical personas) must
-  not get worse, and a "which cases cite X" question needs its own case.
+**What is `Scope` for?** It answers "which documents may the retrieval look at?", and it is
+produced on the decision side (from the metadata) so that the steps stay ignorant of why:
+they only see a store restricted to those documents (`store.restricted_to(selection)`). It
+is the one place where the sources combine (the planner's filters, the identifier
+resolver, the dates), it carries the honest parts (the note "N documents could not be
+checked against the filter", and an **empty scope is an explicit `Declined`**, never a
+silent empty search), and today it exists, unnamed, as `Routing.selection` and
+`Routing.note` plus `apply_routing`.
+
+**Built (commit `4267c39`).** The value type `identifier` and the one rule for comparing
+identifiers (`metadata/identifiers.py`, repeated in the compiled SQL and held equal by a
+database test): both sides normalised (compatibility form, lower case, no whitespace, no
+`./-,;:` at the ends); a stored identifier matches a wanted one when they are equal or it
+continues the wanted one with something that is not a digit (a suffix). `document_identifier`
+is now of this type, and it is extracted by the model (from 2224 documents; it used to be
+copied from the first 100 characters of the text, which holds the header's number but not
+the case number a decision states further down).
+
+**To build, measured, never as part of the parity slices:**
+- `IdentifierResolver`: the identifiers of the question (`QueryFacts.identifiers`) against
+  every key of type `identifier`; per identifier a **set** of document ids (zero, one or
+  several: nothing is picked between documents that share a number; ranking decides by
+  content). The scope is the union; between kinds of fact the combination is AND, within one
+  kind OR (several identifiers, several periods; a set of periods is one `in` filter on the
+  date key, a change that already exists in the compiler).
+- With a resolved scope every candidate is already from those documents, so the
+  **identifier pin is not needed and is to be deleted**, not commented out: it forces every
+  chunk that carries the number (all of a document's chunks do) into the context ahead of
+  relevance, and, when the named document is absent, it pins the documents that merely *cite*
+  the number and so misleads. Deleting it also removes the `PINS` slot, the guaranteed slots
+  in the top-k cut, the pin's exemption from the reranker's score gate, and the two effects of
+  `RETRIEVAL_DIVERSIFY_GUARANTEES`. An identifier that resolves to no document is then said
+  plainly ("no document has that identifier"), which is also the right handling of an
+  invented number.
+- **Order:** the resolver and the scope first (without them the new engine would lose the
+  pinpoint ability), then measure the nine questions that name an identifier and the
+  single-document personas (fact_finder, adversarial, practical) without the pin, then
+  delete it. The characterization scenarios with an identifier then get a new, explained
+  expectation for the new engine only.
+- **Open, to measure:** when the plan already narrows by date, does the regex year widening
+  (`YearDenseWideningStep`, the year quota) still add anything?
 
 ## 9. Decisions still needed
 

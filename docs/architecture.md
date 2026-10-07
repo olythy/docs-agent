@@ -59,6 +59,28 @@ The relevance gate always runs on plain cosine similarity, regardless of which `
 
 A candidate pool is counted in **chunks, not documents**. A document contributes ~20 chunks that all start with the same embedded summary, so a pool of 20 can come from only a handful of documents -- keep that in mind when reading any "pool" number.
 
+## The step-based retrieval (`QUERY_ENGINE=v2`)
+
+The path above is the original implementation (`QUERY_ENGINE=legacy`, the default). A second one is being proven beside it: the same retrieval as small, single-purpose classes. It must give identical results (every characterization scenario, and `retrieval-snapshot --compare` on the real data); the switch and the original are removed once it is the only one. The full design, with its decisions and parity traps, is `docs/query-pipeline-design.md`.
+
+```mermaid
+flowchart TD
+    Q[Question] --> FR["QueryFactsReader.read()<br/>identifiers and years, once"]
+    FR --> SVC["RetrievalService.retrieve()<br/>owns the store session"]
+    SVC --> PR["ProfileResolver<br/>profile NAME + settings -> numbers"]
+    PR --> PF["PipelineFactory.build()<br/>per query: the store is restricted per query"]
+    PF --> RP["RetrievalPipeline.run()<br/>validated chain, observers told after each step"]
+    RP --> S1["embed -> dense search -> relevance gate"]
+    S1 --> S2["[year widening] -> CSLS -> keyword search -> [year widening]"]
+    S2 --> S3["RRF -> identifier pin -> rerank -> [score gate] -> [listwise]"]
+    S3 --> S4["top-k with guarantees"]
+    S4 --> OUT{{"Answerable(chunks) | Declined(reason, stage)"}}
+    RP -. notes, timings .-> OBS["TraceRecorder, AuditLogObserver,<br/>ProgressLogObserver"]
+    OBS -.-> LT["LegacyTraceProjection<br/>(the original trace keys: funnel, retrieval-snapshot)"]
+```
+
+Steps in `[brackets]` are in a profile only under a condition decided from the settings (the years when `RETRIEVAL_PERIOD_FILTER` is on, the score gate only for a cross-encoder reranker, the listwise pass when it is enabled); a condition whose step has no builder fails loudly instead of being skipped. All steps share one frozen `RetrievalContext` with named slots; each declares the slots it requires and provides, and a chain that cannot work is refused when it is built. The two refusing steps (the cosine gate before fusion, the reranker's score gate after the rerank) use different signals at different points and are deliberately **not** merged; they share only the `Declined` type and the wording.
+
 ## Strategy / Driver selection
 
 Every swappable backend in this project follows the same shape: an ABC, one or more concrete implementations, and a `@lru_cache`d factory function that reads the active choice. All but one are chosen via `.env`.
@@ -116,6 +138,7 @@ Defaults are `config.py`'s (this project's own `.env` overrides some, e.g. Verte
 | `ANSWER_PARTIAL_COVERAGE` | `False` | Refuse only when *no* excerpt is relevant; otherwise answer with what the excerpts show and say what they do not cover, and tell the model the excerpts are a *sample* of a larger collection. The exact refusal sentence is kept. | The strict wording refused broad questions with partial context every time (q0010: 5/5); a sentence appended to it did not help, rewriting the rule plus the sample note did (0/5 refusals). Full eval 2026-10-04: precedent_seeker 67 -> 92%, synthesizer 36 -> 100%, adversarial and single-document personas unchanged. `independent_fact` rewards accurate partial answers, not completeness; one run per arm. 2026-10-05: with the router, 6 of 7 questions stuck at 0/3 (refused 3/3 by the strict wording) answered correctly, and the regression check passed (adversarial 4/4 still declined, single-document questions and six already-correct content questions unchanged). Stays off while the system is developed, so runs can be compared; planned to become the only behaviour once the full end-of-work run confirms it. |
 | `EXPOSE_DOCUMENT_DATE` | `False` | Adds `date: YYYY-MM-DD` to each excerpt's header so a date range in the question can be checked. | Part of the run that did not improve the weak personas (above). Off. |
 | `QUERY_ROUTER` | `False` | Asks the query planner first: count / list / sum / overview questions are answered exactly from the structured metadata (stating the executed filter and how many documents could not be decided) **only when the plan covers the whole question; a plan with a residual is read like a lookup**; content questions run the normal retrieval inside the documents the planner's filters select; an identifier in the question is a parameter, not an intent: the planner still decides (a request for documents *similar* to a named one is answered "not supported yet"), and a lookup that names an identifier is not restricted by the plan's filters (the retrieval pins the named document). The planner chooses the document type itself from the approved types' descriptions (nothing to configure); a count/list/sum/overview needs a type, and a question that fits none is read, not counted. A question the planner cannot interpret gets a plain "could not interpret". | Off until `meta-plan-eval` has measured the planner. Needs the catalog and extracted values. |
+| `QUERY_ENGINE` | `legacy` | **Temporary**, for proving the rewrite: `legacy` runs the original `retrieve_chunks`, `v2` the step-based retrieval (profile from `RETRIEVAL_STRATEGY`; a strategy object cannot be passed). Unknown values are an error. | Identical results on 22 characterization scenarios (three engines) and on a six-question live snapshot under five settings (2026-10-06, `docs/decisions.md`). Removed with the original code. |
 
 ### Measuring (`corpus/cli.py`, the golden-set sub-app)
 
@@ -124,7 +147,7 @@ Defaults are `config.py`'s (this project's own `.env` overrides some, e.g. Verte
 | `coverage` | Per persona, how many golden questions have every cited document ingested -- and, in red, how many chunks lack a `hub_score`. Run it before trusting any eval. |
 | `eval [--only-covered] [--verbose] [--persona P] [--strategy S]` | Persona-bucketed retrieval / answer / citation accuracy, with a legend printed under the table. `--verbose` adds, per question, the answer, retrieved and cited documents, whether it refused, and the grader's reason. Costs LLM calls. |
 | `compare-retrieval [--top-k N]` | Retrieval-only A/B (identifier guarantees off / on / on + period): strict `all` hit, loose `any` proxy, document recall, in-period share. No LLM calls. |
-| `funnel -q ID [-q ID ...]` | Follows a question through every retrieval stage (vector, full-text, fusion, rerank, final `top_k`) and shows, per stage, how many chunks and distinct documents there are, where each golden document ranks, and how many documents meet the court/year the question names -- so you can see *where* a document drops out. Retrieval only, no LLM calls; honours the environment's switches. |
+| `funnel -q ID [-q ID ...]` | Follows a question through the step-based retrieval and shows, per step, the chunks and distinct documents it **received and passed on**, where each golden document ranks afterwards, how many documents meet the court/year the question names, the step's time, what the step reported about itself (a gate's scores, side pools), and which step **dropped** a golden document an earlier step had found; a refusing gate is flagged. Retrieval only, no LLM calls; honours the environment's switches. |
 | `meta-accuracy` | Compares the extracted structured metadata (`issuing_body`, `document_kind`) with `corpus/meta.csv`, this corpus's by-product ground truth. Measurement only: the generic metadata core never reads that file. |
 | `meta-plan-eval` | Phrases generated count/list facts (any language, many period shapes, fixed clock) as questions and asks them through the real `LLMQueryPlanner` and executor and scores the answers exactly (expected sets computed in Python from the stored values, not by the compiler). Measurement only; it reads corpus-specific stored keys, so it lives under `corpus/`. |
 | `retrieval-snapshot` | Records, for the golden questions, the ids every retrieval stage held and the final context (`--out F`), and compares a fresh run against such a file (`--compare F`; exit 1 on any difference). Retrieval only (no router, no answer LLM), so it costs an embedding and a rerank per question. The tool to prove a restructuring of the retrieval code changed nothing. |
@@ -163,7 +186,7 @@ flowchart LR
         timefilter["query/time_filter.py<br/>extract_years"]
     end
     subgraph Measuring["Golden-set sub-app (not part of the agent)"]
-        corpus["corpus/cli.py<br/>eval · coverage · compare-retrieval · funnel · compute-hub-scores"]
+        corpus["corpus/cli.py<br/>eval · coverage · compare-retrieval · funnel · retrieval-snapshot · routing-eval · compute-hub-scores"]
     end
 
     Orchestrators --> Strategies

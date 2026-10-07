@@ -49,7 +49,9 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── date_ranges.py       # DateRangeResolver: "last October", "next week" -> a concrete range, deterministically
 │   ├── plan.py              # QueryPlan + parse_plan: the strict shape of an LLM-produced plan
 │   ├── compiler.py          # PlanCompiler: plan + catalog -> parameterised SQL (no value ever in the SQL text)
-│   └── executor.py          # PlanExecutor: compile, run read-only, return counts with "+K unknown"
+│   ├── executor.py          # PlanExecutor: compile, run read-only, return counts with "+K unknown"
+│   ├── identifiers.py       # normalize_identifier / identifier_matches: the one rule for comparing identifiers (the SQL repeats it)
+│   └── planner.py           # LLMQueryPlanner: question -> QueryPlan (type, operation, filters), strict JSON, one retry
 ├── llm_json.py             # extract_json: tolerant parsing of a model's JSON reply (shared by corpus tooling and metadata)
 ├── logger.py                # Structured JSONL telemetry/event logging
 ├── retry_policy.py          # Shared retry-with-backoff decorator (TransientAPIError, retry_on_transient_error)
@@ -66,18 +68,36 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── summarize.py          # generate_document_summary: one LLM call per document, embedded into every chunk
 │   └── ingest.py             # add_document and add_directory orchestration
 ├── query/
-│   ├── retrieval.py          # query_knowledge_base: hybrid retrieval + answer generation
+│   ├── retrieval.py          # query_knowledge_base + the original retrieve_chunks / HybridRetrievalStrategy (QUERY_ENGINE=legacy, the default)
+│   ├── router.py             # QueryRouter (opt-in QUERY_ROUTER): exact answers for count/list/sum questions, "not supported yet", restricted lookup otherwise
 │   ├── hybrid.py             # reciprocal_rank_fusion: pure RRF fusion logic
 │   ├── listwise_rerank.py    # Optional final LLM disambiguation pass over near-duplicate candidates
-│   ├── router.py             # QueryRouter (opt-in QUERY_ROUTER): exact answers for count/list/sum questions, restricted lookup otherwise
 │   ├── time_filter.py        # extract_years(): the years a question names (for the opt-in period-aware retrieval)
-│   └── decline_detection.py  # Shared "did the model honestly decline" heuristic (eval + scripts/eval_cli.py)
+│   ├── decline_detection.py  # Shared "did the model honestly decline" heuristic (eval + scripts/eval_cli.py)
+│   │   # The step-based retrieval (QUERY_ENGINE=v2), built beside the original; see docs/query-pipeline-design.md
+│   ├── facts.py              # QueryFacts / QueryFactsReader: identifiers and years read from the question, once
+│   ├── outcome.py            # Answerable / Declined(reason, stage): a refusal is a value, not an empty list
+│   ├── context.py            # RetrievalContext (one frozen context) + Slot: what the steps share
+│   ├── step.py               # RetrievalStep (the contract: requires/provides/run), Continue / Halt, StepName
+│   ├── candidate_steps.py    # embed, dense search, year widening, CSLS reorder, keyword search, identifier pin
+│   ├── ranking_steps.py      # RRF fusion, rerank, listwise rerank
+│   ├── gate_steps.py         # relevance gate (cosine) and the reranker's score gate
+│   ├── selection_steps.py    # top-k with guarantees, cosine cut
+│   ├── profiles.py           # registered profiles (hybrid, vector), ProfileResolver, PipelineFactory (built per query)
+│   ├── runner.py             # RetrievalPipeline: validates the chain, runs it, tells observers; TraceRecorder
+│   ├── observers.py          # progress and audit-log observers (steps never log)
+│   ├── legacy_trace.py       # LegacyTraceProjection: the original trace keys, for funnel / retrieval-snapshot
+│   ├── service.py            # RetrievalService.retrieve: one entry, owns the store session
+│   └── composition.py        # build_retrieval_service: the one place that reads Settings and the driver factories
 ├── migrations/              # Python migrations (Laravel-artisan-style runner)
 │   ├── base.py                # Migration ABC: up()/down() run raw SQL, no ORM
 │   ├── 0001_create_document_chunks_table.py
 │   ├── 0002_add_fulltext_search.py
 │   ├── 0003_hungarian_fulltext_search_config.py
-│   └── 0004_create_structured_metadata_tables.py
+│   ├── 0004_create_structured_metadata_tables.py
+│   ├── 0005_add_document_types_and_document_ids.py   # expand: documents.id, document types, document_id links
+│   ├── 0006_drop_content_hash_links_and_enforce_document_ids.py   # contract: id is the only link, NOT NULL, cascades
+│   └── 0007_allow_identifier_value_type.py   # the `identifier` value type
 ├── scripts/
 │   ├── dev_cli.py            # Development & infrastructure CLI: docker, setup, doctor, lint (uv run python scripts/dev_cli.py)
 │   ├── db_cli.py             # Database CLI: migrations, flush, make-migration (uv run python scripts/db_cli.py)
@@ -86,7 +106,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── eval_data/
 │   │   └── sample_questions.json  # eval_cli.py's own 25-question self-referential eval set (fixture docs live in tests/data/)
 │   ├── log_cli.py            # Telemetry & logging CLI: watch/tail, stats, clear (uv run python scripts/log_cli.py)
-│   ├── meta_cli.py           # Structured-metadata CLI: sync-documents, load-catalog, extract-meta, coverage, keys, set-key-status (uv run python scripts/meta_cli.py)
+│   ├── meta_cli.py           # Structured-metadata CLI: sync-documents, load-catalog, extract-meta, coverage, keys, set-key-status, classify-documents, types, assign-type (uv run python scripts/meta_cli.py)
 │   └── utils.py              # Shared CLI utilities (subprocess runner, paths, terminal formatting)
 ├── docker-compose.yml       # Local Postgres+pgvector (dev + test databases)
 ├── docker/
@@ -94,7 +114,9 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 ├── docs/
 │   ├── decisions.md          # Engineering decision & bug-log history (the "why" behind this README)
 │   ├── architecture.md       # Pipeline diagrams, Strategy/Driver table, and the index of every switch + its measured effect (the "how it flows")
-│   └── structured-metadata-design.md  # Agreed (not yet built) design: typed per-document metadata + query planner, for counting/listing questions
+│   ├── structured-metadata-design.md  # Typed per-document metadata + query planner/router, for counting/listing questions (built; status line at the top)
+│   ├── query-workflow.md     # The question-to-answer path of the original retrieval at file/method level, with its decision points and tangles
+│   └── query-pipeline-design.md  # Design and build status of the step-based retrieval that replaces it (QUERY_ENGINE=v2)
 ├── corpus/                  # The real-estate-law evaluation corpus "sub-app" — see corpus/cli.py
 │   ├── cli.py                # Thin Typer entrypoint: merges commands/ modules via add_typer()
 │   ├── commands/
@@ -104,17 +126,21 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   │   ├── compute_hub_scores.py  # `compute-hub-scores` command (CSLS hub_score batch pass)
 │   │   ├── coverage.py        # `coverage` command: how much of the golden set is answerable now; flags missing hub scores
 │   │   ├── compare_retrieval.py  # `compare-retrieval` command: retrieval-only A/B of identifier-guarantee / period options
-│   │   ├── funnel.py          # `funnel` command: per-stage retrieval trace -- where a golden/valid document drops out
+│   │   ├── funnel.py          # `funnel` command: per-step retrieval trace (in, out, time, which step dropped a golden document)
 │   │   ├── meta_accuracy.py   # `meta-accuracy` command: extracted metadata vs meta.csv (measurement truth only)
 │   │   └── meta_plan_eval.py  # `meta-plan-eval` command: planner + compiler scored on generated count/list questions
-retrieval_snapshot.py  # `retrieval-snapshot` command: pin and compare what retrieval returns (proves a refactor changed nothing)
-│   │   ├── routing_eval.py    # `routing-eval` command: does the router pick the right flow (read / exact / not supported yet)? planner only
+│   │   ├── retrieval_snapshot.py  # `retrieval-snapshot` command: pin and compare what retrieval returns (proves a refactor changed nothing; honours QUERY_ENGINE)
+│   │   ├── routing_eval.py    # `routing-eval` command: does the router pick the right flow (read / exact / not supported yet), and does a restriction select any document? planner only
 │   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/
 │       ├── meta_catalog.json  # Types and key catalog for the court-decision corpus (data, loaded by `meta_cli.py load-catalog`)
 │       ├── personas.json    # 5 user-profile definitions driving golden-question style
 │       └── questions.json   # Golden-set questions (question/answer/citation/verification_status)
+├── tests/
+│   ├── unit/                 # Pure tests (fakes, no database); unit/query_pipeline/ holds the step-based retrieval's tests and the characterization scenarios
+│   ├── db/                   # Tests against a real Postgres+pgvector (AGENT_ENV=test)
+│   └── data/                 # Fixture documents
 ├── skills/                  # Claude Code skills (canonical source — `make skills-install` symlinks into .claude/skills/)
 │   └── generate-golden-questions/  # SKILL.md only -- the actual logic lives in corpus/commands/generate_questions.py
 ├── pyproject.toml           # Project metadata, dependencies, pytest config
@@ -243,7 +269,7 @@ Typed per-document facts for counting/listing questions -- see `docs/structured-
 |---|---|
 | `make documents-sync` | `uv run python scripts/meta_cli.py sync-documents` — remove documents that have no chunks (what an ingest that failed between registering the document and saving its chunks leaves; idempotent) |
 | `uv run python scripts/meta_cli.py load-catalog corpus/data/meta_catalog.json` | validate a catalog file (`{"types": [{type, name, description, keys}]}`, many types allowed) and import its types and keys into `document_types` and `meta_keys` (a changed key definition bumps its version) |
-| `make extract-meta limit=50 [seed=7]` | `uv run python scripts/meta_cli.py extract-meta --limit 50 [--seed 7]` — extract the catalog's keys (**one LLM call per document**); idempotent and resumable; start small; `--seed` takes a random, reproducible sample instead of the first N by file name |
+| `make extract-meta limit=50 [seed=7]` | `uv run python scripts/meta_cli.py extract-meta --limit 50 [--seed 7] [--workers 8]` — extract the catalog's keys (**one LLM call per document**); idempotent and resumable (only the keys whose definition changed are asked again); start small; `--seed` takes a random, reproducible sample instead of the first N by file name; `--workers N` runs the model calls of N documents at once (the run waits on the network: about 7x faster with 8; the stored result does not depend on N); a document whose provider call keeps failing is named in the report and retried by the next run |
 | `make classify-documents limit=20 seed=1` | give each document that has no type one: an LLM picks a known type or proposes a new one (stored `proposed`, unusable until approved), with a quote the code verifies; **LLM calls** |
 | `make meta-types` / `uv run python scripts/meta_cli.py set-type-status <type> <approved\|retired\|proposed>` | list the document types with status and document counts; approve or retire one |
 | `uv run python scripts/meta_cli.py assign-type <type> [--yes]` | manual shortcut for a one-type corpus: give every untyped document an approved type (dry run without `--yes`) |
@@ -383,6 +409,8 @@ Since a chunk's words can now come from more than one page, `page_number` in its
 
 The retrieval side went through the same "own numbers, not just intuition" treatment as the chunking side above. This section is a direct answer to four things worth knowing about it: how search combines vector and keyword matching, how (and whether) results get reranked, how quality is actually measured, and what happens when nothing relevant exists.
 
+Two implementations of this path exist side by side while the second is being proven: the original (`QUERY_ENGINE=legacy`, the default) and a step-based one (`QUERY_ENGINE=v2`) that must give the same results; the switch is temporary. See `docs/query-pipeline-design.md`.
+
 ### Hybrid search (vector + keyword, fused by rank)
 
 Pure cosine-similarity search (the original design) misses one common case: an exact name, number, or code-like token can score poorly on embedding similarity even when it's a perfect keyword match — the embedding "smooths over" exact tokens that a keyword search finds trivially. `query/retrieval.py`'s `retrieve_chunks()` runs **both**, by default:
@@ -504,18 +532,18 @@ Register it with Claude Desktop: `make mcp-install` (reads `LLM_API_KEY`/`DATABA
 
 ## Database Schema
 
-The `document_chunks` table stores chunked document text alongside its vector embedding:
+Documents have a numeric `id`; every other table refers to it (migrations 0005 and 0006), with `ON DELETE CASCADE`.
 
-| Column | Type | Description |
-|---|---|---|
-| `id` | `BIGSERIAL` | Primary key |
-| `content` | `TEXT` | The raw text chunk |
-| `metadata` | `JSONB` | File name, page number, chunk index, etc. |
-| `embedding` | `vector(384)` | Embedding vector for similarity search |
-| `content_tsv` | `tsvector` (generated) | Full-text search vector, derived automatically from `content` — see "Retrieval" above |
-| `created_at` | `TIMESTAMPTZ` | Insertion timestamp |
+| Table | What it holds |
+|---|---|
+| `documents` | One row per ingested document: `id` (primary key), `content_hash` (unique natural key, identifies duplicates), `source_file`, `summary`, `document_type` (references `document_types`), `ingested_at` |
+| `document_chunks` | The chunked text and its vector: `id`, `content`, `metadata` (JSONB: file name, page, chunk index, date, identifiers, hub score ...), `embedding` (`vector(384)`), `content_tsv` (generated full-text vector -- see "Retrieval" above), `document_id` (NOT NULL), `created_at` |
+| `document_types` | The kinds of document: `type`, `name`, `description`, `status` (`proposed` / `approved` / `retired`; only approved types are usable in queries) |
+| `meta_keys` | The key catalog, per type: `key`, `value_type` (`text`, `number`, `date`, `bool`, `identifier`), `description`, `example`, `allowed_values`, `multi_valued`, `status`, `version` (bumped when a definition changes, so older values are recognisably stale) |
+| `document_meta` | The extracted values: one typed column per value type, `ordinal` for multi-valued keys, the verbatim `evidence` quote, `source` (`deterministic` / `llm` / `sidecar`), `key_version`; unique per `(document_id, key, ordinal)` |
+| `document_meta_status` | Per `(document_id, key)`: `present`, `confirmed_absent`, `unverified` or `not_attempted`, at which key version -- so a count can say "+K unknown" instead of silently dropping documents |
 
-An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast approximate nearest-neighbour search, and a **GIN index** on `content_tsv` for full-text search.
+An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast approximate nearest-neighbour search, and a **GIN index** on `content_tsv` for full-text search. A retrieval restricted to some documents uses `document_id IN (sub-select)`; the database picks an exact scan for a selective filter and the HNSW index for a broad one. The design behind the metadata tables is in `docs/structured-metadata-design.md`.
 
 ## Code Conventions
 
@@ -530,6 +558,8 @@ An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast appro
 
 A snapshot of major completed phases, newest first. Each phase's specific decisions/numbers live in `docs/decisions.md`; this list is just "what's done," not "why."
 
+- [x] **Step-based retrieval beside the original** — the path from question to chunks rewritten as small classes (one frozen context, steps that declare what they read and provide, registered profiles, an explicit `Declined` result, observers for logging), reachable with `QUERY_ENGINE=v2` and proven identical to the original on every characterization scenario and on live snapshots under five settings; the funnel reads its per-step records. The original stays the default until the golden eval is repeated; see `docs/query-pipeline-design.md` and `docs/decisions.md`.
+- [x] **Structured metadata and a query planner/router** — typed, verified, per-document metadata (document types, a key catalog, extraction with quoted evidence and statuses, an `identifier` type with one normalised comparison rule), and an opt-in router (`QUERY_ROUTER`): count / list / sum / overview questions are answered exactly from SQL, content questions are read inside the documents the filters select, and a request that cannot be done yet (documents *similar* to a named one) is said so plainly.
 - [x] **Retrieval-quality hardening on the Hungarian legal corpus** — embedding model switched to one actually evaluated on non-English text; `hungarian` full-text search config; `document_date` extraction; a fix for an identifier-match flooding bug; "lost in the middle" prompt reordering; CSLS hub-score re-ranking and an optional `document_summary` chunk enrichment + listwise LLM rerank for near-duplicate documents.
 - [x] **Golden-set measurement infrastructure** — `corpus/cli.py eval` (persona-bucketed accuracy + citation correctness, dual grading strategies — exact-match vs. independent-fact-verification — per persona), `coverage` (how much of the golden set is answerable against the current, possibly-partial corpus), and per-question retrieval-miss rank diagnostics.
 - [x] **Real-estate-law evaluation corpus** — `corpus/` sub-app: downloading real Hungarian court decisions, drafting+verifying golden questions per user persona (`corpus/data/personas.json`), and the `Typer`-based `corpus/cli.py`.

@@ -1,5 +1,7 @@
 # The question-to-answer workflow
 
+> **Status (2026-10-07):** this describes the **original** implementation (`QUERY_ENGINE=legacy`, still the default), which is the reference the rewrite is proven against. A step-based retrieval now exists beside it (`QUERY_ENGINE=v2`): it removes the retrieval-side tangles listed in section 2 (the hidden second refusal, the class check for the rerank threshold, identifiers and years detected in several places, the misnamed `listwise` trace key, the funnel reading a trace the eval never produced). The decision side (the router) is not rewritten yet. See `docs/query-pipeline-design.md` for the design and its build status.
+
 This document walks the path of one question, from `query_knowledge_base` to the
 answer, at file and method level. It records **what the code does today** (section 1),
 **where decisions are made and where it is tangled** (section 2), **the two flows** we
