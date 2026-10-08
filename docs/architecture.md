@@ -77,7 +77,7 @@ Every swappable backend in this project follows the same shape: an ABC, one or m
 | Embedding backend | `EmbeddingDriver` | `LocalSentenceTransformerDriver`, `OpenAIEmbeddingDriver`, `OpenRouterEmbeddingDriver`, `GeminiEmbeddingDriver`, `JinaEmbeddingDriver`, `VertexEmbeddingDriver` | `EMBEDDING_DRIVER` | `get_embedding_driver()` (`drivers/embedding.py`) |
 | Answer generation | `AnswerDriver` | `OpenRouterAnswerDriver`, `OpenAIAnswerDriver`, `GeminiAnswerDriver`, `VertexAnswerDriver` | `LLM_DRIVER` | `get_answer_driver()` (`drivers/llm.py`) |
 | Reranking | `RerankerDriver` | `NoopRerankerDriver`, `CrossEncoderRerankerDriver`, `JinaRerankerDriver`, `VertexRankerDriver` | `RERANKER_DRIVER` | `get_reranker_driver()` (`drivers/reranker.py`) |
-| Which steps retrieve (a profile) | `ProfileSpec` | `hybrid`, `vector` (registered data in `query/profiles.py`) | `RETRIEVAL_STRATEGY` (the decision may choose another) | `ProfileResolver` / `PipelineFactory` (`query/profiles.py`) |
+| Which steps retrieve (a profile) | `ProfileSpec` | `best_chunks` (registered data in `query/profiles.py`; more are added there when measured) | the decision (`DEFAULT_PROFILE` unless it names another) | `ProfileResolver` / `PipelineFactory` (`query/profiles.py`) |
 | How a document is split into chunks | `ChunkingStrategy` | `WordChunkingStrategy`, `LangChainChunkingStrategy` | `CHUNKING_STRATEGY` | `get_chunking_strategy()` (`ingestion/chunker.py`) |
 | What happens to an over-limit chunk | `ChunkOverflowStrategy` | `WarnOverflowStrategy`, `SplitOverflowStrategy` | `CHUNK_OVERFLOW_STRATEGY` | `get_chunk_overflow_strategy()` (`ingestion/chunker.py`) |
 | Document text extraction | `Extractor` | `PDFExtractor`, `MarkdownExtractor` | **the file's extension** — the one deliberate exception; see `AGENTS.md` | `get_extractor(path)` (`ingestion/extractors.py`) |
@@ -102,7 +102,6 @@ Defaults are `config.py`'s (this project's own `.env` overrides some, e.g. Verte
 
 | Setting | Default | What it does | Measured effect / status |
 |---|---|---|---|
-| `RETRIEVAL_STRATEGY` | `hybrid` | `hybrid` = vector + full-text + RRF + rerank; `vector` = cosine only. | Hybrid is the default path everywhere below. |
 | `RETRIEVAL_TOP_K` | 4 | How many **chunks** the LLM sees. | k = 4 / 6 / 8: exact-document hit did not move; the loose "any cited document" proxy rose slowly (synthesizer 21 / 29 / 36%). Full eval k=6 vs k=4: 14 vs 15 questions correct -- within noise (2026-10-04). |
 | `RETRIEVAL_MIN_SCORE` | 0.25 | Relevance gate on raw cosine similarity; below it, no LLM call. | Deliberately independent of the strategy (see above). |
 | `RETRIEVAL_CANDIDATE_POOL_SIZE` | 20 | Candidates per search leg, in **chunks**. | Expected (not measured) to add more chunks of the same documents rather than more documents, because a document's chunks cluster. |

@@ -1,34 +1,26 @@
-"""Evaluation and diagnostics CLI for docs-agent.
+"""Diagnostics CLI for docs-agent: how a document is extracted and chunked.
 
-Consolidates all quality evaluation, chunk inspection, and document extraction diagnostics:
-- Automated RAG quality evaluation (recall, MRR, fallback rate, and optional LLM scorecard)
-- Multi-strategy chunking diagnostic matrix against embedding model token limits
+- Multi-strategy chunking diagnostic matrix against the embedding model's token limits
 - Document extraction sanity check (raw text and page/section preview)
+
+The retrieval/answer quality evaluation lives in the golden-set sub-app
+(``corpus/cli.py eval``); the older 25-question benchmark that compared retrieval
+variants was retired with the ``vector`` profile (see docs/decisions.md, 2026-10-08).
 
 Usage:
     uv run python scripts/eval_cli.py [command] [args]
 
 Commands:
-    eval, benchmark        Run the 25-question retrieval quality evaluation suite (default).
-                           Options:
-                             --with-llm         Generate real answers via LLM and measure hallucinations.
-                             --with-rerank      Run hybrid retrieval with cross_encoder reranking.
-                             --reranker <name>  Explicitly specify RERANKER_DRIVER (e.g. cross_encoder).
     inspect [path]         Compare chunking strategies and token overflows for a document.
                            (Defaults to TEST_DOC_PATH from .env if omitted).
     extract [path]         Preview raw text extraction grouped by page or markdown section.
                            (Defaults to TEST_DOC_PATH from .env if omitted).
 """
 
-import argparse
-import json
-import logging
 import sys
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Protocol
-from urllib.parse import urlsplit
 
 # Ensure project root is on sys.path for direct script execution
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -37,53 +29,20 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from config import settings
 from drivers.embedding import get_embedding_driver
-from drivers.llm import get_answer_driver
 from ingestion.chunker import (
     SplitOverflowStrategy,
 )
 from ingestion.extractors import get_extractor
-from ingestion.ingest import add_document
-from models import Chunk, RetrievedChunk
-from query.composition import build_retrieval_service
-from query.decline_detection import looks_like_a_decline as _looks_like_a_decline
-from query.outcome import NO_RESULTS_MESSAGE, Answerable
-from query.service import RetrievalRequest, RetrievalResult
+from models import Chunk
 from scripts.utils import (
-    format_paragraphs,
     resolve_doc_path,
     truncate,
     wrap,
 )
-from store import VectorStore
 
 BAR_WIDTH = 30
 PREVIEW_CHARS = 500
 OVERFLOW_STRATEGIES = ["warn", "split"]
-
-EVAL_DATA_DIR = PROJECT_ROOT / "tests" / "data"
-EVAL_QUESTIONS_PATH = PROJECT_ROOT / "scripts" / "eval_data" / "sample_questions.json"
-
-
-def discover_eval_fixtures() -> list[Path]:
-    """Return exactly the tests/data fixture files sample_questions.json's
-    questions reference, not everything that happens to be in that directory.
-
-    tests/data/ also holds fixtures real pytest DB tests depend on directly
-    (see tests/db/test_ingest_db.py) — scanning the whole directory would
-    silently couple this eval set to whatever gets added there for
-    unrelated reasons. Deriving the list from expected_source_file instead
-    means sample_questions.json (this eval set's own source of truth for
-    what it needs) is the only thing that decides what gets seeded.
-    """
-    questions = json.loads(EVAL_QUESTIONS_PATH.read_text())
-    names = sorted(
-        {q["expected_source_file"] for q in questions if q.get("expected_source_file")}
-    )
-    return [EVAL_DATA_DIR / name for name in names]
-
-
-QUESTION_COLUMN_WIDTH = 42
-STATUS_COLUMN_WIDTH = 11
 
 
 # --- Extraction Diagnostics ---
@@ -267,515 +226,6 @@ def cmd_inspect(argv: list[str]) -> int:
 # --- Retrieval Quality Evaluation ---
 
 
-def _print_target_database() -> None:
-    parsed = urlsplit(settings.DATABASE_URL)
-    print(
-        f"[eval] Target database: {parsed.hostname}:{parsed.port}{parsed.path} "
-        f"(AGENT_ENV={settings.AGENT_ENV})"
-    )
-
-
-def _ensure_fixtures_seeded() -> None:
-    store = VectorStore()
-    for doc_path in discover_eval_fixtures():
-        if store.has_chunks_from_source(doc_path.name):
-            print(f"[eval] {doc_path.name} already present — skipping re-ingest.")
-        else:
-            add_document(doc_path)
-
-
-def _precompute_embeddings(questions: list[dict]) -> dict[str, list[float]]:
-    driver = get_embedding_driver()
-    print(f"[eval] Pre-embedding {len(questions)} question(s) ...")
-    return {q["question"]: driver.embed_query(q["question"]) for q in questions}
-
-
-def _match_ranks(
-    chunks: list[RetrievedChunk], q: dict
-) -> tuple[int | None, int | None]:
-    expected_file = q.get("expected_source_file")
-    expected_text = q.get("expected_text_contains")
-
-    if not expected_file:
-        return None, None
-
-    file_rank: int | None = None
-    passage_rank: int | None = None
-
-    for rank, chunk in enumerate(chunks, start=1):
-        if chunk.metadata.source_file == expected_file:
-            if file_rank is None:
-                file_rank = rank
-            if expected_text and expected_text.lower() in chunk.content.lower():
-                if passage_rank is None:
-                    passage_rank = rank
-                    break
-            elif not expected_text and passage_rank is None:
-                passage_rank = rank
-                break
-
-    return file_rank, passage_rank
-
-
-def evaluate(config_name: str, retrieve_fn, questions: list[dict]) -> dict:
-    passage_hits_at_1 = []
-    passage_recalls = []
-    passage_mrr_list = []
-    fallback_correct = 0
-    fallback_total = 0
-
-    lang_stats: dict[str, dict] = {}
-    details = []
-
-    for q in questions:
-        lang = q.get("language", "en")
-        if lang not in lang_stats:
-            lang_stats[lang] = {
-                "hits_at_1": [],
-                "recalls": [],
-                "mrr": [],
-                "fallback_correct": 0,
-                "fallback_total": 0,
-            }
-
-        chunks = retrieve_fn(q["question"])
-        expected_file = q.get("expected_source_file")
-        file_rank, passage_rank = _match_ranks(chunks, q)
-
-        if expected_file is None:
-            fallback_total += 1
-            lang_stats[lang]["fallback_total"] += 1
-            if not chunks:
-                fallback_correct += 1
-                lang_stats[lang]["fallback_correct"] += 1
-        else:
-            hit_1 = passage_rank == 1
-            recall_k = passage_rank is not None
-            mrr_val = 1 / passage_rank if passage_rank else 0.0
-
-            passage_hits_at_1.append(hit_1)
-            passage_recalls.append(recall_k)
-            passage_mrr_list.append(mrr_val)
-
-            lang_stats[lang]["hits_at_1"].append(hit_1)
-            lang_stats[lang]["recalls"].append(recall_k)
-            lang_stats[lang]["mrr"].append(mrr_val)
-
-        details.append(
-            {
-                "question": q["question"],
-                "expected_source_file": expected_file,
-                "expected_text_contains": q.get("expected_text_contains"),
-                "file_rank": file_rank,
-                "passage_rank": passage_rank,
-                "language": lang,
-                "n_chunks": len(chunks),
-                "chunks": chunks,
-            }
-        )
-
-    def _mean(lst: list) -> float:
-        return sum(lst) / len(lst) if lst else 0.0
-
-    return {
-        "config": config_name,
-        "passage_hit_at_1": _mean(passage_hits_at_1),
-        "passage_recall_at_k": _mean(passage_recalls),
-        "passage_mrr": _mean(passage_mrr_list),
-        "fallback_accuracy": fallback_correct / fallback_total
-        if fallback_total
-        else 0.0,
-        "n_answerable": len(passage_recalls),
-        "n_unanswerable": fallback_total,
-        "lang_breakdown": {
-            lang: {
-                "hit@1": _mean(stats["hits_at_1"]),
-                "recall@k": _mean(stats["recalls"]),
-                "mrr": _mean(stats["mrr"]),
-                "fallback": (
-                    stats["fallback_correct"] / stats["fallback_total"]
-                    if stats["fallback_total"]
-                    else 0.0
-                ),
-                "n_ans": len(stats["hits_at_1"]),
-                "n_unans": stats["fallback_total"],
-            }
-            for lang, stats in lang_stats.items()
-        },
-        "details": details,
-    }
-
-
-def print_comparison_table(results: list[dict]) -> None:
-    print()
-    print(
-        f"{'Config':<30} {'Hit@1':>8} {'Recall@k':>10} {'Passage MRR':>13} {'Fallback':>10}"
-    )
-    print("-" * 75)
-    for r in results:
-        print(
-            f"{r['config']:<30} {r['passage_hit_at_1']:>8.2f} {r['passage_recall_at_k']:>10.2f} "
-            f"{r['passage_mrr']:>13.2f} {r['fallback_accuracy']:>10.2f}"
-        )
-    print()
-    print(
-        f"(Total questions: {results[0]['n_answerable']} answerable, "
-        f"{results[0]['n_unanswerable']} unanswerable)"
-    )
-
-    print("\nLanguage Breakdown (Passage Hit@1 / Recall@k / Fallback):")
-    for r in results:
-        print(f"  [{r['config']}]")
-        for lang, stats in r["lang_breakdown"].items():
-            lang_label = "Hungarian (HU)" if lang == "hu" else "English (EN)"
-            print(
-                f"    {lang_label:<16} Hit@1: {stats['hit@1']:.2f} | "
-                f"Recall@k: {stats['recall@k']:.2f} | "
-                f"MRR: {stats['mrr']:.2f} | "
-                f"Fallback: {stats['fallback']:.2f} "
-                f"(ans={stats['n_ans']}, unans={stats['n_unans']})"
-            )
-
-
-def _status_label(entry: dict) -> str:
-    if entry["expected_source_file"] is None:
-        return "rejected" if entry["n_chunks"] == 0 else f"kept ({entry['n_chunks']})"
-    if entry["passage_rank"] == 1:
-        return "HIT@1"
-    if entry["passage_rank"] is not None:
-        return f"hit@{entry['passage_rank']}"
-    if entry["file_rank"] is not None:
-        return f"file@{entry['file_rank']}"
-    return "MISS"
-
-
-def print_per_question_breakdown(vector_result: dict, hybrid_result: dict) -> None:
-    print("\nPer-question breakdown (vector vs. hybrid):\n")
-    header = (
-        f"  {'Question':<{QUESTION_COLUMN_WIDTH}} "
-        f"{'Vector':<{STATUS_COLUMN_WIDTH}} {'Hybrid':<{STATUS_COLUMN_WIDTH}}"
-    )
-    print(header)
-    print("  " + "-" * (len(header) - 2))
-
-    differences = 0
-    rows = zip(vector_result["details"], hybrid_result["details"], strict=True)
-    for vector_entry, hybrid_entry in rows:
-        vector_label = _status_label(vector_entry)
-        hybrid_label = _status_label(hybrid_entry)
-        differs = vector_label != hybrid_label
-        differences += differs
-        marker = " <-differs" if differs else ""
-        question_text = truncate(vector_entry["question"], QUESTION_COLUMN_WIDTH)
-        print(
-            f"  {question_text:<{QUESTION_COLUMN_WIDTH}} {vector_label:<{STATUS_COLUMN_WIDTH}} "
-            f"{hybrid_label:<{STATUS_COLUMN_WIDTH}}{marker}"
-        )
-
-    total = len(vector_result["details"])
-    print(
-        f"\n{differences} of {total} question(s) got a different result between strategies."
-    )
-
-
-def _print_llm_scorecard(v_stats: dict, h_stats: dict) -> None:
-    print("\n" + "=" * 80)
-    print("                    LLM GENERATION BENCHMARK SCORECARD")
-    print("=" * 80)
-
-    v_name = truncate(v_stats["config"], 17)
-    h_name = truncate(h_stats["config"], 17)
-    print(f"{'Metric':<42} {v_name:>17} {h_name:>17}")
-    print("-" * 80)
-
-    ans_tot = v_stats["ans_total"]
-    print(f"Answerable Questions ({ans_tot}):")
-
-    def _fmt_rate(count: int, total: int) -> str:
-        if total == 0:
-            return "0/0  (  0.0%)"
-        pct = (count / total) * 100
-        return f"{count:>2}/{total:<2} ({pct:>5.1f}%)"
-
-    v_fact = _fmt_rate(v_stats["gold_matches"], ans_tot)
-    h_fact = _fmt_rate(h_stats["gold_matches"], ans_tot)
-    print(f"{'  - Gold Fact Inclusion Rate':<42} {v_fact:>17} {h_fact:>17}")
-
-    v_dec = _fmt_rate(v_stats["ans_declined"], ans_tot)
-    h_dec = _fmt_rate(h_stats["ans_declined"], ans_tot)
-    print(f"{'  - Declined / Unanswered':<42} {v_dec:>17} {h_dec:>17}")
-
-    unans_tot = v_stats["unans_total"]
-    print(f"\nUnanswerable / Hallucination Gate ({unans_tot}):")
-
-    v_ret_rej = _fmt_rate(v_stats["unans_retrieval_rejected"], unans_tot)
-    h_ret_rej = _fmt_rate(h_stats["unans_retrieval_rejected"], unans_tot)
-    print(
-        f"{'  - Filtered at Retrieval (0 chunks)':<42} {v_ret_rej:>17} {h_ret_rej:>17}"
-    )
-
-    v_prompt_dec = _fmt_rate(v_stats["unans_prompt_declined"], unans_tot)
-    h_prompt_dec = _fmt_rate(h_stats["unans_prompt_declined"], unans_tot)
-    print(
-        f"{'  - Safely Declined by Prompt':<42} {v_prompt_dec:>17} {h_prompt_dec:>17}"
-    )
-
-    v_safe_tot = v_stats["unans_retrieval_rejected"] + v_stats["unans_prompt_declined"]
-    h_safe_tot = h_stats["unans_retrieval_rejected"] + h_stats["unans_prompt_declined"]
-    v_safe = _fmt_rate(v_safe_tot, unans_tot)
-    h_safe = _fmt_rate(h_safe_tot, unans_tot)
-    print(f"{'  - Total Safe Decline Rate':<42} {v_safe:>17} {h_safe:>17}")
-
-    v_hall = _fmt_rate(v_stats["unans_hallucinations"], unans_tot)
-    h_hall = _fmt_rate(h_stats["unans_hallucinations"], unans_tot)
-    print(f"{'  - Potential Hallucinations':<42} {v_hall:>17} {h_hall:>17}")
-
-    print("\nEfficiency & Latency:")
-    print(
-        f"{'  - Real LLM API Calls Made':<42} {v_stats['api_calls']:>17} {h_stats['api_calls']:>17}"
-    )
-
-    v_lat = (
-        f"{sum(v_stats['latencies']) / len(v_stats['latencies']):.2f}s"
-        if v_stats["latencies"]
-        else "N/A"
-    )
-    h_lat = (
-        f"{sum(h_stats['latencies']) / len(h_stats['latencies']):.2f}s"
-        if h_stats["latencies"]
-        else "N/A"
-    )
-    print(f"{'  - Average LLM Latency':<42} {v_lat:>17} {h_lat:>17}")
-    print("=" * 80)
-
-
-def print_llm_answers(vector_result: dict, hybrid_result: dict) -> None:
-    driver = get_answer_driver()
-
-    stats = {
-        "vec": {
-            "config": vector_result["config"],
-            "ans_total": 0,
-            "gold_matches": 0,
-            "ans_declined": 0,
-            "unans_total": 0,
-            "unans_retrieval_rejected": 0,
-            "unans_prompt_declined": 0,
-            "unans_hallucinations": 0,
-            "api_calls": 0,
-            "latencies": [],
-        },
-        "hyb": {
-            "config": hybrid_result["config"],
-            "ans_total": 0,
-            "gold_matches": 0,
-            "ans_declined": 0,
-            "unans_total": 0,
-            "unans_retrieval_rejected": 0,
-            "unans_prompt_declined": 0,
-            "unans_hallucinations": 0,
-            "api_calls": 0,
-            "latencies": [],
-        },
-    }
-
-    v_details = vector_result["details"]
-    h_details = hybrid_result["details"]
-    total = len(v_details)
-
-    for i in range(total):
-        v_entry = v_details[i]
-        h_entry = h_details[i]
-
-        q_text = v_entry["question"]
-        expected_file = v_entry["expected_source_file"]
-        expected_fact = v_entry.get("expected_text_contains")
-        lang = v_entry.get("language", "en")
-        is_unans = expected_file is None
-
-        print("\n" + "=" * 80)
-        print(f"[{i + 1}/{total}] ({lang.upper()}) {q_text}")
-        if is_unans:
-            print("Expected: [DELIBERATELY UNANSWERABLE — EXPECTED TO DECLINE]")
-        else:
-            fact_str = f"'{expected_fact}'" if expected_fact else "(none specified)"
-            print(f"Expected: {fact_str} in {expected_file}")
-        print("-" * 80)
-
-        for key, entry in [("vec", v_entry), ("hyb", h_entry)]:
-            cfg_name = stats[key]["config"]
-            s = stats[key]
-            chunks = entry["chunks"]
-
-            if not chunks:
-                answer = NO_RESULTS_MESSAGE
-                latency = 0.0
-                if is_unans:
-                    s["unans_total"] += 1
-                    s["unans_retrieval_rejected"] += 1
-                    tag = "🛡️  RETRIEVAL REJECTED"
-                else:
-                    s["ans_total"] += 1
-                    s["ans_declined"] += 1
-                    tag = "⚠️  NO CHUNKS RETRIEVED"
-            else:
-                t0 = time.perf_counter()
-                answer = driver.answer(question=q_text, context_chunks=chunks)
-                latency = time.perf_counter() - t0
-                s["api_calls"] += 1
-                s["latencies"].append(latency)
-
-                is_decline = _looks_like_a_decline(answer)
-                if is_unans:
-                    s["unans_total"] += 1
-                    if is_decline:
-                        s["unans_prompt_declined"] += 1
-                        tag = "🛡️  PROMPT DECLINED"
-                    else:
-                        s["unans_hallucinations"] += 1
-                        tag = "🚨 POTENTIAL HALLUCINATION"
-                else:
-                    s["ans_total"] += 1
-                    if is_decline:
-                        s["ans_declined"] += 1
-                        tag = "⚠️  DECLINED BY PROMPT"
-                    elif expected_fact and expected_fact.lower() in answer.lower():
-                        s["gold_matches"] += 1
-                        tag = "✅ GOLD FACT MATCH"
-                    else:
-                        tag = "ℹ️  ANSWERED (FACT NOT FOUND)"
-
-            print(f"[{cfg_name}] ({len(chunks)} chunks, {latency:.2f}s) [{tag}]")
-            print(format_paragraphs(answer, indent="  ", width=76))
-            print()
-
-    _print_llm_scorecard(stats["vec"], stats["hyb"])
-
-
-class _Retrieves(Protocol):
-    """What the benchmark needs of a retrieval service."""
-
-    def retrieve(
-        self, request: RetrievalRequest, store: VectorStore
-    ) -> RetrievalResult: ...
-
-
-def _retrieval_fn(
-    service: _Retrieves, profile: str, embeddings: dict[str, list[float]]
-):
-    """A ``question -> chunks`` function over one retrieval service and profile.
-
-    Args:
-        service: The retrieval service (built for the settings under test).
-        profile: ``vector`` or ``hybrid``.
-        embeddings: The questions' precomputed embeddings.
-
-    Returns:
-        A function that returns the chunks the profile selects (none when it refuses).
-    """
-
-    def retrieve(question: str) -> list[RetrievedChunk]:
-        result = service.retrieve(
-            RetrievalRequest(
-                question, profile=profile, query_vector=embeddings[question]
-            ),
-            VectorStore(),
-        )
-        outcome = result.outcome
-        return list(outcome.chunks) if isinstance(outcome, Answerable) else []
-
-    return retrieve
-
-
-def cmd_eval(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        prog="eval_cli.py eval",
-        description="Retrieval-quality evaluation and LLM generation benchmark.",
-    )
-    parser.add_argument(
-        "--with-llm",
-        action="store_true",
-        help="Generate real LLM answers and benchmark hallucination rejection rate.",
-    )
-    parser.add_argument(
-        "--with-rerank",
-        action="store_true",
-        help="Run hybrid retrieval with cross_encoder reranking enabled.",
-    )
-    parser.add_argument(
-        "--reranker",
-        type=str,
-        default=None,
-        help="Explicitly override RERANKER_DRIVER (e.g. 'cross_encoder').",
-    )
-    args = parser.parse_args(argv)
-
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-
-    if args.reranker:
-        reranker_driver_name = args.reranker
-    elif args.with_rerank:
-        reranker_driver_name = "cross_encoder"
-    else:
-        reranker_driver_name = None
-
-    _print_target_database()
-    _ensure_fixtures_seeded()
-
-    questions = json.loads(EVAL_QUESTIONS_PATH.read_text())
-    print(f"[eval] Loaded {len(questions)} eval question(s).")
-
-    embeddings = _precompute_embeddings(questions)
-
-    print("\n[eval] Running vector-only baseline ...")
-    vector_only_results = evaluate(
-        "vector-only",
-        _retrieval_fn(build_retrieval_service(settings), "vector", embeddings),
-        questions,
-    )
-
-    resolved_reranker_name = reranker_driver_name or settings.RERANKER_DRIVER
-    print(
-        f"\n[eval] Running hybrid+rerank (RERANKER_DRIVER={resolved_reranker_name}) ..."
-    )
-    hybrid_results = evaluate(
-        f"hybrid+rerank ({resolved_reranker_name})",
-        _retrieval_fn(
-            build_retrieval_service(
-                replace(settings, RERANKER_DRIVER=resolved_reranker_name)
-            ),
-            "hybrid",
-            embeddings,
-        ),
-        questions,
-    )
-
-    print_comparison_table([vector_only_results, hybrid_results])
-    print_per_question_breakdown(vector_only_results, hybrid_results)
-
-    if args.with_llm:
-        print(
-            f"\n[eval] --with-llm: generating real answers via LLM_DRIVER={settings.LLM_DRIVER} ..."
-        )
-        print_llm_answers(vector_only_results, hybrid_results)
-
-    print(
-        "\n"
-        + wrap(
-            f"Note: a curated question set ({len(questions)} questions), and the "
-            "corpus is whatever's in document_chunks right now (at minimum the "
-            "fixtures this script seeds — see the module docstring's "
-            "'Which database?' section). These are our own, repeatable numbers "
-            "for comparing configurations against each other, not a "
-            "statistically significant benchmark."
-        )
-    )
-    return 0
-
-
-# --- CLI Dispatcher ---
-
-
 def print_help() -> None:
     print((__doc__ or "").strip())
 
@@ -784,21 +234,11 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
-    if not argv:
-        return cmd_eval([])
-
-    command = argv[0]
-    sub_args = argv[1:]
-
-    if command in {"--help", "-h", "help"}:
+    if not argv or argv[0] in {"--help", "-h", "help"}:
         print_help()
         return 0
 
-    if command in {"eval", "benchmark"}:
-        return cmd_eval(sub_args)
-
-    if command in {"--with-llm", "--with-rerank", "--reranker"}:
-        return cmd_eval(argv)
+    command, sub_args = argv[0], argv[1:]
 
     if command == "inspect":
         return cmd_inspect(sub_args)
@@ -807,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_extract(sub_args)
 
     print(f"Unknown command: '{command}'")
-    print("Available commands: eval (default), inspect, extract")
+    print("Available commands: inspect, extract")
     return 1
 
 

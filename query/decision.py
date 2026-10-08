@@ -302,7 +302,7 @@ class ProfileSelector:
     added here when a second profile has been measured; the retrieval never chooses.
 
     Args:
-        default: The profile name to use (``hybrid`` or ``vector``).
+        default: The profile name to use (``best_chunks``).
     """
 
     def __init__(self, default: str) -> None:

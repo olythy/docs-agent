@@ -72,7 +72,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── hybrid.py             # reciprocal_rank_fusion: pure RRF fusion logic
 │   ├── listwise_rerank.py    # Optional final LLM disambiguation pass over near-duplicate candidates
 │   ├── time_filter.py        # extract_years(): the years a question names (for the opt-in period-aware retrieval)
-│   ├── decline_detection.py  # Shared "did the model honestly decline" heuristic (eval + scripts/eval_cli.py)
+│   ├── decline_detection.py  # Shared "did the model honestly decline" heuristic (the golden eval)
 │   │   # Decision, retrieval and answering as small classes; see docs/query-pipeline-design.md
 │   ├── facts.py              # QueryFacts / QueryFactsReader: identifiers and years read from the question, once
 │   ├── answering.py          # GroundedAnswerer (+AnswerPolicy) writes an answer from the chunks read, ExactAnswerer runs an exact plan; ResultPhraser/render_result word the result 
@@ -85,7 +85,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── ranking_steps.py      # RRF fusion, rerank, listwise rerank
 │   ├── gate_steps.py         # relevance gate (cosine) and the reranker's score gate
 │   ├── selection_steps.py    # top-k with guarantees, cosine cut
-│   ├── profiles.py           # registered profiles (hybrid, vector), ProfileResolver, PipelineFactory (built per query)
+│   ├── profiles.py           # the registered retrieval profile (best_chunks), ProfileResolver, PipelineFactory (built per query)
 │   ├── runner.py             # RetrievalPipeline: validates the chain, runs it, tells observers; TraceRecorder
 │   ├── observers.py          # progress and audit-log observers (steps never log)
 │   ├── service.py            # RetrievalService.retrieve: one entry, owns the store session
@@ -105,9 +105,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── dev_cli.py            # Development & infrastructure CLI: docker, setup, doctor, lint (uv run python scripts/dev_cli.py)
 │   ├── db_cli.py             # Database CLI: migrations, flush, make-migration (uv run python scripts/db_cli.py)
 │   ├── agent_cli.py          # Agent & runtime CLI: query, chat, ingest, mcp-dev, mcp-install, skills-install (uv run python scripts/agent_cli.py)
-│   ├── eval_cli.py           # Evaluation & diagnostics CLI: eval, inspect, extract (uv run python scripts/eval_cli.py)
-│   ├── eval_data/
-│   │   └── sample_questions.json  # eval_cli.py's own 25-question self-referential eval set (fixture docs live in tests/data/)
+│   ├── eval_cli.py           # Diagnostics CLI: inspect (chunking matrix), extract (text preview) (uv run python scripts/eval_cli.py)
 │   ├── log_cli.py            # Telemetry & logging CLI: watch/tail, stats, clear (uv run python scripts/log_cli.py)
 │   ├── meta_cli.py           # Structured-metadata CLI: sync-documents, load-catalog, extract-meta, coverage, keys, set-key-status, classify-documents, types, assign-type (uv run python scripts/meta_cli.py)
 │   └── utils.py              # Shared CLI utilities (subprocess runner, paths, terminal formatting)
@@ -290,16 +288,12 @@ Typed per-document facts for counting/listing questions -- see `docs/structured-
 | `make mcp-install` | `uv run python scripts/agent_cli.py mcp-install` — register with Claude Desktop and auto-patch launch config |
 | `make skills-install` | `uv run python scripts/agent_cli.py skills-install` — symlink `skills/` into `.claude/skills/` so Claude Code discovers this project's skills |
 
-### Evaluation & Diagnostics (`scripts/eval_cli.py`)
+### Diagnostics (`scripts/eval_cli.py`)
 
 | Command | Equivalent / Description |
 |---|---|
 | `make inspect-chunks [<file>]`<br>*(or `path=...`)* | `uv run python scripts/eval_cli.py inspect [<path>]` — chunking strategy matrix against token limit |
 | `make extract-text [<file>]`<br>*(or `path=...`)* | `uv run python scripts/eval_cli.py extract [<path>]` — preview text extraction grouped by page/section |
-| `make eval` | `uv run python scripts/eval_cli.py eval` — retrieval quality evaluation (vector vs hybrid) |
-| `make eval-rerank` | `uv run python scripts/eval_cli.py eval --with-rerank` — evaluation with cross_encoder reranking |
-| `make eval-llm` | `uv run python scripts/eval_cli.py eval --with-llm` — evaluation with real LLM answer generation |
-| `make eval-all` | `uv run python scripts/eval_cli.py eval --with-rerank --with-llm` — full benchmark (rerank + LLM) |
 
 ### Logging & Telemetry (`scripts/log_cli.py`)
 
@@ -406,7 +400,7 @@ Both dimensions are independent and combinable (e.g. `blocks` + `langchain` for 
 
 Since a chunk's words can now come from more than one page, `page_number` in its metadata is assigned by **majority vote** (whichever page contributed the most words) rather than a page range — simpler, backward-compatible with the existing single-number metadata shape, and the rare off-by-one-page citation is a negligible cost next to not having to change the prompt template and retrieval display for a page *range*.
 
-## Retrieval: Hybrid Search, Reranking & Quality Evaluation
+## Retrieval: Hybrid Search, Reranking & Quality Measurement
 
 The retrieval side went through the same "own numbers, not just intuition" treatment as the chunking side above. This section is a direct answer to four things worth knowing about it: how search combines vector and keyword matching, how (and whether) results get reranked, how quality is actually measured, and what happens when nothing relevant exists.
 
@@ -423,7 +417,7 @@ The two ranked lists are combined with **Reciprocal Rank Fusion** (`query/hybrid
 
 **A real bug this surfaced**, found while building the eval script below, not by inspection: `search_fulltext()` originally passed the raw question straight into `websearch_to_tsquery('simple', question)`. Because `simple` has no stopword list (that's exactly why it was chosen — see above), every word of the question — including grammar words like "milyen"/"used"/"is" — became a **mandatory** term (`websearch_to_tsquery` ANDs bare words together). A real chunk almost never contains a question's grammar words verbatim, so keyword search was silently returning **zero results for nearly every natural-language question**, undetected until the eval script's real numbers showed `0 keyword result(s)` on every single run. The fix: the question's words are OR-joined (`" or ".join(query_text.split())`) before being passed to `websearch_to_tsquery`, so a chunk matching *any* of the question's content words now contributes to the fusion, ranked by how many/how prominently they matched. Covered by both a unit test (asserts the OR-joined string reaches the query) and a DB test (a real sentence full of grammar words that would have failed pre-fix).
 
-Which retrieval path runs is a registered profile (`query/profiles.py`: an ordered list of steps), chosen by name from `RETRIEVAL_STRATEGY` (`.env`, default `hybrid`) or by the decision: `hybrid` is everything described above; `vector` skips keyword search and fusion entirely, reproducing the pre-hybrid-search behavior exactly (same `min_score` filtering, same ordering). Kept as a real, selectable strategy rather than a one-off comparison hack specifically so `scripts/eval_cli.py eval` (`make eval`) measures the actual production code path, not a hand-rolled stand-in that could quietly drift out of sync with it. In practice there's little reason to prefer `vector` day-to-day — hybrid search only ever adds recall on top of it, at negligible extra cost (one more indexed Postgres query and a pure fusion function, no model involved) — its main use is exactly that eval/debug comparison.
+There is one retrieval profile, `best_chunks` (`query/profiles.py`: an ordered list of steps, everything described above), and the decision chooses it by name. A profile is data, not a class: a second one (for questions that ask about many documents) is a new entry in that registry plus the steps it needs, measured before it is added. The plain cosine-only search that preceded hybrid search is gone as a profile; its comparison is recorded in `docs/decisions.md`.
 
 ### Reranking (on by default)
 
@@ -437,53 +431,14 @@ Controlled by `RERANKER_DRIVER` (`.env`, default `cross_encoder`) — a Strategy
 
 ### How quality is measured
 
-`scripts/eval_cli.py eval` (`make eval`) + `scripts/eval_data/sample_questions.json` — **25 bilingual questions** (19 answerable, 6 deliberately unanswerable) across three committed fixtures (`tests/data/sample.md`, `tests/data/sample.pdf`, `tests/data/sample_hu.md` — an Hungarian enterprise IT policy). It runs every question through the retrieval service with each profile selected explicitly — **vector-only** (the `vector` profile) and **hybrid+rerank** (the `hybrid` profile, with whatever `RERANKER_DRIVER` is currently configured) — through the exact same production code path, not a hand-rolled duplicate, and reports:
+Retrieval and answers are measured on the golden set (`corpus/`), not on a toy corpus: verified questions with the documents each one must cite, grouped by persona, graded by two yardsticks (`exact_match`: every golden document is in the final chunks; `independent_fact`: any real document that supports the answer counts, for the category questions where many documents would be right). The tools, all under `uv run python corpus/cli.py`:
 
-- **Passage Hit@1**: did the passage containing the expected gold fact land at rank 1?
-- **Passage Recall@k**: did it land anywhere in the top-k?
-- **Passage MRR** (Mean Reciprocal Rank): inverse rank of the first gold passage.
-- **Fallback rate**: for the unanswerable questions, did the retrieval-layer relevance gate correctly return nothing?
+- `eval [-q ID ...] [--repeat N] [--profile NAME]` — runs the questions through the real `QueryService` and grades answer, retrieval hit and citation per persona; `--repeat` because the model is not deterministic.
+- `retrieval-snapshot --out F` / `--compare F` — records the chunk ids every retrieval step left for the questions and compares a fresh run with such a file, so a change to the retrieval shows up as exactly the questions it changed.
+- `funnel` — per question, step by step: how many chunks went in and out, how long each took, and which step dropped a golden document.
+- `routing-eval` — does the decider choose the right flow (read documents / answer exactly / not supported yet) on a list of questions, and does a restriction it builds select any document at all.
 
-Each question carries a `expected_text_contains` gold label (a specific phrase expected verbatim in the answer, e.g. `"pgvector"`, `"€49/month"`, `"150 000 Ft"`) — the eval script uses these for passage-level matching, not just file-level.
-
-Run it with:
-
-```bash
-# Default (RERANKER_DRIVER=cross_encoder — hybrid+rerank, same as production):
-make eval
-# or: uv run python scripts/eval_cli.py eval
-
-# make eval-rerank forces cross_encoder explicitly (--with-rerank) -- now
-# equivalent to plain `make eval` at the current default, but still useful
-# to be explicit, or to force reranking on even if RERANKER_DRIVER=none is
-# set locally for a comparison run.
-make eval-rerank
-# or: RERANKER_DRIVER=cross_encoder uv run python scripts/eval_cli.py eval
-
-# The old bare-RRF-fusion, no-reranker comparison baseline now needs an
-# explicit override, since it's no longer the default:
-RERANKER_DRIVER=none uv run python scripts/eval_cli.py eval
-
-# Controlled corpus (only the 3 committed fixtures, no other documents):
-AGENT_ENV=test RERANKER_DRIVER=cross_encoder uv run python scripts/eval_cli.py eval
-```
-
-It's safe to run against any configured `DATABASE_URL`, including a populated dev database: it never deletes anything, only adds the fixtures if they're not already present (`VectorStore.has_chunks_from_source`), and prints which database it's about to touch.
-
-**Current benchmark numbers** (`AGENT_ENV=test`, controlled corpus):
-
-| Config | Hit@1 | Recall@k | Passage MRR | Fallback |
-|---|---|---|---|---|
-| `vector-only` | 0.89 | 0.95 | 0.92 | 0.00 |
-| `hybrid+rerank (cross_encoder)` | **0.95** | 0.95 | **0.95** | **1.00** |
-
-Language breakdown for `hybrid+rerank (cross_encoder)`:
-- **EN** (10 ans, 3 unans): Hit@1 = 0.90, Recall@k = 0.90, Fallback = 1.00
-- **HU** (9 ans, 3 unans): Hit@1 = **1.00**, Recall@k = 1.00, Fallback = 1.00
-
-**Honesty about what these numbers mean**: three documents, 25 questions — the corpus is tiny, so these compare our *configurations against each other*, not against a statistically meaningful external benchmark. What's meaningful here: the cross-encoder's `Fallback = 1.00` vs. vector-only's `Fallback = 0.00` (6/6 vs. 0/6 unanswerable queries correctly rejected at the retrieval layer) — this is a real, structural difference, not noise.
-
-**A more interesting, honest finding** came from the fallback-rate metric: it measured **0.33** — 1 of the 3 deliberately unanswerable questions was correctly caught by the retrieval-layer gate alone, the other 2 weren't. Inspecting the real scores explained why: a question that stays *topically* on-subject but asks for a fact the document never states can still score above `RETRIEVAL_MIN_SCORE` (0.25) — e.g. 0.438 for "what is the founder's phone number?" and 0.370 for "what is the project's annual revenue?" — because cosine similarity reflects "is this about the same topic", not "does this contain the specific fact asked for". The one that *was* caught ("what programming language is the backend written in?", scoring 0.249) shows how close this can run either way — a hair's width under the 0.25 threshold, not a clean rejection. That's a genuine limitation of similarity-threshold gating, not a bug, and it's exactly why the system doesn't rely on that gate alone (see below).
+The older 25-question, three-document benchmark that compared a pure-vector search with hybrid + rerank (Hit@1 0.89 to 0.95, MRR 0.92 to 0.95, unanswerable questions rejected at the retrieval layer 0 of 6 to 6 of 6, with the honest caveats about its tiny corpus and a threshold calibrated on the same six questions) was retired with the `vector` profile; its numbers and what they did and did not show are in `docs/decisions.md`, 2026-10-08.
 
 ### What happens when there's no reliable source
 
@@ -495,25 +450,16 @@ Two independent layers, not one:
   **Caveat:** `-2.0` was calibrated on the same 6 unanswerable questions that the `Fallback = 1.00` number above is then measured against — that's training-set accuracy, not a demonstrated generalization to unseen questions. Validating it properly needs a larger, independent eval set that wasn't used for tuning.
 3. **Prompt-level grounding instruction** (`drivers/llm.py`'s `_build_prompt`): the system prompt explicitly instructs the model to answer strictly from the provided excerpts and respond with an exact "I could not find this information in the provided documents" if the excerpts don't answer the question. This catches the case the eval script's fallback-rate finding demonstrated above — a topically-relevant chunk that still doesn't contain the specific fact asked for — which a similarity threshold structurally cannot distinguish from a genuine answer.
 
-**Verifying layers 2 and 3 work — `--with-llm`**: `scripts/eval_cli.py eval --with-llm` (`make eval-llm`) generates a real answer for every question under both configurations, side-by-side, with full (un-truncated) text. For answerable questions, it checks whether the expected gold fact (`expected_text_contains`) is verbatim in the answer (`✅ GOLD FACT MATCH` / `ℹ️ ANSWERED (FACT NOT FOUND)`). For unanswerable ones, it distinguishes between retrieval-layer rejection (`🛡️ RETRIEVAL REJECTED` — 0 chunks passed, 0 LLM calls) and prompt-layer decline (`🛡️ PROMPT DECLINED`), vs. a potential hallucination (`🚨 POTENTIAL HALLUCINATION`). A final **LLM Generation Benchmark Scorecard** summarises gold fact retention %, safe decline rate, API calls made, and average latency across both configurations.
+## Local Diagnostic Scripts
 
-The default LLM model is pinned to `google/gemini-3.1-flash-lite` (via OpenRouter) — a fixed, non-`:free` model — to ensure `--with-llm` results are reproducible. Using `openrouter/free` (auto-routed to a random available model) is explicitly not recommended for this kind of measurement: different models on different calls makes the decline-rate numbers meaningless as comparative evidence.
-
-## Local Diagnostic & Evaluation Scripts
-
-Three hand-runnable `eval_cli.py` subcommands, no test framework involved — point them at a real document (or the committed fixtures) and read the output. Each one uses the exact same production code the real pipeline does (extractors, `chunk_document()`, the retrieval service), never a reimplementation, so what they show is what `add_document()`/`query_knowledge_base()` would actually do.
+Two hand-runnable `eval_cli.py` subcommands, no test framework involved — point them at a real document (or the committed fixtures) and read the output. Each one uses the exact same production code the real pipeline does (extractors, `chunk_document()`), never a reimplementation, so what they show is what `add_document()` would actually do.
 
 | Subcommand | What it's for | Run it |
 |---|---|---|
 | `eval_cli.py extract` | Sanity-check a document *before* ingesting it — did text actually come out, grouped by page/section? Catches e.g. a scanned (image-only) PDF with no text layer early. | `uv run python scripts/eval_cli.py extract /path/to/file.pdf` |
 | `eval_cli.py inspect` | Compare every `PDF_EXTRACTION_MODE` x `CHUNKING_STRATEGY` x `CHUNK_OVERFLOW_STRATEGY` combination for one document side by side — chunk count, token size vs. the embedding model's real limit (as a bar), processing time. See "Chunking & Token Limits" above. | `uv run python scripts/eval_cli.py inspect /path/to/file.pdf` |
-| `eval_cli.py eval` | Compare **vector-only vs. hybrid+rerank** retrieval quality — Recall@k, MRR, Fallback rate, plus a per-question breakdown and (with `--with-llm`) real generated answers. See "How quality is measured" above. | `uv run python scripts/eval_cli.py eval` |
 
-All three fall back to `TEST_DOC_PATH` (`.env`) when no path is given, except `eval`, which always runs against the two committed fixtures (`tests/data/sample.md`/`sample.pdf`) — see its own "Which database?" note above for why it's safe to run against a real, populated database.
-
-**`eval_cli.py eval`'s per-question breakdown**, specifically: the aggregate Recall@k/MRR/Fallback rate numbers can land on identical values for both configurations purely because the corpus is small — that hides whether the two strategies actually behave differently on any *individual* question. Every run also prints a row per question, `vector` vs. `hybrid`, with a `<- differs` marker wherever the two disagree, so a difference is visible even when the averages coincide.
-
-**`--with-llm`**: none of the above touches the LLM — Recall@k/MRR/Fallback rate are all retrieval-layer-only, deliberately, to stay fast and free to run. Passing `--with-llm` additionally generates a real answer (real network call, `LLM_DRIVER`) for every question under both configurations side-by-side, with full un-truncated text. Each answer is tagged with its outcome: `✅ GOLD FACT MATCH` / `ℹ️ ANSWERED (FACT NOT FOUND)` for answerable questions (verified against `expected_text_contains` gold labels), and `🛡️ RETRIEVAL REJECTED` / `🛡️ PROMPT DECLINED` / `🚨 POTENTIAL HALLUCINATION` for unanswerable ones. A final **LLM Generation Benchmark Scorecard** at the end summarises gold fact retention rate, safe decline breakdown by layer, real API calls made (calls saved by retrieval-layer rejection), and average latency. See "What happens when there's no reliable source" above for the interpretation.
+Both fall back to `TEST_DOC_PATH` (`.env`) when no path is given. The retrieval/answer quality tools are the golden-set commands above (`corpus/cli.py`).
 
 ## MCP Server
 

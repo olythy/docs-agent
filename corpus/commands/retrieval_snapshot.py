@@ -27,7 +27,6 @@ app = typer.Typer()
 #: The settings that decide what retrieval returns; a comparison across a change of any
 #: of them is not a comparison of code.
 _SETTINGS = (
-    "RETRIEVAL_STRATEGY",
     "RETRIEVAL_TOP_K",
     "RETRIEVAL_CANDIDATE_POOL_SIZE",
     "RETRIEVAL_MIN_SCORE",
@@ -99,6 +98,7 @@ def take_snapshot(questions: list[dict]) -> dict[str, Any]:
     from drivers.embedding import get_embedding_driver
     from query.composition import build_retrieval_service
     from query.outcome import Answerable
+    from query.profiles import DEFAULT_PROFILE
     from query.service import RetrievalRequest
     from store import VectorStore
 
@@ -109,7 +109,7 @@ def take_snapshot(questions: list[dict]) -> dict[str, Any]:
         result = service.retrieve(
             RetrievalRequest(
                 q["question"],
-                profile=settings.RETRIEVAL_STRATEGY,
+                profile=DEFAULT_PROFILE,
                 query_vector=driver.embed_query(q["question"]),
             ),
             VectorStore(),

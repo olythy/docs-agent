@@ -36,7 +36,7 @@ from drivers.reranker import CrossEncoderRerankerDriver, RerankerDriver
 from models import ChunkMetadata, RetrievedChunk
 from query.facts import QueryFactsReader
 from query.outcome import Answerable
-from query.profiles import PipelineFactory, ProfileResolver
+from query.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
 from query.service import RetrievalRequest, RetrievalService
 
 CASE = "10.P.20.100/2022/5"
@@ -192,7 +192,6 @@ class FakeListwise:
 
 
 _BASE_SETTINGS = {
-    "RETRIEVAL_STRATEGY": "hybrid",
     "RERANKER_DRIVER": "cross_encoder",
     "RETRIEVAL_TOP_K": 4,
     "RETRIEVAL_CANDIDATE_POOL_SIZE": 6,
@@ -229,7 +228,7 @@ def run_scenario(
     result = service.retrieve(
         RetrievalRequest(
             question,
-            profile=config.RETRIEVAL_STRATEGY,
+            profile=DEFAULT_PROFILE,
             metadata_filter=metadata_filter,
         ),
         store or FakeStore(),  # type: ignore[arg-type]
@@ -333,43 +332,6 @@ SCENARIOS = {
         "the optional LLM listwise rerank reorders the list just before the top_k cut",
         QUESTION,
         lambda: {"LISTWISE_RERANK_ENABLED": True},
-    ),
-    "vector_strategy": (
-        "the plain vector strategy: no fusion, no rerank, only the similarity cut",
-        QUESTION,
-        lambda: {"RETRIEVAL_STRATEGY": "vector"},
-    ),
-    "vector_cosine_gate_fails": (
-        "the same gate in the vector profile: only the vector stage, no final",
-        QUESTION,
-        lambda: {"RETRIEVAL_STRATEGY": "vector", "RETRIEVAL_MIN_SCORE": 0.95},
-    ),
-    "vector_metadata_filter": (
-        "the vector profile passes the metadata filter to its search",
-        QUESTION,
-        lambda: {
-            "RETRIEVAL_STRATEGY": "vector",
-            "metadata_filter": {"source_file": "b.docx"},
-        },
-    ),
-    "vector_similarity_cut": (
-        "the vector profile drops candidates below the similarity threshold",
-        QUESTION,
-        lambda: {
-            "RETRIEVAL_STRATEGY": "vector",
-            "RETRIEVAL_MIN_SCORE": 0.7,
-            "RETRIEVAL_TOP_K": 6,
-        },
-    ),
-    "vector_top_k_above_pool": (
-        "a top_k larger than the configured pool still gets a pool of top_k candidates",
-        QUESTION,
-        lambda: {"RETRIEVAL_STRATEGY": "vector", "RETRIEVAL_TOP_K": 8},
-    ),
-    "vector_top_k_two": (
-        "the vector profile's top_k limits the final context",
-        QUESTION,
-        lambda: {"RETRIEVAL_STRATEGY": "vector", "RETRIEVAL_TOP_K": 2},
     ),
     "metadata_filter": (
         "a metadata filter restricts every search it is passed to",
@@ -545,36 +507,6 @@ EXPECTED = {
         },
         [5, 3, 1],
     ),
-    "vector_strategy": (
-        {
-            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
-            "cosine_cut.selected": [1, 3, 5, 7],
-        },
-        [1, 3, 5, 7],
-    ),
-    "vector_cosine_gate_fails": ({"dense_search.dense_pool": [1, 3, 5, 7, 2, 4]}, []),
-    "vector_metadata_filter": (
-        {"dense_search.dense_pool": [3, 4], "cosine_cut.selected": [3, 4]},
-        [3, 4],
-    ),
-    "vector_similarity_cut": (
-        {
-            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
-            "cosine_cut.selected": [1, 3, 5, 7],
-        },
-        [1, 3, 5, 7],
-    ),
-    "vector_top_k_above_pool": (
-        {
-            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4, 6, 8],
-            "cosine_cut.selected": [1, 3, 5, 7, 2, 4, 6, 8],
-        },
-        [1, 3, 5, 7, 2, 4, 6, 8],
-    ),
-    "vector_top_k_two": (
-        {"dense_search.dense_pool": [1, 3, 5, 7, 2, 4], "cosine_cut.selected": [1, 3]},
-        [1, 3],
-    ),
     "metadata_filter": (
         {
             "dense_search.dense_pool": [3, 4],
@@ -687,5 +619,4 @@ def test_the_scenarios_cover_every_step_the_funnel_describes(settings_override):
         "rerank_score_gate",
         "listwise_rerank",
         "top_k_selection",
-        "cosine_cut",
     }

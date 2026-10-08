@@ -41,7 +41,6 @@ class StepName(StrEnum):
     RERANK_SCORE_GATE = "rerank_score_gate"
     LISTWISE_RERANK = "listwise_rerank"
     TOP_K_SELECTION = "top_k_selection"
-    COSINE_CUT = "cosine_cut"
 
 
 @dataclass(frozen=True)

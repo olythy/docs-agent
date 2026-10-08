@@ -7,7 +7,7 @@ COMPOSE_DB_CONTAINER ?= docs-agent-postgres-1
         db-migrate db-migrate-test db-flush db-refresh db-dump setup documents-sync extract-meta meta-coverage classify-documents meta-types \
         migrate-status migrate-install migrate-fresh migrate-rollback migrate-reset migrate-refresh \
         make-migration add-document add-directory delete-document query chat \
-        inspect-chunks extract-text eval eval-rerank eval-llm eval-all \
+        inspect-chunks extract-text \
         log log-tail log-stats log-clear \
         mcp-dev mcp-install skills-install test lint lint-fix format
 
@@ -144,18 +144,6 @@ inspect-chunks: ## Compare chunking strategies for a file — usage: make inspec
 
 extract-text: ## Preview text extraction grouped by section — usage: make extract-text [path=file.pdf]
 	uv run python scripts/eval_cli.py extract $(if $(path),$(path),$(CMD_ARGS))
-
-eval: ## Run retrieval quality evaluation (vector vs hybrid)
-	uv run python scripts/eval_cli.py eval
-
-eval-rerank: ## Run retrieval evaluation with cross_encoder reranking
-	uv run python scripts/eval_cli.py eval --with-rerank
-
-eval-llm: ## Run retrieval evaluation with real LLM answer generation
-	uv run python scripts/eval_cli.py eval --with-llm
-
-eval-all: ## Run full evaluation benchmark: cross_encoder rerank + LLM generation
-	uv run python scripts/eval_cli.py eval --with-rerank --with-llm
 
 # --- Logging & Telemetry (scripts/log_cli.py) ---
 

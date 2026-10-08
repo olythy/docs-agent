@@ -12,7 +12,7 @@ from query.decision import Scope
 from query.facts import QueryFactsReader
 from query.observers import AuditLogObserver
 from query.outcome import Answerable, Declined, DeclineReason
-from query.profiles import PipelineFactory, ProfileResolver
+from query.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
 from query.service import RetrievalRequest, RetrievalService
 
 
@@ -39,7 +39,7 @@ def service(settings_override, observers=()):
 class TestRetrieve:
     def test_it_returns_the_chunks_the_profile_selects(self, settings_override):
         result = service(settings_override).retrieve(
-            RetrievalRequest("what about costs?", profile="vector"),
+            RetrievalRequest("what about costs?", profile=DEFAULT_PROFILE),
             FakeStore(),  # type: ignore[arg-type]
         )
 
@@ -48,7 +48,9 @@ class TestRetrieve:
 
     def test_a_refusal_comes_back_as_a_value_naming_the_stage(self, settings_override):
         result = service(settings_override).retrieve(
-            RetrievalRequest("what about costs?", profile="vector", min_score=0.95),
+            RetrievalRequest(
+                "what about costs?", profile=DEFAULT_PROFILE, min_score=0.95
+            ),
             FakeStore(),  # type: ignore[arg-type]
         )
 
@@ -71,7 +73,7 @@ class TestRetrieve:
         path = tmp_path / "log.jsonl"
 
         service(settings_override, [AuditLogObserver(EventLogger(path))]).retrieve(
-            RetrievalRequest("what about costs?", profile="vector"),
+            RetrievalRequest("what about costs?", profile=DEFAULT_PROFILE),
             FakeStore(),  # type: ignore[arg-type]
         )
 
@@ -92,7 +94,7 @@ class TestScope:
     def retrieve(self, settings_override, scope=None, store=None):
         return service(settings_override).retrieve(
             RetrievalRequest(
-                "what about costs?", profile="vector", scope=scope, min_score=0.0
+                "what about costs?", profile=DEFAULT_PROFILE, scope=scope, min_score=0.0
             ),
             store or FakeStore(),  # type: ignore[arg-type]
         )
@@ -174,7 +176,7 @@ class TestSpreadingOverNamedDocuments:
             identifiers=ResolvedIdentifiers({f"X/{d}": (d,) for d in documents}),
         )
         service(settings_override, observers=(watcher,)).retrieve(
-            RetrievalRequest("what about costs?", profile="vector", scope=scope),
+            RetrievalRequest("what about costs?", profile=DEFAULT_PROFILE, scope=scope),
             FakeStore(),  # type: ignore[arg-type]
         )
         return watcher.spread
@@ -189,7 +191,7 @@ class TestSpreadingOverNamedDocuments:
         watcher = self.Watcher()
 
         service(settings_override, observers=(watcher,)).retrieve(
-            RetrievalRequest("what about costs?", profile="vector"),
+            RetrievalRequest("what about costs?", profile=DEFAULT_PROFILE),
             FakeStore(),  # type: ignore[arg-type]
         )
 

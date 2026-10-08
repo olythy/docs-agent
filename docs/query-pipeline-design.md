@@ -1,437 +1,288 @@
-# Query pipeline: design of the rewrite
+# Query pipeline: design
 
-Status (2026-10-08): **built, proven, and the original deleted.** The whole path
-question → decision → retrieval → answer runs on the classes described here
-(`QueryService.answer` is the one entry point; `query_knowledge_base` and the golden eval
-call it). It was built beside the original (`retrieve_chunks`, `QueryRouter`, the identifier
-pin) and proven equal on the characterization scenarios, on live snapshots and on the golden
-questions (`docs/decisions.md`, 2026-10-06 to 2026-10-08); then the original and the
-`QUERY_ROUTER`, `QUERY_ENGINE` and `ANSWER_PARTIAL_COVERAGE` switches were deleted.
-Text below that speaks of "today", "the original" or "legacy" describes the code as it was
-while the rewrite was built; it is kept as the record of why the new code looks as it does.
-The as-is map of the original (`docs/query-workflow.md`) is in git history, not on disk.
-It also rests on an independent design review (Opus, read-only) of the first draft.
+What happens between a question and its answer, and why it is split the way it is. This
+document describes the code as it is. How it got here (the single-method original, the
+parity proofs, the measurements, the dead ends) is in `docs/decisions.md`, entries from
+2026-10-06 to 2026-10-08; the setting-by-setting numbers are in `docs/architecture.md`.
 
-## 1. Goal and scope
+## 1. Goal
 
-Rewrite from zero the path *question → decision → retrieval → answer*, as small classes
-with one responsibility each, so that "what happens where, when and why" is visible and
-every refusal is attributable to a stage.
+Answer a question about the ingested documents, and make every step of "what happened,
+where and why" visible: no refusal without a named stage, no document read that the
+decision did not allow, no answer without a record of how it came about.
 
-**In scope** (today: `QueryRouter`, `as_routed`, the identifier check, `retrieve_chunks`,
-`HybridRetrievalStrategy.select_chunks`, `_build_prompt`'s policy flags, the four places
-that decide "no answer").
-
-**Kept as black boxes, reused unchanged:** `VectorStore`, `DocumentStore`, the embedding /
-LLM / reranker drivers, the metadata planner / compiler / executor, `reciprocal_rank_fusion`,
-`extract_years`, `extract_identifier_tokens`, `ResultPhraser`, ingestion, migrations.
-
-**Not in scope until a measurement asks for it:** comparison, similarity retrieval,
-map-reduce / document-level reading, per-question-kind profiles other than the default.
-(The claim "top_k fails for synthesis" is a hypothesis here: top_k 8 did not help, the
-refusal wording and the filter restriction did.)
-
-The new code is built **beside** the old one, proven equal, then the old code is deleted.
+The path is *question → decision → (retrieval →) answer*. Ingestion, the metadata
+catalog and extraction, and the drivers (embedding, language model, reranker) are used as
+they are; this document is about `query/`.
 
 ## 2. Principles
 
-0. **The new code never imported the original** (while both existed). `query/retrieval.py`
-   and `query/router.py` were the reference the new pipeline was proven against; deleting
-   them was a deletion, not a rewrite, because the dependency went one way only (a test,
-   `test_separation.py`, refused the reverse; it went with the originals).
+1. **One class, one reason to change.** Flat modules under `query/`, one concept per file.
+2. **Settings are read in one place**, the composition root (`query/composition.py`).
+   Steps and services take what they need by constructor.
+3. **A refusal is a value** (`Declined(reason, stage, detail, note)`), never an empty
+   list. Each stage that cuts or refuses says so in the explanation.
+4. **No silent fallbacks.** A corpus without an approved document type fails loudly; a
+   filter that selects nothing is a refusal, not a read of everything; a plan that no
+   longer fits the catalog is an error.
+5. **The core is generic.** Nothing in `query/` knows the court corpus; corpus specifics
+   live in `corpus/` (tools, data) and in the language layer (`query/inflection.py`).
+6. **Profiles are data.** A retrieval profile is a registered, ordered list of steps;
+   only measured profiles are registered.
+7. **Cross-cutting concerns are observers**, not decorators on every step; retries stay
+   in the drivers.
 
-1. One class, one reason to change. Flat modules under `query/`, one concept per file.
-2. Steps never read `Settings`; parameters and collaborators arrive by constructor.
-   `Settings` is read in exactly one place, the composition root (`build_query_service`).
-3. Typed, explicit results: a refusal is a value (`Declined`), never an empty list.
-4. Behaviour first, new features later: the new engine must reproduce today's retrieval
-   exactly (characterization tests + `retrieval-snapshot --compare` IDENTICAL).
-5. No silent fallbacks; every stage that cuts or refuses says so in the explain record.
-
-## 3. Overview
-
-### 3.1 The whole path, and how far it is built
+## 3. The path
 
 ```mermaid
 flowchart TD
-    Q(["Question"]) --> SVC["QueryService.answer()<br/>one entry point"]
-    SVC --> FR["QueryFactsReader<br/>identifiers + years, read ONCE"]
-    FR --> DEC{"Decider.decide()<br/>the ONE place that decides"}
-
-    DEC --> PL["Planner (LLM)<br/>what kind of question? which type, filters?"]
-    DEC --> SR["ScopeResolver<br/>WHICH documents may be looked at"]
-    DEC --> PS["ProfileSelector<br/>WHICH steps run (a profile NAME)"]
-    SR --> PF["planner's filters<br/>(dates, courts ...)"]
-    SR --> IR["IdentifierResolver<br/>question's identifiers -> documents"]
-
-    DEC -->|"count / list / sum / overview"| EX["ExactAnswerer<br/>SQL executor + phraser"]
-    DEC -->|"not supported / could not interpret"| RF["Refuse(Declined)<br/>RefusalRenderer"]
-    DEC -->|"read the documents"| RS["RetrievalService.retrieve()<br/>runs a profile over a scoped store"]
-    SR ==>|"Scope: WHICH documents<br/>(store.restricted_to)"| RS
-    PS ==>|"profile NAME: WHICH steps"| RS
-
-    RS --> PR["ProfileResolver<br/>name + settings -> numbers"]
-    PR --> PIPE["RetrievalPipeline<br/>embed, search, gate, fuse, rerank, cut"]
-    PIPE -->|"Answerable(chunks)"| GA["GroundedAnswerer<br/>prompt policy + LLM"]
-    PIPE -->|"Declined(reason, stage)"| RF
-    EX --> RES
-    RF --> RES
-    GA --> RES(["QueryResult<br/>text + outcome + explain"])
-    PIPE -.-> OBS["observers: trace, progress, audit log"]
-    OBS -.-> RES
-
-    classDef built fill:#d6f5d6,stroke:#2e7d32,color:#000
-    classDef todo fill:#fff3c4,stroke:#b8860b,color:#000
-    classDef box fill:#eeeeee,stroke:#888,color:#000
-    class FR,IR,DEC,SR,PS,PF,RS,PR,PIPE,OBS built
-    class SVC,EX,RF,GA,RES todo
-    class PL box
+    Q(["Question"]) --> SVC["QueryService.answer()"]
+    SVC --> FR["QueryFactsReader<br/>identifiers + years, read once"]
+    FR --> DEC{"Decider.decide()"}
+    DEC -- "Refuse(declined)" --> REN["RefusalRenderer"]
+    DEC -- "AnswerExactly(plan)" --> EXA["ExactAnswerer<br/>SQL, then wording with the figures checked"]
+    DEC -- "ReadDocuments(profile, scope)" --> RET["RetrievalService.retrieve()"]
+    RET -- "Declined" --> REN
+    RET -- "Answerable(chunks)" --> GRO["GroundedAnswerer"]
+    REN --> OUT(["Answer(text, Explain)"])
+    EXA --> OUT
+    GRO --> OUT
 ```
 
-Green = built and tested; yellow = still to build (slice 2); grey = exists and is reused as
-it is (the planner, whose output is a `QueryPlan`). The decision half is built (the
-`Decider`, the `ScopeResolver`, the `ProfileSelector`) but **nothing calls it yet**: what
-turns its decision into an answer (the yellow boxes) is next. The two thick arrows into
-`RetrievalService` are the only two things the decision hands to the retrieval: the **scope**
-(which documents) and the **profile name** (which steps). The retrieval decides neither. The retrieval half and the
-decision half are done; the answering half is not. **Today's `QueryRouter` plus
-`query_knowledge_base` do the work of the yellow boxes in one tangled piece, and stay as the
-reference until the new ones are proven equal.**
+A caller can fix the scope itself (`answer(..., scope=...)`; the agent's `source_file`
+does): nothing is decided then, the documents inside the scope are read. A caller can also
+name a profile (`profile=...`, for comparisons); that changes how the documents are read,
+not what was decided.
 
-### 3.2 What each box answers
+### 3.1 What each box answers
 
-| Box | The one question it answers | Today it lives in |
+| Box | The one question it answers | Module |
 |---|---|---|
-| `QueryFactsReader` | What plain facts does the question text hold (identifiers, years)? | detected in the router **and** in the retrieval |
-| `Decider` | Which way does the question go: exact, refuse, or read? | `QueryRouter.route` |
-| `Planner` | What kind of question is it, which type and filters? | `LLMQueryPlanner` (unchanged) |
-| `ScopeResolver` / `Scope` | **Which documents** may the retrieval look at? | `Routing.selection` + `apply_routing` |
-| `IdentifierResolver` | Which documents carry the identifier the question names? | the identifier pin (text search over chunks; **deleted from the new pipeline**, see section 8) |
-| `ProfileSelector` | **Which steps** run? (a name: `hybrid`, `vector`, later others) | `RETRIEVAL_STRATEGY` read inside retrieval |
-| `RetrievalService` | Run that profile over that scope: which chunks? | `retrieve_chunks` + `HybridRetrievalStrategy` |
-| `GroundedAnswerer` | Write the answer from the chunks | `_answer_from_documents` + `_build_prompt` |
-| `Declined` | Who refused, and why (a value, not an empty list) | four places, three wordings |
+| `QueryFactsReader` | What plain facts does the question text hold (identifiers, years)? | `facts.py` |
+| `PlanningDecider` | Which way does the question go: exact, refuse, or read? | `decision.py` |
+| `LLMQueryPlanner` | What kind of question is it, over which type and filters? | `metadata/planner.py` |
+| `ScopeResolver` / `Scope` | **Which documents** may the retrieval look at? | `decision.py` |
+| `IdentifierResolver` | Which documents carry the identifier the question names? | `metadata/identifier_resolver.py` |
+| `ProfileSelector` | **Which steps** run? (a profile name) | `decision.py` |
+| `RetrievalService` | Run that profile over that scope: which chunks? | `service.py` |
+| `GroundedAnswerer` | Write the answer from the chunks | `answering.py` |
+| `ExactAnswerer` | Run an exact plan and word the result | `answering.py` |
+| `RefusalRenderer` | What is the person told when there is no answer? | `outcome.py` |
+| `QueryService` | Connect them in the one order there is, and explain | `query_service.py` |
 
-The two questions people mix up: **`Scope` is about documents** (decided from the metadata,
-before any ranking), **a profile is about steps** (what the retrieval does inside the
-scope). The retrieval decides neither: it receives both.
+The two questions people mix up: **`Scope` is about documents** (decided from the
+metadata, before any ranking), **a profile is about steps** (what the retrieval does
+inside the scope). The retrieval decides neither; it receives both.
 
-### 3.3 Three questions, followed through
+### 3.2 Three questions, followed through
 
 *"What did the court decide in case 4.P.20.409/2023/4?"* (an identifier)
-1. `QueryFactsReader`: identifiers = [`4.P.20.409/2023/4`].
-2. `Decider`: the planner says "read". `IdentifierResolver` finds the one document that carries
-   the number, so the **scope is that document**; the profile is the default.
-3. `RetrievalService`: the pipeline runs over that document's chunks only. Nothing is pinned
-   ahead of relevance, the ranking picks the best four.
-4. `GroundedAnswerer` answers; the explain record says "identifier resolved to 1 document".
+1. Facts: identifiers = [`4.P.20.409/2023/4`].
+2. The planner says "read". The `IdentifierResolver` finds the document(s) that carry the
+   number, so the **scope is those documents**; the profile is the default.
+3. The retrieval runs over those documents' chunks only. Nothing is forced into the
+   context; the ranking picks the best four. If the question names several documents, the
+   final cut takes turns across them, so each is represented.
+4. The grounded answerer answers; the explanation says what the identifier resolved to.
 
-*"How many judgments did the Debrecen court give last year?"* (exact)
-1. `Decider`: the planner says "count" with a court filter and a date range, covering the
-   whole question.
-2. `ExactAnswerer`: SQL counts, the phraser words it. **No retrieval at all.**
+*"How many judgments did the Debrecen court give in 2021?"* (exact)
+1. The planner says "count" with a court filter and a date range covering the whole
+   question: `AnswerExactly`.
+2. `ExactAnswerer`: SQL counts (stating the executed filter and how many documents could
+   not be decided), the phraser words it, every figure is checked. No retrieval.
 
 *"Which cases are similar to case X?"* (not supported yet)
-1. `Decider`: the planner says "unsupported"; the answer is `Refuse(NOT_SUPPORTED)` with the
-   planner's reason. No retrieval.
+1. The planner says "unsupported": `Refuse(NOT_SUPPORTED)` with the planner's reason.
+   No retrieval, and no pretence that a search could do it.
 
-### 3.4 Where the original and the new meet
-
-```mermaid
-flowchart LR
-    subgraph legacy["QUERY_ENGINE=legacy (the default; the reference)"]
-        L1["query_knowledge_base"] --> L2["QueryRouter<br/>(QUERY_ROUTER)"] --> L3["retrieve_chunks<br/>HybridRetrievalStrategy"] --> L4["_build_prompt + LLM"]
-    end
-    subgraph v2["QUERY_ENGINE=v2"]
-        N1["QueryService (to build)"] --> N2["Decider (built, not wired yet)"] --> N3["RetrievalService (built)"] --> N4["GroundedAnswerer (to build)"]
-    end
-    L3 -. "same chunks, proven" .- N3
-```
-
-Today the retrieval half is reached through `retrieve_chunks` when `QUERY_ENGINE=v2`; the
-decider exists but is not connected, and the answer is still the original's. Connecting the
-decider and building the answering half is the rest of slice 2, and then the left column is
-deleted.
-
-Two entry methods share the same decision: `answer()` (full) and `retrieve()` (chunks only,
-for the eval; the MCP search tool stays as it is).
-
-## 4. Modules and classes
-
-**Built:** `facts`, `outcome`, `context`, `step`, `candidate_steps`, `ranking_steps`, `gate_steps`, `selection_steps`, `profiles`, `runner`, `observers`, `legacy_trace`, `composition`, and `service.py` as far as `RetrievalService` and its request / result. **Built, not yet connected:** `decision` (`Scope`, `ScopeResolver`, `Decision`, `PlanningDecider`, `UnplannedDecider`, `ProfileSelector`, `as_routed`), and the `RefusalRenderer` with the wording of every refusal in `outcome`; the original `router.py` and `retrieval.py` import these, not the reverse. **Built (answering half, so far):** `answering.ExactAnswerer` (the result wording moved here from `router.py`, shared by both) and `answering.GroundedAnswerer` with `AnswerPolicy` (the prompt is `drivers.llm._build_prompt` with the policy passed in, tested equal for all four policies; drivers gained `generate(system, user)`). **Built, behind `QUERY_ENGINE=v2`:** `query_service.QueryService.answer` with `Answer` and `Explain` (the decision, the retrieval, who refused, whether the model refused), and `composition.build_query_service`; `query_knowledge_base` delegates to it under v2 and refuses a strategy or metadata_filter it cannot honour. The golden eval reads `Explain` under v2 (one service call; the chunks to grade come from `Explain.chunks`). `routing-eval` now runs the real `PlanningDecider` (28 of 28 right on the 14 cases, 2 runs) and the exact answers of the three `exact` cases match the original router's numbers. **Not yet:** the ANSWER_GENERATED audit event. **Identifier pin deleted from the new pipeline (2026-10-08):** the `IdentifierPinStep`, the `PINS` slot, the score-gate protection and the pin half of the guaranteed slots are gone; what the pin really did for a question naming several documents (every named one represented) moved to the scope (`Scope.names_several_documents` -> `RetrievalContext.spread_documents` -> the top-k step). The original engine keeps its pin until it is deleted. **To build (slice 2):** nothing in `answering`, the `RefusalRenderer` in `outcome`, and `QueryService.answer` with its `Explain`.
+## 4. Modules
 
 | Module | Contents |
 |---|---|
-| `query/facts.py` | `QueryFacts`, `QueryFactsReader` |
-| `query/outcome.py` | `Answerable`, `Declined`, `DeclineReason`, `RefusalRenderer`, `ModelRefusalRecognizer`; the user-facing refusal texts move here |
-| `query/decision.py` | `Decision` (tagged union), `Scope`, `Decider`, `PlanningDecider`, `UnplannedDecider` (temporary), `ScopeResolver`, `ProfileSelector` |
-| `query/context.py` | `RetrievalContext` (the one shared, frozen context), `Slot` |
-| `query/step.py` | `RetrievalStep` (the abstract contract of a step), `Continue` / `Halt` (`StepResult`), `AuxRecord`, `StepName` |
-| `query/candidate_steps.py` | embed, dense search, year widening (dense / keyword), CSLS reorder, keyword search |
-| `query/ranking_steps.py` | RRF fusion, rerank, listwise rerank |
-| `query/gate_steps.py` | relevance gate (cosine), rerank-score gate |
-| `query/selection_steps.py` | top-k with guarantees, cosine cut |
-| `query/profiles.py` | `StepSpec`, `ProfileSpec`, `PROFILES`, `ProfileOverrides`, `ProfileResolver`, `StepRegistry`, `PipelineFactory` |
-| `query/runner.py` | `RetrievalPipeline`, `StepObserver`, `TraceRecorder`, `AuditLogObserver`, `ProgressLogObserver`, `StageRecord` |
-| `query/legacy_trace.py` | `LegacyTraceProjection`: reproduces today's `RetrievalTrace` keys exactly (deliberate, isolated debt) |
-| `query/answering.py` | `AnswerPolicy`, `GroundedPromptBuilder`, `GroundedAnswerer`, `ExactAnswerer` |
-| `query/service.py` | `QueryRequest`, `QueryService`, `QueryResult`, `RetrievalResult`, `Explain`, `build_query_service` |
+| `facts.py` | `QueryFacts`, `QueryFactsReader` |
+| `inflection.py` | `strip_case_ending` (the Hungarian language layer for identifiers) |
+| `outcome.py` | `Answerable`, `Declined`, `DeclineReason`, `RefusalRenderer`, the fixed refusal sentences |
+| `decision.py` | `Decision` (`ReadDocuments` / `AnswerExactly` / `Refuse`), `Scope`, `ScopeResolver`, `PlanningDecider`, `ProfileSelector`, `as_routed`, `scope_of_source_file` |
+| `context.py` | `RetrievalContext` (one frozen context), `Slot` |
+| `step.py` | `RetrievalStep` (the contract), `Continue` / `Halt`, `AuxRecord`, `StepName` |
+| `candidate_steps.py` | embed, dense search, year widening (dense and keyword), CSLS reorder, keyword search |
+| `ranking_steps.py` | RRF fusion, rerank, listwise rerank |
+| `gate_steps.py` | the relevance gate (cosine) and the reranker's score gate |
+| `selection_steps.py` | the final cut with the year quota and the spread over named documents |
+| `profiles.py` | `StepSpec`, `ProfileSpec`, `PROFILES`, `DEFAULT_PROFILE`, `Condition`, `ProfileResolver`, `PipelineFactory` |
+| `runner.py` | `RetrievalPipeline`, `StepObserver`, `TraceRecorder`, `StageRecord` |
+| `observers.py` | `AuditLogObserver`, `ProgressLogObserver`, `CompositeObserver` |
+| `service.py` | `RetrievalRequest`, `RetrievalResult`, `RetrievalService` |
+| `answering.py` | `GroundedAnswerer`, `AnswerPolicy`, `ExactAnswerer`, `ResultPhraser`, `render_result` |
+| `query_service.py` | `QueryService`, `Answer`, `Explain` |
+| `knowledge_base.py` | `query_knowledge_base` (the agent's entry), `search_knowledge_base` (passages only, for the MCP) |
+| `composition.py` | `build_retrieval_service`, `build_planning`, `build_query_service` |
 
-### 4.1 Facts and decision
-- `QueryFacts` (frozen): `question`, `identifiers`, `years`. The one place identifiers and
-  years are detected; years are always computed, a profile decides whether they are used.
-  This removes the duplicate identifier detection and the duck-typed `period_filter`.
-- `Decision` is a tagged union: `ReadDocuments(facts, plan, profile, scope, anchors)`,
-  `AnswerExactly(facts, plan)`, `Refuse(facts, declined)`.
-- `PlanningDecider` = today's `QueryRouter.route` without executing or phrasing:
-  planning failure → `Refuse(COULD_NOT_INTERPRET)`; `unsupported` → `Refuse(NOT_SUPPORTED)`;
-  `as_routed`; exact operation → `AnswerExactly`; a lookup that names an identifier →
-  unrestricted `ReadDocuments` with anchors; other lookups → `ScopeResolver`.
-- `ScopeResolver` turns a lookup plan into a `Scope` (selection, metadata filter, note) or a
-  `Declined(NO_MATCHING_DOCUMENTS)`.
-- `ProfileSelector` chooses a profile **name**. One rule today: the configured default. The
-  hook exists so the choice belongs to the decision step; no kind-of-question mapping is
-  added before a second profile has been measured.
-- `UnplannedDecider` serves `QUERY_ROUTER=false` and is deleted with the flag.
+Reused as they are (not part of the pipeline's own structure): `hybrid.py` (RRF),
+`listwise_rerank.py`, `time_filter.py` (`extract_years`), `decline_detection.py`.
+
+### 4.1 Decision and scope
+
+- `Decision` is a tagged union: `ReadDocuments(facts, plan, profile, scope)`,
+  `AnswerExactly(facts, plan)`, `Refuse(facts, declined)`. The decider returns it and
+  does nothing else: it neither runs the plan nor words the refusal.
+- `PlanningDecider`: planning failure → `Refuse(COULD_NOT_INTERPRET)`; `unsupported` →
+  `Refuse(NOT_SUPPORTED)` with the planner's reason; an exact plan covering the whole
+  question → `AnswerExactly`; an exact plan with a residual (a condition no key covers)
+  is read like a lookup (`as_routed`); a lookup → the scope, and the profile.
+- **Scope rules** (`ScopeResolver`): several identifiers give the union of their
+  documents; a resolved identifier wins over the planner's filters (a note says so when
+  they disagree); identifiers that resolve to nothing leave the retrieval unrestricted and
+  the filters are *not* applied (the note says so; a restriction could only exclude the
+  document that was named); notes name identifiers found only as a part of a longer one or
+  with other separators; filters alone narrow; a filter that selects nothing is
+  `Declined(NO_MATCHING_DOCUMENTS)`; an identifier that is only punctuation names nothing.
+  `Scope.names_several_documents` tells the retrieval to take turns across documents.
+- **Identifier resolution** (`metadata/identifier_resolver.py`): in up to three steps,
+  each only for what the earlier ones did not find: as written (equal after
+  normalisation, or continued by a non-digit suffix; a short wish only when equal), as a
+  part of a stored identifier (the leading series left out), and with the separators
+  ignored. The last two need a wish that says enough (not `4.P`, not a date, not a short
+  bare number) and are reported as approximate. Per identifier the result is a *set* of
+  documents; nothing is picked between documents that share a number. The rule exists in
+  Python, in SQL and as a regex, held equal by database tests.
+- `ProfileSelector` chooses a profile **name**; today it always returns `DEFAULT_PROFILE`.
+  The decision is the one place where that choice is made.
 
 ### 4.2 Outcome: one place for "no answer"
-- `Declined(reason, stage, detail, note)`; `DeclineReason`: `COULD_NOT_INTERPRET`,
-  `NOT_SUPPORTED`, `NO_MATCHING_DOCUMENTS`, `NOT_RELEVANT` (cosine gate), `RERANK_REJECTED`
-  (cross-encoder gate).
-- `RefusalRenderer` produces today's exact texts (both retrieval gates render
-  `NO_RESULTS_MESSAGE`; they differ only in the explain record).
-- `ModelRefusalRecognizer` recognises the model's own refusal sentence (same constant the
-  prompt uses) and sets `explain.model_declined`; it never changes the text.
-- The two retrieval gates are **not merged into one step**: they use different signals at
-  different points (cosine before fusion, deliberately; cross-encoder after rerank). What
-  is centralised is the type and the rendering, not the place.
+
+- `DeclineReason`: `COULD_NOT_INTERPRET`, `NOT_SUPPORTED`, `NO_MATCHING_DOCUMENTS`,
+  `NOT_RELEVANT` (cosine gate), `RERANK_REJECTED` (cross-encoder gate).
+- `RefusalRenderer` words each; both retrieval gates say the same to the person
+  (`NO_RESULTS_MESSAGE`) and differ only in the explanation. The wording is fixed because
+  the eval's decline detection (`decline_detection.py`) and the adversarial questions
+  read it.
+- The two retrieval gates are **not merged**: different signals at different points
+  (cosine before fusion; the reranker's score after the rerank). What is shared is the
+  type and the rendering.
+- The model's own refusal is recognised by the fixed sentence at the start of its reply
+  (`GroundedAnswer.refused`); the text is never changed.
 
 ### 4.3 Context and steps
-- **One** frozen `RetrievalContext`, changed with `dataclasses.replace`: fixed `facts`, `scope`,
+
+- **One** frozen `RetrievalContext`: fixed `facts`, `metadata_filter`, `spread_documents`,
   and typed optional slots (`query_vector`, `dense_pool`, `keyword_pool`, `ranked`,
-  `selected`; the `pins` slot existed until the identifier pin was deleted). Slot names describe *what* is held, not the phase that produced it
-  (this avoids today's misnamed `listwise` key). New needs add a slot; each slot has one
-  writer step. **Decided: slots.**
-- `RetrievalStep`: `name`, `requires`, `provides` (sets of `Slot`), `run(context) -> StepResult`.
-  `StepResult` is `Continue(state, records, notes)` or `Declined`. Order is validated when a
-  profile is resolved (a mis-ordered profile cannot be built); about 30 lines.
-- The runner is generic over the state type, so a later document-level state is possible
-  without designing it now.
+  `selected`). A slot is named for *what* it holds, not for the phase that produced it.
+- `RetrievalStep`: `name`, `requires`, `provides` (sets of `Slot`),
+  `run(context) -> Continue | Halt`. A step returns a changed copy
+  (`context.with_slots(...)`); it can only write what it declared. `RetrievalPipeline`
+  validates the chain when it is built (a step whose input nothing provides, or a chain
+  without the selected chunks, is refused) and stops at the first `Halt`.
 
-Steps that reproduce today's behaviour (names stable, parameters via constructor):
-
-| Step | Replaces | Note |
+| Step | What it does | Note |
 |---|---|---|
-| `EmbedQueryStep` | embed in `retrieve_chunks` | skipped when a vector is supplied |
-| `DenseSearchStep(pool_size)` | `store.search(min_score=0.0)` | `pool_size = max(top_k, POOL_SIZE)` |
-| `RelevanceGateStep(depth, min_score)` | `_passes_relevance_gate` | **before** year widening, on the unmerged pool |
-| `YearDenseWideningStep` | years block | merge-unique, then stable sort by score |
-| `CslsReorderStep` | `_csls_rerank` | stable; scores untouched; no hub score = raw score |
-| `KeywordSearchStep` / `YearKeywordWideningStep` | `search_fulltext` | limit = `len(dense_pool)`; the year merge only appends, no sort |
-| `RrfFusionStep` | `reciprocal_rank_fusion` | dense first, keyword second |
-| ~~`IdentifierPinStep`~~ | identifier rescue | **deleted 2026-10-08**: the scope restricts the store to the named documents, `spread_documents` makes the final cut take turns across them |
-| `RerankStep` | `reranker.rerank` | sees the full list |
-| `RerankScoreGateStep(min_score)` | the `isinstance(CrossEncoderRerankerDriver)` branch | keeps score ≥ min (a pinned chunk used to survive it); empty → `Declined(RERANK_REJECTED)` |
-| `ListwiseRerankStep` | `_maybe_listwise_rerank` | only when enabled |
-| `TopKWithGuaranteesStep(top_k, diversify, year_quota)` | `_apply_top_k_with_guarantees` | rounds robin by `source_file` when the question names several documents (`spread_documents`) and for the in-period slots; year reserve ⌈top_k/2⌉ |
-| `CosineCutStep` | `VectorRetrievalStrategy` | |
+| `EmbedQueryStep` | embeds the question | skipped when a vector is supplied |
+| `DenseSearchStep` | vector search over the candidate pool | `pool_size = max(top_k, POOL_SIZE)` |
+| `RelevanceGateStep` | refuses when nothing is similar enough | cosine, on the **unmerged** pool, depth `top_k`, `>=`, before year widening |
+| `YearDenseWideningStep` | adds a second pool restricted to the question's years | merge, then stable sort by score |
+| `CslsReorderStep` | demotes generic, boilerplate-like chunks | stable; scores untouched; no hub score = raw score |
+| `KeywordSearchStep` | full-text pool | limit = size of the dense pool |
+| `YearKeywordWideningStep` | the same for the keyword pool | the merge only appends |
+| `RrfFusionStep` | reciprocal rank fusion | dense list first, k = 60 |
+| `RerankStep` | re-scores the whole fused list | |
+| `RerankScoreGateStep` | drops what the reranker scored too low; refuses if nothing is left | only with a cross-encoder reranker |
+| `ListwiseRerankStep` | optional LLM re-ordering | only when enabled |
+| `TopKWithGuaranteesStep` | the final cut | reserves half the slots for the question's years; takes turns across documents when the question names several |
 
-`RerankStep` and `RerankScoreGateStep` are separate on purpose: `reranked` is recorded
-between them and the second one can refuse. The score gate is included in a profile iff the
-resolved reranker driver is the cross-encoder (this keeps today's class check without
-touching the driver). The small pure helpers are **ported into the step that owns them**,
-not imported from the old module; equality is proven by tests, not by shared code.
+`RerankStep` and `RerankScoreGateStep` are separate on purpose: the reranked list is
+recorded between them and the second one can refuse.
 
 ### 4.4 Profiles
-- A profile is **data**: `ProfileSpec(name, steps: [StepSpec(kind, params, toggle)], measured)`;
-  `measured` names the `decisions.md` entry and snapshot it was verified with.
-- Profiles live only in the `PROFILES` registry (one Python module). `.env` selects a
-  **name**; the existing flags are typed overrides applied in one `ProfileResolver`, so each
-  flag fans out in one visible place (`DIVERSIFY` → the in-period slots of top-k; `PERIOD_FILTER`
-  → both widening steps + the year quota). No step lists in `.env`/YAML, no runtime
-  composition: every combination would be an unmeasured pipeline.
-- Shipped profiles: `hybrid` (embed, dense, gate, [year dense], CSLS, keyword, [year
-  keyword], RRF, rerank, [score gate], [listwise], top-k) and `vector`
-  (embed, dense, gate, cosine cut). Resolved profiles have a fingerprint, recorded in the
-  explain record.
-- `PipelineFactory` builds a pipeline **per query**: the store is scoped per query
-  (`restricted_to(selection)`), so it cannot be fixed in a step at start-up.
-- `ProfileOverrides` replaces today's constructor overrides and the `top_k` override used by
-  the eval tools; `top_k` still moves the gate depth and the pool size (kept for now).
-- This resolves the open disagreement as a middle way: profiles are data, as asked, but only
-  registered, measured ones are valid. **[to confirm]**
 
-### 4.5 Runner, observer, trace
-- `RetrievalPipeline.run(state, observer)` opens one store session, asserts the embedding
-  dimension, runs steps in order, stops at the first `Declined`.
-- Cross-cutting concerns are an **observer called by the runner** around every step, not
-  decorators on each step: `TraceRecorder` (uniform `StageRecord`s), `AuditLogObserver`
-  (same `LogAction` payloads as today), `ProgressLogObserver`.
-- **Retries stay in the drivers** (`retry_policy`). A step-level retry decorator would
-  multiply attempts and stretch stalls.
-- `LegacyTraceProjection` maps the records onto today's trace keys, quirks included
-  (`fused` is the output of the RRF fusion; `listwise` is the list entering selection;
-  `final` is `[]` after a late decline and absent after the relevance gate), so `funnel`,
-  `retrieval-snapshot` and the characterization tests read an unchanged contract. Renaming
-  `listwise` → `pre_selection` is a later, announced re-baseline.
+- A profile is `ProfileSpec(name, steps, measured)`; `steps` are `StepSpec(kind, when)`
+  where `when` is a `Condition` decided from the settings (`PERIOD_FILTER`,
+  `CROSS_ENCODER`, `LISTWISE`). `measured` names where the profile was verified.
+- One profile is registered: **`best_chunks`** (embed, dense, gate, [year dense], CSLS,
+  keyword, [year keyword], RRF, rerank, [score gate], [listwise], top-k). The name says
+  what the answer is built from.
+- `ProfileResolver` turns a profile name and the settings into numbers (`RetrievalParams`)
+  and the list of steps that apply; `PipelineFactory` builds the pipeline **per query**,
+  because the store is restricted per query (`restricted_to(selection)`).
+- No step lists in `.env`, no runtime composition: every combination would be an
+  unmeasured pipeline.
+
+### 4.5 Running, observing, recording
+
+- `RetrievalService.retrieve(request, store)` owns the store session (`with store:`,
+  dimension check), restricts the store to the scope's selection, builds and runs the
+  pipeline, and returns `RetrievalResult(outcome, records, scope)`.
+- Observers are told after every step: `TraceRecorder` keeps a `StageRecord` per step
+  (what went in, what came out, side results, notes, seconds, the refusal),
+  `AuditLogObserver` writes the gate and rerank events, `ProgressLogObserver` the
+  progress lines. Steps never log.
+- Retries stay in the drivers (`retry_policy`). A step-level retry would multiply
+  attempts and stretch stalls.
 
 ### 4.6 Answering and the service
-- `AnswerPolicy(partial_coverage, expose_document_date)`; `GroundedPromptBuilder` must be
-  byte-identical to today's `_build_prompt` (tested for both flag values). One driver change
-  is needed later: `AnswerDriver.generate(system, user)` with `answer()` as a wrapper; it
-  comes after the switch, not in the first slice.
-- `GroundedAnswerer` (driver + prompt builder + refusal recognizer), `ExactAnswerer`
-  (executor + phraser). There is no "unsupported answerer": that case is a `Declined`.
-- `QueryService.answer(request) -> QueryResult(text, outcome, explain)` and
-  `retrieve(request) -> RetrievalResult`. `query_knowledge_base` and `retrieve_chunks`
-  remain as thin wrappers so existing callers keep their signatures.
-- `Explain` (typed): facts, decision, profile fingerprint, stage records, notes, final chunk
-  ids, `model_declined`, timings. The eval and `funnel` will read it instead of
-  re-running retrieval (a later, separate commit: it changes how the eval measures).
 
-### 4.7 MCP and the single entry (**decided: out of scope for now**)
-The MCP `search` tool keeps calling `retrieve_chunks` unchanged; what it should become is
-left open. For reference, the option considered: the MCP `search` tool uses `QueryService.retrieve()`, the same decision as `answer()`:
-documents → excerpts as today; an exact decision → one `exact_result` item; could-not-
-interpret / not-supported / no-matching → an explicit tool error; the two retrieval gates →
-`[]` (today's contract). Cost: one planner LLM call per MCP search, and a changed response
-contract. Therefore its own commit, behind the router flag.
+- `GroundedAnswerer(driver, AnswerPolicy)` builds the prompt with
+  `drivers.llm._build_prompt` and asks `AnswerDriver.generate(system, user)`.
+  `AnswerPolicy` carries whether the excerpts' dates are shown. The refusal rule is the
+  strict one: the model refuses with a fixed sentence when the excerpts do not answer.
+- `ExactAnswerer(executor, phraser)` runs the plan once and words the result. The model
+  only *words* it: every figure must reappear unchanged, otherwise the plain facts are
+  returned (`ResultPhraser`).
+- `QueryService.answer(question, *, top_k, min_score, profile, scope, store)` returns
+  `Answer(text, Explain)`. `Explain` holds the decision, the retrieval result (records),
+  the refusal if any, whether the model refused, and `chunks` (what the answer was written
+  from). The golden eval reads it (`chunks` are what it grades); `funnel` reads the retrieval records. A scope note is appended to the text after
+  a blank line.
+- Entry points: `query_knowledge_base` (the agent, its CLI), `search_knowledge_base` (the
+  MCP: the retrieval service only, no planner, no answer).
 
-## 5. Parity traps (each pinned by tests or `decisions.md`)
+## 5. Invariants the tests pin
 
-1. The gate looks at the **unmerged** dense pool, depth = `top_k`, `>=`, before year widening.
-2. The two declines leave different traces (see 4.5).
-3. Keyword and identifier limits are `len(dense_pool)` **after** the year merge, not the pool
-   size (a later, deliberate-change candidate, kept as is).
-4. The dense year merge sorts (ties: primary first); the keyword year merge only appends.
-5. CSLS: stable, scores untouched, missing hub score = raw score.
-6. RRF: dense list first, `setdefault` keeps the dense chunk object, ranks from 1, k = 60.
-7. Identifiers are read from the raw question; the identifier search ignores `metadata_filter`
-   and years but honours the store restriction.
-8. The reranker sees the whole fused list; the score gate keeps `score >= min` (and, in the original, also a pinned chunk);
-   with the dev `.env` (`RERANKER_DRIVER=vertex`) the gate never runs live, so the parity
-   run must be repeated with `RERANKER_DRIVER=cross_encoder`.
-9. Listwise runs on the post-gate list; it is LLM-nondeterministic, so compare it with a
-   stubbed disambiguator or only up to `reranked`.
-10. Selection groups by `source_file`; guarantees capped at `top_k`; output order:
-    guaranteed, year extras, the rest; the vector profile never uses years.
-11. `metadata_filter` reaches dense, keyword and both year searches, never the identifier
-    search.
-12. Router texts: `"\n\n"` before an appended note on answers, `" "` inside "No documents
-    match"; the wording that `decline_detection` relies on must not change.
-13. One store session for the whole run; `restricted_to` is created before it opens; the
-    embedding driver is still constructed when a query vector is supplied (its dimension is
-    used).
-14. The characterization harness patches module globals of `query.retrieval`; the new engine
-    takes everything by injection, so the harness gets a second runner per engine with the
-    expected results unchanged.
+These are properties a change must not break silently; the characterization scenarios
+(`tests/unit/query_pipeline/test_retrieval_characterization.py`) and
+`retrieval-snapshot` hold them. Changing one is allowed, on purpose, with the measurement
+that justifies it.
 
-## 6. Build plan
+1. The relevance gate looks at the unmerged dense pool, before year widening.
+2. The keyword search's limit is the dense pool's size after the year merge.
+3. The dense year merge sorts; the keyword one only appends.
+4. RRF puts the dense list first and keeps the dense chunk object.
+5. `metadata_filter` reaches the dense, keyword and both year searches.
+6. The reranker sees the whole fused list; the score gate drops by score only.
+7. Refusal texts: a note is appended after a blank line; the sentences read by
+   `decline_detection` do not change.
+8. One store session per retrieval; the embedding dimension is checked even when a query
+   vector is supplied.
+9. The listwise step is nondeterministic (a language model): compare up to the reranked
+   list, or stub it.
+10. With the development `.env` (`RERANKER_DRIVER=vertex`) the score gate never runs live:
+    it is covered by tests and by a run with `RERANKER_DRIVER=cross_encoder`.
 
-**Slice 1 – retrieval only, no user-visible change: DONE** (commits `e6d7739`, `a710672`,
-`a98f612`, and the funnel `eec1a0f`; the evidence and what the tests missed are in
-`docs/decisions.md`, 2026-10-06)
-1. The characterization harness runs every scenario on an engine-neutral description.
-2. Facts, outcome types, context, step contract, runner, trace recorder, legacy projection.
-3. The vector profile's steps and profile.
-4. CSLS, keyword, RRF, rerank, score gate, top-k (the identifier pin was built, proven equal, and then deleted: section 8).
-5. Year widening, year quota, listwise.
-6. `RetrievalService.retrieve`, `build_retrieval_service`, the temporary `QUERY_ENGINE`.
-   Live gate: the original engine identical to itself, then `--compare` v2 IDENTICAL on six
-   questions under five settings (default, period filter, vector profile, cross-encoder,
-   and all three together); restricted retrieval identical on the real database too.
+## 6. Measuring
 
-Also built: the observers (progress and audit log), and a `funnel` that reads the step
-records (per step in / out / time / which step dropped a golden document).
+| Tool | What it tells you |
+|---|---|
+| `corpus/cli.py eval` | answer, retrieval hit and citation per persona on the golden set (through `QueryService`) |
+| `corpus/cli.py retrieval-snapshot` | the chunk ids every step left, per question; `--compare` lists every difference |
+| `corpus/cli.py funnel` | per question, per step: in, out, time, which step dropped a golden document |
+| `corpus/cli.py routing-eval` | does the decider choose the right flow, and does a restriction select any document |
+| `corpus/cli.py meta-plan-eval` | the planner and compiler on generated count/list questions |
 
-**Slice 2 – the decision and the answer: in progress.** Done: the `IdentifierResolver`, the
-`Scope` and `ScopeResolver` (rules for combining an identifier and the filters, below), and
-the `Decider` with its test against the original router on the same cases (the differences
-are the intended ones). Next: `ExactAnswerer`, `RefusalRenderer`, `GroundedAnswerer`, then
-`QueryService.answer` with its explain record behind the flag; then the golden eval on both
-engines, the removal of the identifier pin (section 8), and the switch. The MCP stays out.
+A snapshot records the settings that shape retrieval, including the embedding and
+reranker model, and refuses to call two snapshots comparable when they differ.
 
-**End:** delete the legacy code and `QUERY_ENGINE`; the eval and `funnel` read `explain`;
-the prompt-builder driver change.
+## 7. Open
 
-**Deleting `QUERY_ROUTER` and `ANSWER_PARTIAL_COVERAGE` was kept out of the refactor** (both
-defaulted to *off*, so deleting them changes the default behaviour) and was done after parity
-on 2026-10-08, with the strict refusal kept; see `docs/decisions.md`.
-
-Left out of the first slice: prompt builder and driver change, decider, MCP, kind-of-question
-profiles, trace key renames, map-reduce, comparison, similarity.
-
-## 7. Risks
-
-- Listwise nondeterminism blocks an "IDENTICAL" claim for that step (see trap 9).
-- The score gate is unexercised live under `vertex` (trap 8).
-- Eval numbers shift slightly once the eval stops retrieving twice: a measurement change,
-  its own commit.
-- Over-engineering: keep requires/provides to an enum plus about 30 lines; no YAML, no
-  decorator layer, no plugin registry, typed `Explain` (not a dict).
-- Two pipelines must not live side by side for long: the flag, the parity proof and the
-  deletion of the old code are the definition of done.
-
-## 8. Facts resolved into the scope
-
-Today neither the identifier nor the date reaches the retrieval from the metadata: the
-planner's filters (over `document_meta`) become the restriction of the store, while the
-retrieval has its own regex facts (`extract_years` filters the chunk's `document_date`;
-identifier tokens drive `search_by_identifier`). Two mechanisms, one narrowing and one
-widening or pinning.
-
-**What is `Scope` for?** It answers "which documents may the retrieval look at?", and it is
-produced on the decision side (from the metadata) so that the steps stay ignorant of why:
-they only see a store restricted to those documents (`store.restricted_to(selection)`). It
-is the one place where the sources combine (the planner's filters, the identifier
-resolver, the dates), it carries the honest parts (the note "N documents could not be
-checked against the filter", and an **empty scope is an explicit `Declined`**, never a
-silent empty search), and today it exists, unnamed, as `Routing.selection` and
-`Routing.note` plus `apply_routing`.
-
-**Built (commit `4267c39`).** The value type `identifier` and the one rule for comparing
-identifiers (`metadata/identifiers.py`, repeated in the compiled SQL and held equal by a
-database test): both sides normalised (compatibility form, lower case, no whitespace, no
-`./-,;:` at the ends); a stored identifier matches a wanted one when they are equal or it
-continues the wanted one with something that is not a digit (a suffix). `document_identifier`
-is now of this type, and it is extracted by the model (from 2224 documents; it used to be
-copied from the first 100 characters of the text, which holds the header's number but not
-the case number a decision states further down).
-
-**To build, measured, never as part of the parity slices:**
-- `IdentifierResolver` (built): in up to three steps, each only for what the earlier ones did
-  not find: **as written** (equal after normalisation, or continued by a suffix; a short
-  wish only when equal), **as a part** of a stored identifier (the leading series, office or
-  court left out: `P.20.277/2019/77` for `10.P.20.277/2019/77`), and **with the separators
-  ignored** (`P.20103.2022.19` for `4.P.20.103/2022/19`). The last two need a wish that says
-  enough (not `4.P`, not a date, not a short bare number) and are reported as `partial` and
-  `compact`. The Hungarian case ending (`…/4-es`) is taken off in the language layer
-  (`query/inflection.py`). The identifiers of the question (`QueryFacts.identifiers`) are
-  looked for against every key of type `identifier`; per identifier a **set** of document ids (zero, one or
-  several: nothing is picked between documents that share a number; ranking decides by
-  content). The scope is the union; between kinds of fact the combination is AND, within one
-  kind OR (several identifiers, several periods; a set of periods is one `in` filter on the
-  date key, a change that already exists in the compiler).
-- With a resolved scope every candidate is already from those documents, so the
-  **identifier pin is not needed and is to be deleted**, not commented out: it forces every
-  chunk that carries the number (all of a document's chunks do) into the context ahead of
-  relevance, and, when the named document is absent, it pins the documents that merely *cite*
-  the number and so misleads. Deleting it also removes the `PINS` slot, the guaranteed slots
-  in the top-k cut, the pin's exemption from the reranker's score gate, and the two effects of
-  `RETRIEVAL_DIVERSIFY_GUARANTEES`. An identifier that resolves to no document is then said
-  plainly ("no document has that identifier"), which is also the right handling of an
-  invented number.
-- **Order:** the resolver and the scope first (without them the new engine would lose the
-  pinpoint ability), then measure the nine questions that name an identifier and the
-  single-document personas (fact_finder, adversarial, practical) without the pin, then
-  delete it. The characterization scenarios with an identifier then get a new, explained
-  expectation for the new engine only.
-- **Open, to measure:** when the plan already narrows by date, does the regex year widening
-  (`YearDenseWideningStep`, the year quota) still add anything?
-
-## 9. Decisions still needed
-
-Decided: MCP stays out for now (4.7); state uses named slots (4.3); `QUERY_ENGINE` exists
-only for testing (6).
-
-Still to confirm: profiles as the middle way in 4.4 (data, registered and measured only).
+- **Questions about many documents** ("what kinds of cases did X and Y decide between
+  2020 and 2022"). Four chunks from about three documents cannot answer them, and the
+  candidate list holds only about a third of the golden documents (numbers in
+  `docs/decisions.md`, 2026-10-08). The likely shape is a second profile that reads
+  documents rather than chunks (`document_survey`), chosen by the decision. To decide:
+  how the decision recognises such a question, how many documents it may read (cost and
+  time), and the yardstick: `independent_fact` and the number of different relevant
+  documents, not `exact_match`.
+- The `ANSWER_GENERATED` audit event is not written on this path.
+- Which document type a question is about is taken from the planner's reading of the
+  approved types' descriptions; inferring it per document (a stored type, a classifier)
+  is not designed.
+- When the plan already narrows by date, does the regex year widening
+  (`YearDenseWideningStep`, the year quota) still add anything? To measure.

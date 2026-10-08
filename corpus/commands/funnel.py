@@ -45,7 +45,6 @@ STEP_MEANING = {
     "rerank_score_gate": "drops what the reranker scored too low (refuses if nothing is left)",
     "listwise_rerank": "the optional listwise LLM re-ordering",
     "top_k_selection": "the final cut: the chunks the answering LLM actually sees",
-    "cosine_cut": "the plain similarity cut of the vector profile",
 }
 
 
@@ -310,6 +309,7 @@ def funnel(
     from drivers.embedding import get_embedding_driver
     from query.composition import build_retrieval_service
     from query.outcome import Answerable
+    from query.profiles import DEFAULT_PROFILE
     from query.service import RetrievalRequest
     from query.time_filter import extract_years
     from store import VectorStore
@@ -330,7 +330,7 @@ def funnel(
         result = service.retrieve(
             RetrievalRequest(
                 q["question"],
-                profile=settings.RETRIEVAL_STRATEGY,
+                profile=DEFAULT_PROFILE,
                 query_vector=driver.embed_query(q["question"]),
                 top_k=top_k,
             ),
@@ -397,7 +397,7 @@ def funnel(
             (
                 r.chunks_in
                 for r in reversed(rows)
-                if r.step in ("top_k_selection", "cosine_cut") and r.chunks_in
+                if r.step == "top_k_selection" and r.chunks_in
             ),
             (),
         )

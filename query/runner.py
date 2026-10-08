@@ -89,11 +89,6 @@ class RetrievalPipeline:
             raise PipelineError("no step provides the selected chunks")
         self._steps = tuple(steps)
 
-    @property
-    def step_names(self) -> tuple[str, ...]:
-        """The names of the steps, in order."""
-        return tuple(step.name for step in self._steps)
-
     def run(
         self, context: RetrievalContext, observer: StepObserver | None = None
     ) -> PipelineRun:

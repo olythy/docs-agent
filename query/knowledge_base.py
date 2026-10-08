@@ -14,6 +14,7 @@ from models import RetrievedChunk
 from query.composition import build_query_service, build_retrieval_service
 from query.decision import scope_of_source_file
 from query.outcome import Answerable
+from query.profiles import DEFAULT_PROFILE
 from query.service import RetrievalRequest
 from store import VectorStore
 
@@ -80,7 +81,7 @@ def search_knowledge_base(
     result = build_retrieval_service(settings).retrieve(
         RetrievalRequest(
             question,
-            profile=settings.RETRIEVAL_STRATEGY,
+            profile=DEFAULT_PROFILE,
             scope=scope_of_source_file(source_file) if source_file else None,
         ),
         VectorStore(),

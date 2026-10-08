@@ -428,7 +428,7 @@ DIAGNOSTIC_POOL_SIZE = 50
 
 
 def _citation_ranks(
-    question_text: str, citations: list[dict], profile: str
+    question_text: str, citations: list[dict], profile: str | None
 ) -> dict[str, int | None]:
     """Find each citation's 1-based document rank in a wide candidate pool.
 
@@ -442,7 +442,7 @@ def _citation_ranks(
     Args:
         question_text: The golden question's text.
         citations: The golden question's ``citations`` list.
-        profile: The retrieval profile ``evaluate_one()`` used for the real call.
+        profile: The retrieval profile ``evaluate_one()`` used (``None``: the default one).
 
     Returns:
         ``{source_file: rank}`` for each cited source_file, 1-based by
@@ -452,11 +452,16 @@ def _citation_ranks(
     from config import settings
     from query.composition import build_retrieval_service
     from query.outcome import Answerable
+    from query.profiles import DEFAULT_PROFILE
     from query.service import RetrievalRequest
     from store import VectorStore
 
     result = build_retrieval_service(settings).retrieve(
-        RetrievalRequest(question_text, profile=profile, top_k=DIAGNOSTIC_POOL_SIZE),
+        RetrievalRequest(
+            question_text,
+            profile=profile or DEFAULT_PROFILE,
+            top_k=DIAGNOSTIC_POOL_SIZE,
+        ),
         VectorStore(),
     )
     wide_pool = result.outcome.chunks if isinstance(result.outcome, Answerable) else ()
@@ -476,7 +481,7 @@ _QUESTION_RETRY_WAIT_SECONDS = 45
 
 
 def _evaluate_one_with_retry(
-    question: dict, strategy_name: str, personas: dict[str, dict]
+    question: dict, profile: str | None, personas: dict[str, dict]
 ) -> dict:
     """Run :func:`evaluate_one`, waiting out transient API failures between tries.
 
@@ -489,7 +494,7 @@ def _evaluate_one_with_retry(
 
     for attempt in range(1, _QUESTION_RETRIES + 1):
         try:
-            return evaluate_one(question, strategy_name, personas)
+            return evaluate_one(question, profile, personas)
         except (TransientAPIError, json.JSONDecodeError) as exc:
             if attempt == _QUESTION_RETRIES:
                 raise
@@ -510,7 +515,7 @@ def _evaluate_one_with_retry(
     raise AssertionError("unreachable")
 
 
-def _answer_and_retrieved(question: str, profile: str):
+def _answer_and_retrieved(question: str, profile: str | None):
     """The answer and the chunks it was written from.
 
     One call to the query service, which decides (with the router on: whether the question
@@ -519,7 +524,7 @@ def _answer_and_retrieved(question: str, profile: str):
 
     Args:
         question: The question text.
-        profile: ``vector`` or ``hybrid`` (the profile to read with).
+        profile: The profile to read with, or ``None`` to let the decision choose.
 
     Returns:
         ``(answer, chunks)``; no chunks when the question was answered exactly or refused.
@@ -531,13 +536,15 @@ def _answer_and_retrieved(question: str, profile: str):
     return result.text, list(result.explain.chunks)
 
 
-def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) -> dict:
+def evaluate_one(
+    question: dict, profile: str | None, personas: dict[str, dict]
+) -> dict:
     """Run one golden question through the real pipeline and grade it under
     every grading strategy its persona configures.
 
     Args:
         question: A verified questions.json entry.
-        strategy_name: "vector" or "hybrid" -- which retrieval profile to use.
+        profile: The retrieval profile to read with, or ``None`` to let the decision choose.
         personas: Loaded personas.json, keyed by id (see load_personas()).
 
     Returns:
@@ -549,7 +556,7 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
     """
     from query.decline_detection import looks_like_a_decline
 
-    answer, retrieved = _answer_and_retrieved(question["question"], strategy_name)
+    answer, retrieved = _answer_and_retrieved(question["question"], profile)
     retrieved_source_files = {c.metadata.source_file for c in retrieved}
 
     result: dict = {
@@ -579,7 +586,7 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
     # re-investigation to tell "ranking problem" apart from "recall gap."
     if any(not g["retrieval_hit"] for g in result["grades"].values()):
         result["citation_ranks"] = _citation_ranks(
-            question["question"], question.get("citations", []), strategy_name
+            question["question"], question.get("citations", []), profile
         )
     return result
 
@@ -837,10 +844,15 @@ def eval(
             ),
         ),
     ] = 1,
-    strategy: Annotated[
-        str,
-        typer.Option(help="Retrieval strategy to evaluate: 'vector' or 'hybrid'."),
-    ] = "hybrid",
+    profile: Annotated[
+        str | None,
+        typer.Option(
+            help=(
+                "Read with this retrieval profile instead of the one the decision "
+                "chooses (a name from query/profiles.py)."
+            )
+        ),
+    ] = None,
     only_covered: Annotated[
         bool,
         typer.Option(
@@ -869,8 +881,10 @@ def eval(
     aren't enough yet. Grading strategy per persona comes from
     corpus/data/personas.json's grading_strategies field.
     """
-    if strategy not in ("vector", "hybrid"):
-        raise typer.BadParameter("--strategy must be 'vector' or 'hybrid'")
+    from query.profiles import PROFILES
+
+    if profile is not None and profile not in PROFILES:
+        raise typer.BadParameter(f"--profile must be one of {sorted(PROFILES)}")
 
     questions = load_verified_questions(persona_filter=persona)
     if not questions:
@@ -898,7 +912,7 @@ def eval(
     personas = load_personas()
     runs = f" x {repeat} run(s)" if repeat > 1 else ""
     print(
-        f"Evaluating {len(questions)} question(s){runs} with strategy={strategy} ...\n"
+        f"Evaluating {len(questions)} question(s){runs} with profile={profile or "(the decision's)"} ...\n"
     )
     # One line per finished run, flushed: the report only appears at the end, and
     # without progress a hung run looks exactly like a slow one.
@@ -908,7 +922,7 @@ def eval(
     results = []
     for index, q in enumerate(jobs, start=1):
         started = time.monotonic()
-        results.append(_evaluate_one_with_retry(q, strategy, personas))
+        results.append(_evaluate_one_with_retry(q, profile, personas))
         print(
             f"  [{index}/{len(jobs)}] {q['id']} done in {time.monotonic() - started:.0f}s",
             flush=True,

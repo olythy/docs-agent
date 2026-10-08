@@ -38,7 +38,7 @@ from query.ranking_steps import (
     RrfFusionStep,
 )
 from query.runner import PipelineError, RetrievalPipeline
-from query.selection_steps import CosineCutStep, TopKWithGuaranteesStep
+from query.selection_steps import TopKWithGuaranteesStep
 from query.step import RetrievalStep, StepName
 from store import VectorStore
 
@@ -69,7 +69,7 @@ class ProfileSpec:
     """A named, ordered list of steps.
 
     Attributes:
-        name: What ``RETRIEVAL_STRATEGY`` selects.
+        name: What the decision (or a caller) selects it by.
         steps: The steps, in order.
         measured: Where this profile was measured (a ``docs/decisions.md`` entry, a
             snapshot); a profile nobody measured does not belong here.
@@ -82,8 +82,8 @@ class ProfileSpec:
 
 #: The valid profiles. Adding one means adding it here and measuring it.
 PROFILES: dict[str, ProfileSpec] = {
-    "hybrid": ProfileSpec(
-        name="hybrid",
+    "best_chunks": ProfileSpec(
+        name="best_chunks",
         steps=(
             StepSpec(StepName.EMBED_QUERY),
             StepSpec(StepName.DENSE_SEARCH),
@@ -103,20 +103,11 @@ PROFILES: dict[str, ProfileSpec] = {
             "by the characterization scenarios and retrieval-snapshot"
         ),
     ),
-    "vector": ProfileSpec(
-        name="vector",
-        steps=tuple(
-            StepSpec(kind)
-            for kind in (
-                StepName.EMBED_QUERY,
-                StepName.DENSE_SEARCH,
-                StepName.RELEVANCE_GATE,
-                StepName.COSINE_CUT,
-            )
-        ),
-        measured="the pre-hybrid baseline; pinned by the characterization scenarios",
-    ),
 }
+
+
+#: The profile a question is read with unless the decision (or a caller) names another.
+DEFAULT_PROFILE = "best_chunks"
 
 
 @dataclass(frozen=True)
@@ -230,7 +221,6 @@ _BUILDERS: dict[StepName, Callable[[StepDeps], RetrievalStep]] = {
     StepName.RELEVANCE_GATE: lambda d: RelevanceGateStep(
         d.params.top_k, d.params.min_score
     ),
-    StepName.COSINE_CUT: lambda d: CosineCutStep(d.params.min_score, d.params.top_k),
     StepName.YEAR_DENSE_WIDENING: lambda d: YearDenseWideningStep(
         d.store, d.params.pool_size
     ),

@@ -154,7 +154,9 @@ class TestAnswerAndRetrieved:
         class FakeService:
             def answer(self, question, **kwargs):
                 calls.append((question, kwargs))
-                decision = ReadDocuments(QueryFacts(question), None, "vector", Scope())
+                decision = ReadDocuments(
+                    QueryFacts(question), None, "another_profile", Scope()
+                )
                 result = RetrievalResult(Answerable((chunk,)), ())
                 return Answer("TEXT", Explain(decision, result))
 
@@ -162,10 +164,10 @@ class TestAnswerAndRetrieved:
             composition_module, "build_query_service", lambda settings: FakeService()
         )
 
-        answer, chunks = _answer_and_retrieved("Q?", "vector")
+        answer, chunks = _answer_and_retrieved("Q?", "another_profile")
 
         assert (answer, chunks) == ("TEXT", [chunk])
-        assert calls == [("Q?", {"profile": "vector"})]
+        assert calls == [("Q?", {"profile": "another_profile"})]
 
 
 class TestCitationRanks:
@@ -203,10 +205,10 @@ class TestCitationRanks:
         )
 
         ranks = _citation_ranks(
-            "q", [{"source_file": "b.pdf"}, {"source_file": "z.pdf"}], "hybrid"
+            "q", [{"source_file": "b.pdf"}, {"source_file": "z.pdf"}], "best_chunks"
         )
 
         assert ranks == {"b.pdf": 2, "z.pdf": None}
         request, _ = requests[0]
-        assert (request.profile, request.top_k) == ("hybrid", DIAGNOSTIC_POOL_SIZE)
+        assert (request.profile, request.top_k) == ("best_chunks", DIAGNOSTIC_POOL_SIZE)
         assert request.scope is None  # over all documents

@@ -5,6 +5,7 @@ from models import ChunkMetadata, RetrievedChunk
 from query.decision import Scope, scope_of_source_file
 from query.knowledge_base import query_knowledge_base
 from query.outcome import Answerable, Declined, DeclineReason
+from query.profiles import DEFAULT_PROFILE
 from query.service import RetrievalResult
 
 
@@ -76,7 +77,7 @@ class TestSearch:
         chunks = knowledge_base_module.search_knowledge_base("q?")
 
         assert [c.id for c in chunks] == [1, 2]
-        assert requests[0].profile == knowledge_base_module.settings.RETRIEVAL_STRATEGY
+        assert requests[0].profile == DEFAULT_PROFILE
         assert requests[0].scope is None  # all documents
 
     def test_a_source_file_becomes_the_scope(self, monkeypatch):

@@ -77,12 +77,12 @@ def service(make, outcome=None, grounded=None):
         fake_exact,
         fake_grounded,
         RefusalRenderer(),
-        default_profile="hybrid",
+        default_profile="best_chunks",
     )
     return qs, decider, retrieval, fake_exact, fake_grounded
 
 
-def read(profile="hybrid", scope=None):
+def read(profile="best_chunks", scope=None):
     return lambda facts: ReadDocuments(facts, None, profile, scope or Scope())
 
 
@@ -114,14 +114,14 @@ class TestExact:
 class TestRead:
     def test_the_decisions_profile_and_scope_reach_the_retrieval(self):
         scope = Scope(selection=DocumentSelection("SELECT 1", ()), note="n")
-        qs, _, retrieval, *_ = service(read("vector", scope))
+        qs, _, retrieval, *_ = service(read("another_profile", scope))
 
         qs.answer("q", top_k=3, min_score=0.2, store=STORE)
 
         request, store = retrieval.calls[0]
         assert (request.question, request.profile, request.scope) == (
             "q",
-            "vector",
+            "another_profile",
             scope,
         )
         assert (request.top_k, request.min_score) == (3, 0.2)
@@ -167,13 +167,13 @@ class TestRead:
 
 def test_a_given_profile_replaces_the_decided_one_and_nothing_else():
     scope = Scope(note="n")
-    qs, _, retrieval, *_ = service(read("hybrid", scope))
+    qs, _, retrieval, *_ = service(read("best_chunks", scope))
 
-    answer = qs.answer("q", profile="vector", store=STORE)
+    answer = qs.answer("q", profile="another_profile", store=STORE)
 
-    assert retrieval.calls[0][0].profile == "vector"
+    assert retrieval.calls[0][0].profile == "another_profile"
     assert retrieval.calls[0][0].scope is scope
-    assert answer.explain.decision.profile == "vector"  # type: ignore[union-attr]
+    assert answer.explain.decision.profile == "another_profile"  # type: ignore[union-attr]
 
 
 def test_the_decider_gets_the_facts_of_the_question():
@@ -194,7 +194,7 @@ class TestACallerFixedScope:
 
         assert decider.seen == []  # nobody was asked
         request = retrieval.calls[0][0]
-        assert (request.scope, request.profile) == (scope, "hybrid")
+        assert (request.scope, request.profile) == (scope, "best_chunks")
         assert answer.text == "GROUNDED\n\none file"
         assert isinstance(answer.explain.decision, ReadDocuments)
         assert answer.explain.decision.plan is None
@@ -203,9 +203,9 @@ class TestACallerFixedScope:
     def test_a_given_profile_still_wins(self):
         qs, _, retrieval, *_ = service(read())
 
-        qs.answer("q", scope=Scope(), profile="vector", store=STORE)
+        qs.answer("q", scope=Scope(), profile="another_profile", store=STORE)
 
-        assert retrieval.calls[0][0].profile == "vector"
+        assert retrieval.calls[0][0].profile == "another_profile"
 
 
 class TestExplainChunks:

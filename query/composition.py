@@ -29,7 +29,7 @@ from query.facts import QueryFactsReader
 from query.listwise_rerank import listwise_rerank
 from query.observers import AuditLogObserver, ProgressLogObserver
 from query.outcome import RefusalRenderer
-from query.profiles import PipelineFactory, ProfileResolver
+from query.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
 from query.query_service import QueryService
 from query.service import RetrievalService
 
@@ -91,7 +91,7 @@ def build_planning(
         LLMQueryPlanner(llm, compiler, clock),
         store,
         ScopeResolver(executor, IdentifierResolver(store)),
-        ProfileSelector(settings.RETRIEVAL_STRATEGY),
+        ProfileSelector(DEFAULT_PROFILE),
     )
     return decider, ExactAnswerer(executor, ResultPhraser(llm))
 
@@ -118,5 +118,5 @@ def build_query_service(settings: Settings) -> QueryService:
             AnswerPolicy(expose_document_date=settings.EXPOSE_DOCUMENT_DATE),
         ),
         RefusalRenderer(),
-        default_profile=settings.RETRIEVAL_STRATEGY,
+        default_profile=DEFAULT_PROFILE,
     )

@@ -2,6 +2,51 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-08 — One retrieval profile, `best_chunks`; the `vector` profile, `RETRIEVAL_STRATEGY` and the old 25-question benchmark are retired
+
+**What changed.** The profile that was called `hybrid` is now `best_chunks` (it names what the answer is built from, not how it is searched: the best passages), and it is the only retrieval profile. Removed with it: the `vector` profile (the pre-hybrid baseline), `CosineCutStep`, the `RETRIEVAL_STRATEGY` setting (the decision chooses the profile; `DEFAULT_PROFILE` in `query/profiles.py` is the fallback), `compare-retrieval` (earlier), `scripts/eval_cli.py eval` with `make eval*`, `scripts/eval_data/sample_questions.json`, and the golden eval's `--strategy` option (now an optional `--profile`). Next profile on the list, not built: `document_survey` for questions that ask about many documents (entry below).
+
+**Why.** Two profiles meant every question, test and tool had to answer "which one", and the only job `vector` still did was to be a comparison baseline: the case for hybrid search was measured once (below) and does not need a live switch. With the decision layer choosing the profile, a settings switch for it is a second, competing place to decide.
+
+**The retired benchmark, kept as a record** (`eval_cli.py eval`: 25 bilingual questions, 19 answerable and 6 deliberately unanswerable, over three committed fixtures incl. an Hungarian IT policy; `AGENT_ENV=test`, controlled corpus; passage-level matching by a gold phrase per question):
+
+| Config | Hit@1 | Recall@k | Passage MRR | Fallback |
+|---|---|---|---|---|
+| vector-only | 0.89 | 0.95 | 0.92 | 0.00 |
+| hybrid + rerank (cross_encoder) | 0.95 | 0.95 | 0.95 | 1.00 |
+
+Hybrid + rerank by language: EN (10 answerable, 3 unanswerable) Hit@1 0.90, Recall@k 0.90, Fallback 1.00; HU (9 answerable, 3 unanswerable) Hit@1 1.00, Recall@k 1.00, Fallback 1.00.
+
+**What those numbers do and do not mean** (said at the time, kept because it still holds): three documents and 25 questions compare *configurations against each other*, not against an external benchmark. What was structural: the cross-encoder rejected 6 of 6 unanswerable questions at the retrieval layer, vector-only 0 of 6. **The cross-encoder threshold (`RERANKER_MIN_SCORE=-2.0`) was calibrated on the same 6 unanswerable questions it is then scored on**: training-set accuracy, not generalisation; validating it needs a larger independent set (the golden set's adversarial questions are the start of that). **A finding from the fallback metric:** with the cosine gate alone the fallback rate was 0.33 (1 of 3 caught). A question that stays on topic but asks for a fact the document never states still clears `RETRIEVAL_MIN_SCORE=0.25` (0.438 for "what is the founder's phone number?", 0.370 for "what is the project's annual revenue?"; the one that was caught scored 0.249, a hair under): cosine similarity says "same topic", not "contains the fact asked for". That is why the system never relies on that gate alone (the reranker's score gate and the prompt's fixed refusal sentence are the other layers). The `--with-llm` mode of the same tool checked layers 2 and 3 by hand (gold fact verbatim in the answer, retrieval rejection vs prompt decline vs potential hallucination, a scorecard of gold-fact retention, safe-decline rate, calls and latency); a pinned, non-free model was used so that decline rates were comparable between runs.
+
+## 2026-10-08 — Measured, before designing the survey path: where the golden answers are lost for questions about many documents
+
+Read-only (SQL selects over the retrieval snapshot of the 33 verified questions, default settings: `top_k=4`, Vertex reranker, no model call for answers). Of the 31 non-adversarial questions, the 26 of the `precedent_seeker` and `synthesizer` personas expect about two documents each (51 expected documents in total).
+
+| | precedent_seeker (23 expected docs) | synthesizer (28 expected docs) |
+|---|---|---|
+| in the dense pool (~10 distinct documents) | 3 | 4 |
+| in the keyword pool (~13-16) | 9 | 7 |
+| in the fused/reranked list (~22-25 documents) | 11 | 8 |
+| in the final 4 chunks (~3 documents) | 3 | 2 |
+| questions with *none* of their expected documents in the final context | 9 of 12 | 12 of 14 |
+
+So the loss has two parts: the candidate list holds only about 37% of the expected documents (19 of 51), and the cut keeps only 5 of those 19. **Important reading caveat:** these questions are general ("what kinds of cases did court X and court Y decide between 2020 and 2022"), many documents would be correct, and the golden set names two of them. `exact_match` therefore asks whether the system happened to pick those two, which no retrieval can know; the meaningful yardstick for these personas is `independent_fact` (any document that really supports the answer counts) together with how many *different relevant documents* the answer is built from. A path for such questions should be judged on those, not on `exact_match`, and the 95% target should be restated accordingly. Not yet decided: how the decision recognises such a question, and how many documents the path may read (cost and time).
+
+## 2026-10-07 to 2026-10-08 — The decision and the answering halves of the new pipeline: what was decided on the way
+
+(Commits `df959e6` to `3ea8a1a`; the retrieval half is the 2026-10-06 entry, the identifier resolver the 2026-10-07 one.)
+
+**The decision is a value, not a flow of `if`s.** `PlanningDecider.decide(facts)` returns `ReadDocuments(facts, plan, profile, scope) | AnswerExactly(facts, plan) | Refuse(facts, declined)` and does nothing else: it neither runs the plan nor words the refusal. Carrying it out is `QueryService`'s job, with `ExactAnswerer`, the retrieval service and `GroundedAnswerer`; a refusal is a `Declined(reason, stage, detail, note)` that the `RefusalRenderer` words in one place (the original wording, because the eval's decline detection and the adversarial questions read it). An exact plan with a residual (a condition no key covers) is read like a lookup (`as_routed`), as the router did.
+
+**Scope rules** (which documents a lookup may read; all of them found by comparing with the original router on cases, then written down): several named identifiers give the union of their documents; a resolved identifier wins over the planner's filters (a note says so when they disagree); identifiers that resolve to nothing leave the retrieval unrestricted and the planner's filters are *not* applied (the note says so: a restriction could only exclude the document that was named); notes name identifiers found only as a part of a longer one, or with other separators; filters alone narrow, and a filter that selects nothing is `Declined(NO_MATCHING_DOCUMENTS)` (never a silent read of everything); an identifier that is only punctuation names nothing. The scope travels with the retrieval request and comes back in its result, so the answer can carry the note.
+
+**Review by a second model (Opus, read-only) and what became of it.** C1 (the resolver was weaker than the text pin) -> the three-step resolver (2026-10-07). C2/C3 (unresolved identifiers: unrestricted, filters not applied, said in the note) -> the rules above. I1 (eval tools could not run on the new path) -> the golden eval asks the service and reads its `Explain`; `--profile` replaces the strategy objects. I2 (tests that compared the new wording with itself) -> literal sentences in the refusal tests. I3 (the scope was not in the request) -> done. I4 (the trace projection should fail on a missing stage) -> dropped, the projection itself was deleted with the original. I5 (wrong claims in the design doc: slots do not each have one writer, the step result is `Halt`, there are no profile overrides or fingerprints, "proven" rested on 6 questions) -> the design document was rewritten around what exists. I6 (parity evidence gaps) -> `routing-eval` now runs the real decider; a snapshot records the embedding and reranker model; the rest was superseded by the golden runs.
+
+**Answering.** `ExactAnswerer` executes the plan once and words the result; a plan that no longer fits the catalog (`PlanError`) is deliberately not caught. `ResultPhraser` lets the model only *word* an exact answer: every figure must reappear unchanged, otherwise the plain facts are returned (seen live: a list answer lost its "65" and fell back to the facts on both the old and the new path). `GroundedAnswerer` builds the prompt with `drivers.llm._build_prompt` with its policy passed in (`AnswerPolicy`; the drivers gained `generate(system, user)` for it), so it no longer depends on global settings, and recognises the model's own refusal by the exact sentence at the start of the reply (a mutation test showed that "contains" would call an answer that merely quotes the sentence a refusal). `QueryService.answer` accepts a caller-fixed `scope` (the agent's `source_file` becomes one: nothing is decided) and a `profile` override (comparison); every answer carries an `Explain` (decision, retrieval records, who refused, whether the model refused).
+
+**What measuring found in this stretch (not what the unit tests found):** the first v2 eval run failed because the eval always passed a strategy object that a guard I had just written refused; the identifier-pin deletion regressed q0018 until the "take turns across named documents" job moved to the scope (previous entries).
+
 ## 2026-10-08 — The original query path and its three switches are deleted
 
 **What went.** `query/retrieval.py` (`retrieve_chunks`, the two strategy classes, the identifier pin), `query/router.py` (`QueryRouter`), `query/legacy_trace.py`, `models.RetrievalTrace`, `UnplannedDecider`, `compare-retrieval`, and the settings `QUERY_ROUTER`, `QUERY_ENGINE` and `ANSWER_PARTIAL_COVERAGE`. `query_knowledge_base` (now `query/knowledge_base.py`) is a thin function over `QueryService`; the MCP's `search_knowledge_base` runs only the retrieval service.

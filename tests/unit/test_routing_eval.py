@@ -55,7 +55,7 @@ class TestFlowOfDecision:
     """Every decision lands on one flow, and a refusal says which kind it is."""
 
     def test_a_question_to_read_is_a_lookup(self):
-        decision = ReadDocuments(FACTS, None, "hybrid", Scope())
+        decision = ReadDocuments(FACTS, None, "best_chunks", Scope())
 
         assert flow_of_decision(decision)[0] == "lookup"
 

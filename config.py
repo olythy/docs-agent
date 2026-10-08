@@ -251,19 +251,6 @@ class Settings:
         RETRIEVAL_MIN_SCORE   Cosine similarity threshold (0–1). Chunks below this
                               score are considered too distant and ignored
                               (default: 0.25).
-        RETRIEVAL_STRATEGY    ``hybrid`` (default) fuses vector + keyword
-                              search via Reciprocal Rank Fusion, then
-                              optionally reranks (see RERANKER_DRIVER
-                              below). ``vector`` skips keyword search and
-                              fusion, returning pure cosine-similarity
-                              results only — the pre-hybrid-search
-                              behavior, kept as a selectable strategy
-                              mainly for comparison (see
-                              ``scripts/evaluate_retrieval.py``); there's
-                              little reason to prefer it in production,
-                              since hybrid search only adds recall over
-                              vector-only at negligible extra cost. See
-                              ``query/profiles.py``.
         RERANKER_DRIVER       ``cross_encoder`` (default) reorders the hybrid-search
                               candidate list with a local cross-encoder model
                               before truncating to RETRIEVAL_TOP_K, and is the
@@ -288,7 +275,6 @@ class Settings:
                               real eval run; billed against GCP credit
                               instead, same VERTEX_PROJECT_ID as
                               EMBEDDING_DRIVER=vertex, no separate API key.
-                              Only applies when RETRIEVAL_STRATEGY=hybrid.
                               See ``drivers/reranker.py``.
         RERANKER_MODEL        Model name/id for the active reranker driver
                               (the local cross-encoder's HuggingFace id, a
@@ -500,7 +486,6 @@ class Settings:
     # --- Retrieval ---
     RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "4"))
     RETRIEVAL_MIN_SCORE: float = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.25"))
-    RETRIEVAL_STRATEGY: str = os.getenv("RETRIEVAL_STRATEGY", "hybrid")
     RERANKER_DRIVER: str = os.getenv("RERANKER_DRIVER", "cross_encoder")
     RERANKER_MODEL: str = os.getenv(
         "RERANKER_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"

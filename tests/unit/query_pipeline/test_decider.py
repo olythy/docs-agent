@@ -68,7 +68,7 @@ def facts(question="a question", identifiers=()):
     return QueryFacts(question, identifiers=tuple(identifiers))
 
 
-def decider(plan=None, fail=None, plans=None, profile="hybrid", approved=True):
+def decider(plan=None, fail=None, plans=None, profile="best_chunks", approved=True):
     planner = FakePlanner(plan, fail)
     plans = plans or FakePlans()
     scopes = ScopeResolver(plans, IdentifierResolver(FakeSource(DOCS)))
@@ -214,7 +214,7 @@ class TestReading:
 
 
 class TestProfile:
-    @pytest.mark.parametrize("name", ["hybrid", "vector"])
+    @pytest.mark.parametrize("name", ["best_chunks", "another_profile"])
     def test_the_profile_is_the_one_the_selector_chooses(self, name):
         made, _, _ = decider(lookup(restricted=False), profile=name)
 
@@ -223,10 +223,10 @@ class TestProfile:
         assert isinstance(decision, ReadDocuments) and decision.profile == name
 
     def test_the_selector_returns_its_default_whatever_the_question(self):
-        selector = ProfileSelector("hybrid")
+        selector = ProfileSelector("best_chunks")
 
-        assert selector.select(facts("anything"), None) == "hybrid"
-        assert selector.select(facts("x", ["A/1"]), lookup()) == "hybrid"
+        assert selector.select(facts("anything"), None) == "best_chunks"
+        assert selector.select(facts("x", ["A/1"]), lookup()) == "best_chunks"
 
 
 def test_every_decision_carries_the_facts_it_was_made_from():

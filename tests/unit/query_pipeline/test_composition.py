@@ -22,6 +22,7 @@ from query.answering import ExactAnswerer
 from query.composition import build_query_service, build_retrieval_service
 from query.decision import PlanningDecider, Scope
 from query.outcome import NO_RESULTS_MESSAGE, Answerable
+from query.profiles import DEFAULT_PROFILE
 from query.service import RetrievalRequest
 
 QUESTION = "What about the costs of the proceedings?"
@@ -35,7 +36,6 @@ def wired(monkeypatch, settings_override, tmp_path):
     def wire(**settings):
         config = settings_override(
             **{
-                "RETRIEVAL_STRATEGY": "hybrid",
                 "RERANKER_DRIVER": "cross_encoder",
                 "RERANKER_MODEL": "model-x",
                 "RETRIEVAL_TOP_K": 4,
@@ -63,9 +63,7 @@ def wired(monkeypatch, settings_override, tmp_path):
 def retrieve(env, question=QUESTION, profile=None, **request):
     """Run the retrieval service built from the wired settings; the chunks, or ``[]``."""
     result = build_retrieval_service(env.settings).retrieve(
-        RetrievalRequest(
-            question, profile=profile or env.settings.RETRIEVAL_STRATEGY, **request
-        ),
+        RetrievalRequest(question, profile=profile or DEFAULT_PROFILE, **request),
         FakeStore(),  # type: ignore[arg-type]
     )
     return list(result.outcome.chunks) if isinstance(result.outcome, Answerable) else []
@@ -73,20 +71,15 @@ def retrieve(env, question=QUESTION, profile=None, **request):
 
 class TestProfiles:
     def test_an_unknown_profile_is_an_error(self, wired):
-        env = wired(RETRIEVAL_STRATEGY="nope")
+        env = wired()
 
         with pytest.raises(ValueError, match="Unknown retrieval profile"):
-            retrieve(env)
+            retrieve(env, profile="nope")
 
-    def test_the_vector_profile_is_the_cosine_cut(self, wired):
-        env = wired()  # the settings say hybrid; the request says vector
+    def test_the_default_profile_applies_the_cross_encoder_threshold(self, wired):
+        env = wired()
 
-        assert [c.id for c in retrieve(env, profile="vector")] == [1, 3, 5, 7]
-
-    def test_the_hybrid_profile_applies_the_cross_encoder_threshold(self, wired):
-        env = wired(RETRIEVAL_STRATEGY="vector")  # settings say vector; request hybrid
-
-        assert [c.id for c in retrieve(env, profile="hybrid")] == [1, 3, 5]
+        assert [c.id for c in retrieve(env)] == [1, 3, 5]
 
 
 class TestOverrides:

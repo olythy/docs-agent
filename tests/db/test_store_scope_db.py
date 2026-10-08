@@ -153,7 +153,7 @@ def test_a_retrieval_service_restricts_a_real_store_to_the_scope(
     from query.decision import Scope
     from query.facts import QueryFactsReader
     from query.outcome import Answerable
-    from query.profiles import PipelineFactory, ProfileResolver
+    from query.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
     from query.service import RetrievalRequest, RetrievalService
 
     with db_conn.cursor() as cur:
@@ -172,7 +172,7 @@ def test_a_retrieval_service_restricts_a_real_store_to_the_scope(
         result = service.retrieve(
             RetrievalRequest(
                 "booking invoice",
-                profile="vector",
+                profile=DEFAULT_PROFILE,
                 query_vector=vector,
                 min_score=0.0,
                 scope=scope,
