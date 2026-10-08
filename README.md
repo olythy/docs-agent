@@ -92,7 +92,8 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── observers.py          # progress and audit-log observers (steps never log)
 │   ├── legacy_trace.py       # LegacyTraceProjection: the original trace keys, for funnel / retrieval-snapshot
 │   ├── service.py            # RetrievalService.retrieve: one entry, owns the store session
-│   └── composition.py        # build_retrieval_service: the one place that reads Settings and the driver factories
+│   ├── query_service.py      # QueryService.answer: decide -> refuse | answer exactly | retrieve and write; returns the text with an Explain (QUERY_ENGINE=v2 routes query_knowledge_base through it)
+│   └── composition.py        # build_retrieval_service / build_query_service: the one place that reads Settings and the driver factories
 ├── migrations/              # Python migrations (Laravel-artisan-style runner)
 │   ├── base.py                # Migration ABC: up()/down() run raw SQL, no ORM
 │   ├── 0001_create_document_chunks_table.py

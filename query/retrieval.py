@@ -809,6 +809,8 @@ def query_knowledge_base(
         RuntimeError: If the active embedding driver's dimension doesn't
             match the existing document_chunks.embedding column.
     """
+    if routing is None and settings.QUERY_ENGINE.lower() == "v2":
+        return _answer_v2(question, top_k, min_score, strategy, metadata_filter, store)
     if routing is None and settings.QUERY_ROUTER:
         routing = get_query_router().route(question)
     note = None
@@ -822,6 +824,39 @@ def query_knowledge_base(
         question, top_k, min_score, strategy, metadata_filter, store
     )
     return f"{answer}\n\n{note}" if note else answer
+
+
+def _answer_v2(
+    question: str,
+    top_k: int | None,
+    min_score: float | None,
+    strategy: RetrievalStrategy | None,
+    metadata_filter: dict | None,
+    store: VectorStore | None,
+) -> str:
+    """The whole answer from the new pipeline (``QUERY_ENGINE=v2``).
+
+    It decides the scope itself, so a ``metadata_filter`` is refused instead of ignored; a
+    plain strategy object only names the profile to read with (see :func:`_profile_of`).
+    """
+    if metadata_filter is not None:
+        raise ValueError(
+            "QUERY_ENGINE=v2 decides the scope itself: pass no metadata_filter to "
+            "query_knowledge_base."
+        )
+    from query.composition import build_query_service
+
+    return (
+        build_query_service(settings)
+        .answer(
+            question,
+            top_k=top_k,
+            min_score=min_score,
+            profile=_profile_of(strategy) if strategy is not None else None,
+            store=store,
+        )
+        .text
+    )
 
 
 def apply_routing(routing: Routing, store: VectorStore | None) -> VectorStore | None:

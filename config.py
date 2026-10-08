@@ -418,7 +418,11 @@ class Settings:
         QUERY_ENGINE          TEMPORARY, for testing the retrieval rewrite
                               (docs/query-pipeline-design.md): ``legacy``
                               (default) runs the original ``retrieve_chunks``
-                              pipeline, ``v2`` the step-based one. The two
+                              pipeline, ``v2`` the step-based one, and with ``v2`` the whole
+                              answer (decision, retrieval, wording) comes from
+                              ``QueryService`` (the router's flag decides
+                              whether a planner is asked; a strategy or a
+                              metadata_filter passed in is refused). The two
                               must give identical results (see
                               ``retrieval-snapshot --compare``); the switch and
                               the original code are deleted once that is

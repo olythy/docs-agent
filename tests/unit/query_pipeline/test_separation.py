@@ -33,6 +33,7 @@ NEW = [
     "decision",
     "inflection",
     "answering",
+    "query_service",
 ]
 
 #: What the new modules may not import.

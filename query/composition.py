@@ -8,7 +8,8 @@ the progress lines and the audit log. Steps and the service themselves never see
 ``Settings``.
 
 Key exports:
-    build_retrieval_service -- Builds the service.
+    build_retrieval_service -- Builds the retrieval service.
+    build_query_service     -- Builds the end-to-end service (decide, retrieve, answer).
 """
 
 from config import Settings
@@ -17,10 +18,20 @@ from drivers.llm import get_answer_driver
 from drivers.reranker import get_reranker_driver
 from logger import get_logger
 from models import RetrievedChunk
+from query.answering import AnswerPolicy, ExactAnswerer, GroundedAnswerer, ResultPhraser
+from query.decision import (
+    Decider,
+    PlanningDecider,
+    ProfileSelector,
+    ScopeResolver,
+    UnplannedDecider,
+)
 from query.facts import QueryFactsReader
 from query.listwise_rerank import listwise_rerank
 from query.observers import AuditLogObserver, ProgressLogObserver
+from query.outcome import RefusalRenderer
 from query.profiles import PipelineFactory, ProfileResolver
+from query.query_service import QueryService
 from query.service import RetrievalService
 
 
@@ -49,4 +60,55 @@ def build_retrieval_service(settings: Settings) -> RetrievalService:
             ProgressLogObserver(),
             AuditLogObserver(get_logger(), settings.RERANKER_MODEL),
         ),
+    )
+
+
+def build_query_service(settings: Settings) -> QueryService:
+    """Build a :class:`QueryService` from ``settings``.
+
+    With ``QUERY_ROUTER`` on, a planner decides how each question is answered; off, every
+    question is read, unrestricted.
+
+    Args:
+        settings: Where the numbers, the choice of drivers and the answer policy come from.
+    """
+    llm = get_answer_driver()
+    profiles = ProfileSelector(settings.RETRIEVAL_STRATEGY)
+    decider: Decider
+    exact_answerer: ExactAnswerer | None = None
+    if settings.QUERY_ROUTER:
+        from document_store import DocumentStore
+        from metadata.clock import SystemClock
+        from metadata.compiler import PlanCompiler
+        from metadata.date_ranges import DateRangeResolver
+        from metadata.executor import PlanExecutor
+        from metadata.identifier_resolver import IdentifierResolver
+        from metadata.planner import LLMQueryPlanner
+
+        clock = SystemClock()
+        compiler = PlanCompiler(DateRangeResolver(clock))
+        store = DocumentStore()
+        executor = PlanExecutor(store, compiler)
+        decider = PlanningDecider(
+            LLMQueryPlanner(llm, compiler, clock),
+            store,
+            ScopeResolver(executor, IdentifierResolver(store)),
+            profiles,
+        )
+        exact_answerer = ExactAnswerer(executor, ResultPhraser(llm))
+    else:
+        decider = UnplannedDecider(profiles)
+    return QueryService(
+        QueryFactsReader(),
+        decider,
+        build_retrieval_service(settings),
+        exact_answerer,
+        GroundedAnswerer(
+            llm,
+            AnswerPolicy(
+                partial_coverage=settings.ANSWER_PARTIAL_COVERAGE,
+                expose_document_date=settings.EXPOSE_DOCUMENT_DATE,
+            ),
+        ),
+        RefusalRenderer(),
     )

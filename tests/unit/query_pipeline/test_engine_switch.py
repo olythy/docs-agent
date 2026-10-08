@@ -244,3 +244,127 @@ class TestWiring:
             "final",
         ]
         assert trace.notes["gate_passed"] is True
+
+
+class FakeAnswerDriver:
+    """Stands for the language model: records the prompt, replies with a fixed text."""
+
+    def __init__(self, reply="THE ANSWER"):
+        self.reply, self.calls = reply, []
+
+    def generate(self, system_prompt, user_message, max_tokens=1024):
+        self.calls.append((system_prompt, user_message, max_tokens))
+        return self.reply
+
+
+class TestWholeAnswer:
+    """``query_knowledge_base`` with ``QUERY_ENGINE=v2`` answers through the QueryService."""
+
+    def test_a_question_is_read_and_answered_by_the_new_pipeline(
+        self, wired, monkeypatch
+    ):
+        wired()
+        driver = FakeAnswerDriver()
+        monkeypatch.setattr(composition_module, "get_answer_driver", lambda: driver)
+
+        answer = retrieval_module.query_knowledge_base(
+            QUESTION,
+            store=FakeStore(),  # type: ignore[arg-type]
+        )
+
+        assert answer == "THE ANSWER"
+        (_, user_message, _) = driver.calls[0]
+        assert user_message.endswith(f"Question: {QUESTION}")
+
+    def test_nothing_relevant_is_the_original_refusal_and_no_model_is_asked(
+        self, wired, monkeypatch
+    ):
+        wired(RETRIEVAL_MIN_SCORE=0.99)
+        driver = FakeAnswerDriver()
+        monkeypatch.setattr(composition_module, "get_answer_driver", lambda: driver)
+
+        answer = retrieval_module.query_knowledge_base(
+            QUESTION,
+            store=FakeStore(),  # type: ignore[arg-type]
+        )
+
+        assert answer == retrieval_module.NO_RESULTS_MESSAGE
+        assert driver.calls == []
+
+    def test_a_metadata_filter_is_refused_not_ignored(self, wired):
+        wired()
+
+        with pytest.raises(ValueError, match="QUERY_ENGINE=v2"):
+            retrieval_module.query_knowledge_base(
+                QUESTION,
+                metadata_filter={"a": "b"},
+                store=FakeStore(),  # type: ignore[arg-type]
+            )
+
+    def test_a_plain_strategy_names_the_profile_the_answer_is_read_with(
+        self, wired, monkeypatch
+    ):
+        wired()  # the settings say hybrid
+        driver = FakeAnswerDriver()
+        monkeypatch.setattr(composition_module, "get_answer_driver", lambda: driver)
+
+        retrieval_module.query_knowledge_base(
+            QUESTION,
+            strategy=VectorRetrievalStrategy(),
+            store=FakeStore(),  # type: ignore[arg-type]
+        )
+
+        # the cosine cut (ids 1,3,5,7), no keyword/rerank: the vector profile was run
+        user_message = driver.calls[0][1]
+        assert user_message.count("Source:") == 4
+
+    def test_a_strategy_with_overrides_is_still_refused(self, wired):
+        wired()
+
+        with pytest.raises(ValueError, match="QUERY_ENGINE=v2"):
+            retrieval_module.query_knowledge_base(
+                QUESTION,
+                strategy=HybridRetrievalStrategy(period_filter=True),
+                store=FakeStore(),  # type: ignore[arg-type]
+            )
+
+
+class TestComposition:
+    """Which parts ``build_query_service`` puts together for the settings."""
+
+    def test_with_the_router_off_every_question_is_read_and_none_is_answered_exactly(
+        self, wired
+    ):
+        from query.decision import UnplannedDecider
+
+        wired(QUERY_ROUTER=False)
+
+        service = composition_module.build_query_service(retrieval_module.settings)
+
+        assert isinstance(service._decider, UnplannedDecider)
+        assert service._exact is None
+
+    def test_with_the_router_on_a_planner_decides_and_exact_answers_are_possible(
+        self, wired
+    ):
+        from query.answering import ExactAnswerer
+        from query.decision import PlanningDecider
+
+        wired(QUERY_ROUTER=True)
+
+        service = composition_module.build_query_service(retrieval_module.settings)
+
+        assert isinstance(service._decider, PlanningDecider)
+        assert isinstance(service._exact, ExactAnswerer)
+
+    @pytest.mark.parametrize("partial", [False, True])
+    def test_the_answer_policy_comes_from_the_settings(self, wired, partial):
+        wired(ANSWER_PARTIAL_COVERAGE=partial, EXPOSE_DOCUMENT_DATE=not partial)
+
+        service = composition_module.build_query_service(retrieval_module.settings)
+
+        policy = service._grounded._policy  # type: ignore[attr-defined]
+        assert (policy.partial_coverage, policy.expose_document_date) == (
+            partial,
+            not partial,
+        )
