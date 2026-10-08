@@ -506,6 +506,48 @@ def _evaluate_one_with_retry(
     raise AssertionError("unreachable")
 
 
+def _answer_and_retrieved(question: str, strategy, strategy_name: str):
+    """The answer and the chunks it was written from, on the engine ``QUERY_ENGINE`` names.
+
+    ``v2``: one call to the query service, which decides (with the router on: whether the
+    question is answered exactly, refused, or read, and inside which documents), retrieves
+    and answers; the chunks come from its explanation. ``legacy``: the original path, which
+    retrieves once for the grading and again inside ``query_knowledge_base``.
+
+    Args:
+        question: The question text.
+        strategy: The retrieval strategy object (legacy path).
+        strategy_name: ``vector`` or ``hybrid`` (the profile to read with on ``v2``).
+
+    Returns:
+        ``(answer, chunks)``; no chunks when the question was answered exactly or refused.
+    """
+    from config import settings
+    from query.retrieval import apply_routing, query_knowledge_base, retrieve_chunks
+
+    if settings.QUERY_ENGINE.lower() == "v2":
+        from query.composition import build_query_service
+
+        result = build_query_service(settings).answer(question, profile=strategy_name)
+        return result.text, list(result.explain.chunks)
+
+    from query.router import get_query_router
+
+    # With the router on, decide once: the answer and the retrieved documents
+    # must come from the same decision (a count answered from metadata has no
+    # retrieved chunks, so the retrieval/citation columns do not apply to it).
+    routing = None
+    retrieval_store = None
+    if settings.QUERY_ROUTER:
+        routing = get_query_router().route(question)
+        retrieval_store = apply_routing(routing, None)
+    if routing is not None and routing.answer is not None:
+        retrieved = []
+    else:
+        retrieved = retrieve_chunks(question, strategy=strategy, store=retrieval_store)
+    return query_knowledge_base(question, strategy=strategy, routing=routing), retrieved
+
+
 def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) -> dict:
     """Run one golden question through the real pipeline and grade it under
     every grading strategy its persona configures.
@@ -522,16 +564,8 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
         ``{strategy_name: grade_dict}``, one entry per strategy the
         persona configures in ``grading_strategies``.
     """
-    from config import settings
     from query.decline_detection import looks_like_a_decline
-    from query.retrieval import (
-        HybridRetrievalStrategy,
-        VectorRetrievalStrategy,
-        apply_routing,
-        query_knowledge_base,
-        retrieve_chunks,
-    )
-    from query.router import get_query_router
+    from query.retrieval import HybridRetrievalStrategy, VectorRetrievalStrategy
 
     strategy = (
         HybridRetrievalStrategy()
@@ -539,25 +573,10 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
         else VectorRetrievalStrategy()
     )
 
-    # With the router on, decide once: the answer and the retrieved documents
-    # must come from the same decision (a count answered from metadata has no
-    # retrieved chunks, so the retrieval/citation columns do not apply to it).
-    routing = None
-    retrieval_store = None
-    if settings.QUERY_ROUTER:
-        routing = get_query_router().route(question["question"])
-        retrieval_store = apply_routing(routing, None)
-    if routing is not None and routing.answer is not None:
-        retrieved = []
-    else:
-        retrieved = retrieve_chunks(
-            question["question"], strategy=strategy, store=retrieval_store
-        )
-    retrieved_source_files = {c.metadata.source_file for c in retrieved}
-
-    answer = query_knowledge_base(
-        question["question"], strategy=strategy, routing=routing
+    answer, retrieved = _answer_and_retrieved(
+        question["question"], strategy, strategy_name
     )
+    retrieved_source_files = {c.metadata.source_file for c in retrieved}
 
     result: dict = {
         "persona_id": question["persona_id"],

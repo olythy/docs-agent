@@ -190,3 +190,27 @@ def test_the_decider_gets_the_facts_of_the_question():
 
     (facts,) = decider.seen
     assert isinstance(facts, QueryFacts) and facts.identifiers == ("4.P.20.409/2023/4",)
+
+
+class TestExplainChunks:
+    def test_the_chunks_are_those_the_answer_was_written_from(self):
+        qs, *_ = service(read())
+
+        assert qs.answer("q", store=STORE).explain.chunks == (CHUNK,)
+
+    @pytest.mark.parametrize(
+        "make, outcome",
+        [
+            (lambda f: AnswerExactly(f, PLAN), None),
+            (
+                lambda f: Refuse(f, Declined(DeclineReason.NOT_SUPPORTED, "planning")),
+                None,
+            ),
+            (read(), Declined(DeclineReason.NOT_RELEVANT, "relevance_gate")),
+        ],
+        ids=["exact", "refused by the decision", "refused by the retrieval"],
+    )
+    def test_nothing_read_or_kept_means_no_chunks(self, make, outcome):
+        qs, *_ = service(make, outcome=outcome)
+
+        assert qs.answer("q", store=STORE).explain.chunks == ()

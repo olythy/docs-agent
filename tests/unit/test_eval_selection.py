@@ -126,3 +126,47 @@ def test_the_grader_reads_only_a_few_cited_documents_and_says_so(monkeypatch):
     assert reason == "[graded on the first 5 of 50 cited documents] fine"
     assert "doc4.docx" in prompt and "doc5.docx" not in prompt
     assert len(prompt) < 5 * 61_000 + 5_000  # each document is cut, too
+
+
+class TestAnswerAndRetrieved:
+    """On ``QUERY_ENGINE=v2`` the eval asks the query service once, and grades the chunks
+    its explanation holds."""
+
+    def test_v2_asks_the_service_once_with_the_strategy_as_the_profile(
+        self, monkeypatch, settings_override
+    ):
+        import query.composition as composition_module
+        from corpus.commands.eval import _answer_and_retrieved
+        from models import ChunkMetadata, RetrievalTrace, RetrievedChunk
+        from query.decision import ReadDocuments, Scope
+        from query.facts import QueryFacts
+        from query.outcome import Answerable
+        from query.query_service import Answer, Explain
+        from query.service import RetrievalResult
+
+        chunk = RetrievedChunk(
+            id=1,
+            content="c",
+            metadata=ChunkMetadata(source_file="a.pdf", page_number=1, chunk_index=0),
+            score=0.5,
+        )
+        calls = []
+
+        class FakeService:
+            def answer(self, question, **kwargs):
+                calls.append((question, kwargs))
+                decision = ReadDocuments(QueryFacts(question), None, "vector", Scope())
+                result = RetrievalResult(Answerable((chunk,)), (), RetrievalTrace())
+                return Answer("TEXT", Explain(decision, result))
+
+        monkeypatch.setattr(
+            "config.settings", settings_override(QUERY_ENGINE="v2"), raising=False
+        )
+        monkeypatch.setattr(
+            composition_module, "build_query_service", lambda settings: FakeService()
+        )
+
+        answer, chunks = _answer_and_retrieved("Q?", None, "vector")
+
+        assert (answer, chunks) == ("TEXT", [chunk])
+        assert calls == [("Q?", {"profile": "vector"})]

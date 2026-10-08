@@ -69,6 +69,15 @@ class Explain:
     declined: Declined | None = None
     model_refused: bool = False
 
+    @property
+    def chunks(self) -> tuple[RetrievedChunk, ...]:
+        """The chunks the answer was written from (none when nothing was read or kept)."""
+        if self.retrieval is not None and isinstance(
+            self.retrieval.outcome, Answerable
+        ):
+            return self.retrieval.outcome.chunks
+        return ()
+
 
 @dataclass(frozen=True)
 class Answer:
