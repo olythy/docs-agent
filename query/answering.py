@@ -1,7 +1,10 @@
 """Answering a question in words: exactly from the metadata, or from the chunks read.
 
-Two classes with one job each, which the decision (``query.decision``) only chooses between:
+Three classes with one job each, which the decision (``query.decision``) only chooses between:
 
+* :class:`GroundedAnswerer` writes an answer from the chunks read, under an explicit
+  :class:`AnswerPolicy`, and says whether the model refused (the prompt is
+  ``drivers.llm._build_prompt``, byte for byte).
 * :class:`ExactAnswerer` carries out an exact plan (a count, a list, a sum, an overview) and
   words the result. It does the SQL and the wording; it decides nothing.
 * :class:`ResultPhraser` words an exact result in the question's own language and checks the
@@ -10,6 +13,9 @@ Two classes with one job each, which the decision (``query.decision``) only choo
   presented as exact.
 
 Key exports:
+    AnswerPolicy     -- How the model is asked to answer (partial coverage, dates shown).
+    GroundedAnswer   -- The text, and whether it is the model's own refusal.
+    GroundedAnswerer -- Writes an answer from the chunks read.
     ExactAnswerer -- Executes an exact plan and words the result.
     ResultPhraser -- Phrases an exact result, and checks the figures.
     render_result -- The exact result as plain facts.
@@ -17,15 +23,76 @@ Key exports:
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Protocol
 
+from drivers.llm import REFUSAL_SENTENCE, AnswerDriver, _build_prompt
 from metadata.executor import PlanResult
 from metadata.plan import Operation, QueryPlan
+from models import RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
 #: How many documents/groups are shown in a rendered answer.
 _SHOWN = 50
+
+
+@dataclass(frozen=True)
+class AnswerPolicy:
+    """How the model is asked to answer.
+
+    Attributes:
+        partial_coverage: Answer with what the excerpts show instead of refusing
+            whenever one of them is relevant.
+        expose_document_date: Show each excerpt's document date.
+    """
+
+    partial_coverage: bool
+    expose_document_date: bool
+
+
+@dataclass(frozen=True)
+class GroundedAnswer:
+    """What the model said about the chunks.
+
+    Attributes:
+        text: The reply, unchanged.
+        refused: The reply is the model's own refusal sentence.
+    """
+
+    text: str
+    refused: bool
+
+
+class GroundedAnswerer:
+    """Writes an answer from the chunks read.
+
+    Args:
+        driver: The language model.
+        policy: How it is asked to answer.
+        max_tokens: Maximum tokens to generate.
+    """
+
+    def __init__(
+        self, driver: AnswerDriver, policy: AnswerPolicy, max_tokens: int = 1024
+    ) -> None:
+        self._driver = driver
+        self._policy = policy
+        self._max_tokens = max_tokens
+
+    def answer(
+        self, question: str, chunks: tuple[RetrievedChunk, ...]
+    ) -> GroundedAnswer:
+        """Ask the model to answer ``question`` from ``chunks`` (best first)."""
+        system_prompt, user_message = _build_prompt(
+            question,
+            list(chunks),
+            partial_coverage=self._policy.partial_coverage,
+            expose_document_date=self._policy.expose_document_date,
+        )
+        text = self._driver.generate(system_prompt, user_message, self._max_tokens)
+        refused = text.strip().strip("'\"").lower().startswith(REFUSAL_SENTENCE.lower())
+        return GroundedAnswer(text, refused)
 
 
 class PlanRunner(Protocol):

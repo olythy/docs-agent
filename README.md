@@ -77,7 +77,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── decline_detection.py  # Shared "did the model honestly decline" heuristic (eval + scripts/eval_cli.py)
 │   │   # The step-based retrieval (QUERY_ENGINE=v2), built beside the original; see docs/query-pipeline-design.md
 │   ├── facts.py              # QueryFacts / QueryFactsReader: identifiers and years read from the question, once
-│   ├── answering.py          # ExactAnswerer + ResultPhraser/render_result: run an exact plan and word the result (shared by the original router and the new pipeline)
+│   ├── answering.py          # GroundedAnswerer (+AnswerPolicy) writes an answer from the chunks read, ExactAnswerer runs an exact plan; ResultPhraser/render_result word the result (shared by the original router and the new pipeline)
 │   ├── inflection.py         # strip_case_ending: a Hungarian case ending glued to an identifier ("…/4-es"); the language layer, kept out of the generic rules
 │   ├── outcome.py            # Answerable / Declined(reason, stage) (a refusal is a value, not an empty list), RefusalRenderer and the wording of every refusal, in one place
 │   ├── decision.py           # Scope / ScopeResolver (which documents), Decision (ReadDocuments | AnswerExactly | Refuse), PlanningDecider, ProfileSelector

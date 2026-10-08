@@ -163,6 +163,20 @@ class AnswerDriver(ABC):
         """
 
     @abstractmethod
+    def generate(
+        self, system_prompt: str, user_message: str, max_tokens: int = 1024
+    ) -> str:
+        """Send one system + user message pair and return the reply text.
+
+        Args:
+            system_prompt: The system instruction.
+            user_message: The user turn.
+            max_tokens: Maximum tokens to generate (default: 1024).
+
+        Returns:
+            The model's reply (empty string if it returned none).
+        """
+
     def answer(
         self,
         question: str,
@@ -173,7 +187,9 @@ class AnswerDriver(ABC):
 
         Instructs the model to base its answer only on the provided
         context, and to state clearly when the answer cannot be found —
-        never fabricate information.
+        never fabricate information. The prompt policy comes from ``settings``;
+        callers that carry their own policy build the prompt themselves
+        (:func:`_build_prompt`) and call :meth:`generate`.
 
         Args:
             question: The user's natural-language question.
@@ -184,6 +200,8 @@ class AnswerDriver(ABC):
             A string containing the answer, ideally citing the source document
             and page number for each piece of information used.
         """
+        system_prompt, user_message = _build_prompt(question, context_chunks)
+        return self.generate(system_prompt, user_message, max_tokens)
 
 
 class _OpenAICompatibleAnswerDriver(AnswerDriver):
@@ -252,25 +270,21 @@ class _OpenAICompatibleAnswerDriver(AnswerDriver):
 
         return AgentTurnResult(content=message.content, tool_calls=tool_calls)
 
-    def answer(
-        self,
-        question: str,
-        context_chunks: list[RetrievedChunk],
-        max_tokens: int = 1024,
+    def generate(
+        self, system_prompt: str, user_message: str, max_tokens: int = 1024
     ) -> str:
-        """Generate a grounded answer from retrieved context chunks.
+        """Send one system + user message pair and return the reply text.
 
         Args:
-            question: The user's natural-language question.
-            context_chunks: Chunks as returned by the retrieval layer.
+            system_prompt: The system instruction.
+            user_message: The user turn.
             max_tokens: Maximum tokens to generate (default: 1024). Prevents
                 upstream aggregators (e.g. OpenRouter) from pre-authorizing
                 the model's entire theoretical context limit against account credits.
 
         Returns:
-            A string containing the answer.
+            The model's reply text.
         """
-        system_prompt, user_message = _build_prompt(question, context_chunks)
         client = self._get_client()
 
         response = client.chat.completions.create(
@@ -296,6 +310,9 @@ _SYSTEM_PROMPT_HEAD = (
     "the question, say exactly what they do and don't cover, rather "
     "than completing the picture from outside knowledge. "
 )
+
+#: The sentence the model is told to give when it refuses (inside both clauses below).
+REFUSAL_SENTENCE = "I could not find this information in the provided documents."
 
 #: The original refusal rule. Confirmed live that with a broad "how did the
 #: practice develop ..." question and two relevant (but partial) excerpts, the
@@ -330,7 +347,11 @@ _SAMPLE_NOTE = (
 
 
 def _build_prompt(
-    question: str, context_chunks: list[RetrievedChunk]
+    question: str,
+    context_chunks: list[RetrievedChunk],
+    *,
+    partial_coverage: bool | None = None,
+    expose_document_date: bool | None = None,
 ) -> tuple[str, str]:
     """Assemble the system prompt and user message for a RAG query.
 
@@ -341,10 +362,18 @@ def _build_prompt(
         question: The user's question.
         context_chunks: Retrieved chunks, already ranked best-first (see
             ``query.retrieval.retrieve_chunks``).
+        partial_coverage: Answer with what the excerpts show instead of refusing;
+            ``None`` reads ``settings.ANSWER_PARTIAL_COVERAGE``.
+        expose_document_date: Show each excerpt's date; ``None`` reads
+            ``settings.EXPOSE_DOCUMENT_DATE``.
 
     Returns:
         A tuple of ``(system_prompt, user_message)``.
     """
+    if partial_coverage is None:
+        partial_coverage = settings.ANSWER_PARTIAL_COVERAGE
+    if expose_document_date is None:
+        expose_document_date = settings.EXPOSE_DOCUMENT_DATE
     # Build a numbered context block so the model can cite sources.
     #
     # Placed worst-to-best, not in ``context_chunks``' own best-first
@@ -369,7 +398,7 @@ def _build_prompt(
         )
         date = (
             f", date: {chunk.metadata.document_date}"
-            if settings.EXPOSE_DOCUMENT_DATE and chunk.metadata.document_date
+            if expose_document_date and chunk.metadata.document_date
             else ""
         )
         context_parts.append(
@@ -378,12 +407,10 @@ def _build_prompt(
     context_text = "\n\n".join(context_parts)
 
     refusal_clause = (
-        _REFUSAL_CLAUSE_PARTIAL
-        if settings.ANSWER_PARTIAL_COVERAGE
-        else _REFUSAL_CLAUSE_STRICT
+        _REFUSAL_CLAUSE_PARTIAL if partial_coverage else _REFUSAL_CLAUSE_STRICT
     )
     system_prompt = _SYSTEM_PROMPT_HEAD + refusal_clause
-    if settings.ANSWER_PARTIAL_COVERAGE:
+    if partial_coverage:
         system_prompt += _SAMPLE_NOTE
 
     user_message = f"Document excerpts:\n\n{context_text}\n\nQuestion: {question}"
@@ -769,25 +796,21 @@ class GeminiAnswerDriver(AnswerDriver):
         content = None if tool_calls else (response.text or "")
         return AgentTurnResult(content=content, tool_calls=tool_calls)
 
-    def answer(
-        self,
-        question: str,
-        context_chunks: list[RetrievedChunk],
-        max_tokens: int = 1024,
+    def generate(
+        self, system_prompt: str, user_message: str, max_tokens: int = 1024
     ) -> str:
-        """Generate a grounded answer from retrieved context chunks.
+        """Send one system + user message pair and return the reply text.
 
         Args:
-            question: The user's natural-language question.
-            context_chunks: Chunks as returned by the retrieval layer.
+            system_prompt: The system instruction.
+            user_message: The user turn.
             max_tokens: Maximum tokens to generate (default: 1024).
 
         Returns:
-            A string containing the answer.
+            The model's reply text.
         """
         from google.genai import types
 
-        system_prompt, user_message = _build_prompt(question, context_chunks)
         contents = [
             types.Content(role="user", parts=[types.Part.from_text(text=user_message)])
         ]
