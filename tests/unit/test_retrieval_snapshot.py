@@ -114,3 +114,9 @@ def test_the_stage_ids_name_each_list_by_its_step_and_keep_side_results():
         "year_dense_widening.dense_pool": [3],
         "year_dense_widening.year_pool": [4],
     }
+
+
+def test_the_models_are_part_of_what_makes_two_snapshots_comparable():
+    from corpus.commands.retrieval_snapshot import _SETTINGS
+
+    assert {"EMBEDDING_MODEL", "RERANKER_MODEL"} <= set(_SETTINGS)
