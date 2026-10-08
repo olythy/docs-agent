@@ -5,7 +5,7 @@ The router's first decision is *which flow* a question takes: read the best pass
 the request is not supported yet (``unsupported``). ``corpus/data/routing_cases.json`` lists
 questions with the flow each should get; this runs the real planner on them and compares.
 
-It runs only the planner (no SQL, no retrieval, no answer), so it is cheap, and it measures the
+It runs the real decider (the planner, then the scope: a few cheap SQL lookups, but no retrieval and no answer), so it is cheap, and it measures the
 *decision*, which the golden-set eval cannot: that eval grades answers, and a wrongly routed
 question can still happen to look fine, or fail in a way that does not say why.
 
@@ -26,36 +26,33 @@ CASES = PROJECT_ROOT / "corpus" / "data" / "routing_cases.json"
 QUESTIONS = PROJECT_ROOT / "corpus" / "data" / "questions.json"
 
 
-def flow_of(operation: str) -> str:
-    """The flow an operation puts a question on: ``lookup``, ``unsupported`` or ``exact``."""
-    if operation in ("lookup", "unsupported"):
-        return operation
-    return "exact"  # count, list, sum, overview: answered from the metadata
-
-
-def restriction_problem(plan, executor) -> str | None:
-    """Why the restriction a lookup plan puts on the retrieval is wrong, if it is.
-
-    A lookup is restricted to the documents its type and filters select. A restriction
-    that selects *no document* is never what the question wanted (the corpus holds
-    documents the question is about): it turns a question that can be read into "no
-    documents match". It is what two contradicting filters on one key do, which an
-    answer-level eval would show only as a refusal, never as a routing failure.
+def flow_of_decision(decision) -> tuple[str, str]:
+    """The flow a decision puts a question on, and what it was.
 
     Args:
-        plan: The plan as the router treats it (a lookup).
-        executor: Runs a plan (:class:`metadata.executor.PlanExecutor`).
+        decision: What :class:`query.decision.PlanningDecider` decided.
 
     Returns:
-        A description of the problem, or ``None`` when there is no restriction or it
-        selects at least one document.
+        ``(flow, detail)``. The flow is ``lookup`` (read documents), ``exact`` (answer from
+        the metadata), ``unsupported``, ``lookup with an empty restriction`` (the question's
+        filters select no document, which is never what the question wanted: it turns a
+        question that can be read into "no documents match", and an answer-level eval would
+        show it only as a refusal) or ``failed`` (the planner gave no usable plan).
     """
-    if plan.doc_type is None and not plan.filters:
-        return None
-    result = executor.execute(plan)
-    if result.count == 0:
-        return f"the restriction selects no document ({result.explanation})"
-    return None
+    from query.decision import AnswerExactly, ReadDocuments
+    from query.outcome import DeclineReason
+
+    if isinstance(decision, ReadDocuments):
+        return "lookup", f"profile {decision.profile!r}"
+    if isinstance(decision, AnswerExactly):
+        return "exact", f"plan {decision.plan.operation.value!r}"
+    reason = decision.declined.reason
+    detail = decision.declined.detail or ""
+    if reason is DeclineReason.NOT_SUPPORTED:
+        return "unsupported", detail
+    if reason is DeclineReason.NO_MATCHING_DOCUMENTS:
+        return "lookup with an empty restriction", detail
+    return "failed", f"could not plan: {detail}"
 
 
 def load_cases(
@@ -96,54 +93,21 @@ def routing_eval(
     ] = 1,
 ) -> None:
     """Run the planner on the routing cases and compare the flow it picks with the expected one."""
-    from document_store import DocumentStore
+    from config import settings
     from drivers.llm import get_answer_driver
-    from metadata.clock import SystemClock
-    from metadata.compiler import PlanCompiler
-    from metadata.date_ranges import DateRangeResolver
-    from metadata.executor import PlanExecutor
-    from metadata.planner import (
-        LLMQueryPlanner,
-        PlanningFailed,
-        collect_known_values,
-        load_catalogs,
-    )
-    from query.decision import as_routed
-    from store import extract_identifier_tokens
+    from query.composition import build_planning
+    from query.facts import QueryFactsReader
 
-    clock = SystemClock()
-    store = DocumentStore()
-    catalogs = load_catalogs(store)
-    known = collect_known_values(store, catalogs)
-    compiler = PlanCompiler(DateRangeResolver(clock))
-    planner = LLMQueryPlanner(get_answer_driver(), compiler, clock)
-    executor = PlanExecutor(store, compiler)
+    decider, _ = build_planning(settings, get_answer_driver())
+    facts_reader = QueryFactsReader()
 
     per_expected: dict[str, list[bool]] = defaultdict(list)
     wrong: list[str] = []
     for case in load_cases():
         for _ in range(repeat):
-            try:
-                plan = planner.plan(case["question"], catalogs, known)
-                routed = as_routed(plan)  # what the router really does with it
-                got = flow_of(routed.operation.value)
-                detail = (
-                    f"planned {plan.operation.value!r}"
-                    + (f" with residual {plan.residual!r}" if plan.residual else "")
-                    + f", type {plan.doc_type!r}"
-                )
-                # A lookup that names an identifier is not restricted (the router
-                # lets the retrieval find the document); the others are.
-                problem = (
-                    restriction_problem(routed, executor)
-                    if got == "lookup"
-                    and not extract_identifier_tokens(case["question"])
-                    else None
-                )
-                if problem:
-                    got, detail = "lookup with an empty restriction", problem
-            except PlanningFailed as failure:
-                got, detail = "failed", f"could not plan: {failure.reason}"
+            got, detail = flow_of_decision(
+                decider.decide(facts_reader.read(case["question"]))
+            )
             ok = got == case["expected"]
             per_expected[case["expected"]].append(ok)
             if not ok:

@@ -4,15 +4,16 @@ import json
 
 import pytest
 
-from corpus.commands.routing_eval import CASES, QUESTIONS, flow_of, load_cases
-
-
-def test_every_operation_lands_on_one_of_the_three_flows():
-    assert [flow_of(op) for op in ("lookup", "unsupported")] == [
-        "lookup",
-        "unsupported",
-    ]
-    assert {flow_of(op) for op in ("count", "list", "sum", "overview")} == {"exact"}
+from corpus.commands.routing_eval import (
+    CASES,
+    QUESTIONS,
+    flow_of_decision,
+    load_cases,
+)
+from metadata.plan import Operation, QueryPlan
+from query.decision import AnswerExactly, ReadDocuments, Refuse, Scope
+from query.facts import QueryFacts
+from query.outcome import Declined, DeclineReason
 
 
 def test_the_shipped_cases_load_resolve_golden_ids_and_cover_every_flow():
@@ -46,53 +47,40 @@ def test_a_malformed_case_is_rejected(tmp_path, case, message):
         load_cases(path)
 
 
-class _Executor:
-    def __init__(self, count):
-        self.count = count
-        self.plans = []
+FACTS = QueryFacts("q")
+PLAN = QueryPlan("court_decision", Operation.COUNT)
 
-    def execute(self, plan):
-        from metadata.executor import PlanResult
-        from metadata.plan import Operation
 
-        self.plans.append(plan)
-        return PlanResult(
-            Operation.LOOKUP, "the executed filter", count=self.count, unknown=0
+class TestFlowOfDecision:
+    """Every decision lands on one flow, and a refusal says which kind it is."""
+
+    def test_a_question_to_read_is_a_lookup(self):
+        decision = ReadDocuments(FACTS, None, "hybrid", Scope())
+
+        assert flow_of_decision(decision)[0] == "lookup"
+
+    def test_an_exact_answer_is_exact(self):
+        assert flow_of_decision(AnswerExactly(FACTS, PLAN))[0] == "exact"
+
+    def test_not_supported_is_unsupported_and_keeps_the_planners_reason(self):
+        declined = Declined(DeclineReason.NOT_SUPPORTED, "planning", detail="similar")
+
+        assert flow_of_decision(Refuse(FACTS, declined)) == ("unsupported", "similar")
+
+    def test_filters_that_select_no_document_are_a_routing_failure_not_a_lookup(self):
+        declined = Declined(
+            DeclineReason.NO_MATCHING_DOCUMENTS, "scope", detail="the filter"
         )
 
+        flow, detail = flow_of_decision(Refuse(FACTS, declined))
 
-def _lookup(document_type=None, filters=()):
-    from metadata.plan import Filter, FilterOp, Operation, QueryPlan
+        assert flow == "lookup with an empty restriction" and detail == "the filter"
 
-    return QueryPlan(
-        doc_type=document_type,
-        operation=Operation.LOOKUP,
-        filters=tuple(Filter(k, FilterOp(op), v) for k, op, v in filters),
-    )
+    def test_a_question_that_could_not_be_planned_failed(self):
+        declined = Declined(
+            DeclineReason.COULD_NOT_INTERPRET, "planning", detail="no json"
+        )
 
+        flow, detail = flow_of_decision(Refuse(FACTS, declined))
 
-class TestRestrictionProblem:
-    """A lookup restriction that selects no document must be reported, not hidden."""
-
-    def test_a_restriction_that_selects_nothing_is_a_problem(self):
-        from corpus.commands.routing_eval import restriction_problem
-
-        plan = _lookup("court_decision", [("decision_date", "between", {"kind": "x"})])
-
-        problem = restriction_problem(plan, _Executor(count=0))
-
-        assert problem and "selects no document" in problem
-        assert "the executed filter" in problem  # says which filter
-
-    def test_a_restriction_that_selects_documents_is_fine(self):
-        from corpus.commands.routing_eval import restriction_problem
-
-        assert restriction_problem(_lookup("court_decision"), _Executor(3)) is None
-
-    def test_no_restriction_means_nothing_is_executed(self):
-        from corpus.commands.routing_eval import restriction_problem
-
-        executor = _Executor(count=0)
-
-        assert restriction_problem(_lookup(), executor) is None
-        assert executor.plans == []
+        assert flow == "failed" and "no json" in detail
