@@ -712,8 +712,26 @@ EXPECTED = {
 }
 
 
+#: The scenarios that describe the original's identifier pin. The new pipeline has no pin
+#: (the scope restricts the store to the named documents and the final cut spreads over
+#: them), so on it these questions are retrieved like any other; see
+#: ``test_the_new_pipeline_has_no_identifier_pin``.
+PIN_SCENARIOS = {
+    "one_identifier",
+    "two_identifiers_diversified",
+    "two_identifiers_not_diversified",
+    "identifier_and_topic",
+}
+
+
 @pytest.mark.parametrize(
-    ("engine", "name"), [(e, n) for e in ENGINES for n in SCENARIOS]
+    ("engine", "name"),
+    [
+        (e, n)
+        for e in ENGINES
+        for n in SCENARIOS
+        if e == "legacy" or n not in PIN_SCENARIOS
+    ],
 )
 def test_the_pipeline_still_does_exactly_what_it_did(
     engine, name, monkeypatch, settings_override
@@ -763,3 +781,17 @@ def test_the_scenarios_cover_every_stage_name_the_funnel_reads(
         "listwise",
         "final",
     }
+
+
+@pytest.mark.parametrize("name", sorted(PIN_SCENARIOS))
+def test_the_new_pipeline_has_no_identifier_pin(name, monkeypatch, settings_override):
+    """An identifier in the question no longer pulls its chunks into the context: with no
+    scope, the question is retrieved on its meaning like any other (both ways in)."""
+    _, question, how = SCENARIOS[name]
+
+    stages, final = ENGINES["v2"](monkeypatch, settings_override, question, **how())
+    via_switch = ENGINES["switch"](monkeypatch, settings_override, question, **how())
+
+    assert "identifier" not in stages
+    assert not set(final) & {9, 10, 11, 12, 13, 14}  # the fixture's identifier chunks
+    assert (stages, final) == via_switch

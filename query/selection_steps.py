@@ -2,7 +2,7 @@
 
 Key exports:
     CosineCutStep           -- The plain similarity cut of the ``vector`` profile.
-    TopKWithGuaranteesStep  -- The final cut of the ``hybrid`` profile.
+    TopKWithGuaranteesStep  -- The final cut of the ``hybrid`` profile (with the year quota).
 """
 
 from models import RetrievedChunk
@@ -57,26 +57,29 @@ def _round_robin_by_document(
 
 
 class TopKWithGuaranteesStep(RetrievalStep):
-    """Cuts the ranked list to ``top_k``, letting guaranteed chunks go first.
+    """Cuts the ranked list to ``top_k``, reserving slots for the question's years.
 
-    * Pinned chunks (exact identifier matches) are taken first, capped at ``top_k``
-      (one cited case number can match a whole document of chunks, and letting them
-      all through floods the context with one document). With ``diversify`` they take
-      turns across documents, so a question naming two documents shows both.
+    * When the question names several documents (``context.spread_documents``), the
+      chunks take turns across them first: otherwise the best-scoring document can fill
+      every slot and the answer has nothing to say about the others.
     * With ``year_quota`` and years in the question, at least ``ceil(top_k / 2)`` of
-      the final chunks come from those years (guaranteed ones count), if there are
-      that many candidates; the reranker knows nothing about dates, so widening the
-      pool alone is not enough. Soft: with no in-period candidate nothing changes.
+      the final chunks come from those years, if there are that many candidates; the
+      reranker knows nothing about dates, so widening the pool alone is not enough.
+      With ``diversify`` those slots take turns across documents. Soft: with no
+      in-period candidate nothing changes.
     * The remaining slots go to the best-ranked chunks.
+
+    Which *documents* the chunks may come from is not decided here: the retrieval is
+    handed a store already restricted to them (``query.decision.Scope``).
 
     Args:
         top_k: The most chunks to keep.
-        diversify: Share the pinned slots across documents.
+        diversify: Share the year-reserved slots across documents.
         year_quota: Reserve half of the slots for the question's years.
     """
 
     name = StepName.TOP_K_SELECTION
-    requires = frozenset({Slot.RANKED, Slot.PINS})
+    requires = frozenset({Slot.RANKED})
     provides = frozenset({Slot.SELECTED})
 
     def __init__(self, top_k: int, diversify: bool, year_quota: bool) -> None:
@@ -86,15 +89,11 @@ class TopKWithGuaranteesStep(RetrievalStep):
 
     def run(self, context: RetrievalContext) -> StepResult:
         chunks = list(context.ranked or ())
-        pins = context.pins or frozenset()
         top_k = self._top_k
         years = list(context.facts.years) if self._year_quota else []
 
-        pinned_pool = [c for c in chunks if c.id in pins]
         selected = (
-            _round_robin_by_document(pinned_pool, top_k)
-            if self._diversify
-            else pinned_pool[:top_k]
+            _round_robin_by_document(chunks, top_k) if context.spread_documents else []
         )
         picked = {c.id for c in selected}
 

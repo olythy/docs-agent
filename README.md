@@ -83,7 +83,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── decision.py           # Scope / ScopeResolver (which documents), Decision (ReadDocuments | AnswerExactly | Refuse), PlanningDecider, ProfileSelector
 │   ├── context.py            # RetrievalContext (one frozen context) + Slot: what the steps share
 │   ├── step.py               # RetrievalStep (the contract: requires/provides/run), Continue / Halt, StepName
-│   ├── candidate_steps.py    # embed, dense search, year widening, CSLS reorder, keyword search, identifier pin
+│   ├── candidate_steps.py    # embed, dense search, year widening, CSLS reorder, keyword search
 │   ├── ranking_steps.py      # RRF fusion, rerank, listwise rerank
 │   ├── gate_steps.py         # relevance gate (cosine) and the reranker's score gate
 │   ├── selection_steps.py    # top-k with guarantees, cosine cut

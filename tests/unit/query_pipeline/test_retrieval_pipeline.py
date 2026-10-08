@@ -174,7 +174,7 @@ def step(name: StepName, requires=(), provides=(), **kwargs) -> Toy:
     return Toy(str(name), frozenset(requires), frozenset(provides), **kwargs)
 
 
-def hybrid_chain(*, identifier_matches=None, score_gate=None, listwise=False):
+def hybrid_chain(*, score_gate=None, listwise=False):
     """Toy steps with the real step names, in the order of the hybrid profile."""
     pool = {"dense_pool": chunks(1, 2, 3)}
     ranked = {"ranked": chunks(1, 2, 3)}
@@ -203,21 +203,10 @@ def hybrid_chain(*, identifier_matches=None, score_gate=None, listwise=False):
             fill=ranked,
         ),
         step(
-            StepName.IDENTIFIER_PIN,
-            requires={Slot.RANKED},
-            provides={Slot.RANKED, Slot.PINS},
-            fill={"ranked": chunks(7, 1, 2, 3), "pins": frozenset({7})},
-            records=(
-                (AuxRecord("identifier_matches", chunks(7)),)
-                if identifier_matches
-                else ()
-            ),
-        ),
-        step(
             StepName.RERANK,
             requires={Slot.RANKED},
             provides={Slot.RANKED},
-            fill={"ranked": chunks(2, 7, 1, 3)},
+            fill={"ranked": chunks(2, 1, 3)},
         ),
     ]
     if score_gate:
@@ -234,15 +223,15 @@ def hybrid_chain(*, identifier_matches=None, score_gate=None, listwise=False):
                 StepName.LISTWISE_RERANK,
                 requires={Slot.RANKED},
                 provides={Slot.RANKED},
-                fill={"ranked": chunks(3, 2, 7, 1)},
+                fill={"ranked": chunks(3, 2, 1)},
             )
         )
     steps.append(
         step(
             StepName.TOP_K_SELECTION,
-            requires={Slot.RANKED, Slot.PINS},
+            requires={Slot.RANKED},
             provides=SELECTED,
-            fill={"selected": chunks(7, 2)},
+            fill={"selected": chunks(2, 1)},
         )
     )
     return steps
@@ -257,13 +246,12 @@ def project(steps, provided=frozenset(), start=None):
 
 class TestLegacyProjection:
     def test_it_reproduces_the_old_keys_in_the_old_order(self):
-        stages, notes = project(hybrid_chain(identifier_matches=True))
+        stages, notes = project(hybrid_chain())
 
         assert list(stages) == [
             "vector",
             "vector_csls",
             "fulltext",
-            "identifier",
             "fused",
             "reranked",
             "listwise",
@@ -271,23 +259,23 @@ class TestLegacyProjection:
         ]
         assert stages["vector"] == [1, 2, 3]  # before the reorder
         assert stages["vector_csls"] == [3, 1, 2]
-        assert stages["fused"] == [7, 1, 2, 3]  # what the identifier step left
-        assert stages["reranked"] == [2, 7, 1, 3]
-        assert stages["final"] == [7, 2]
+        assert stages["fused"] == [1, 2, 3]  # what the fusion left
+        assert stages["reranked"] == [2, 1, 3]
+        assert stages["final"] == [2, 1]
         assert notes == {"gate_passed": True}
 
-    def test_identifier_is_absent_without_one_but_fused_is_still_written(self):
-        stages, _ = project(hybrid_chain(identifier_matches=False))
+    def test_the_fused_list_is_what_the_fusion_left(self):
+        stages, _ = project(hybrid_chain())
 
-        assert "identifier" not in stages
-        assert "fused" in stages
+        assert "identifier" not in stages  # the pin is gone, so is its key
+        assert stages["fused"] == [1, 2, 3]
 
     def test_listwise_is_the_list_entering_the_cut_even_without_the_step(self):
         without, _ = project(hybrid_chain(listwise=False))
         with_it, _ = project(hybrid_chain(listwise=True))
 
-        assert without["listwise"] == [2, 7, 1, 3]  # same as reranked
-        assert with_it["listwise"] == [3, 2, 7, 1]  # after the listwise step
+        assert without["listwise"] == [2, 1, 3]  # same as reranked
+        assert with_it["listwise"] == [3, 2, 1]  # after the listwise step
 
     def test_a_refusal_after_the_relevance_gate_leaves_an_empty_final_and_no_listwise(
         self,

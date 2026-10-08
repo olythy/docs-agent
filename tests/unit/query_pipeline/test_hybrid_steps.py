@@ -15,7 +15,6 @@ from logger import EventLogger
 from models import ChunkMetadata, RetrievedChunk
 from query.candidate_steps import (
     CslsReorderStep,
-    IdentifierPinStep,
     KeywordSearchStep,
     YearDenseWideningStep,
     YearKeywordWideningStep,
@@ -207,66 +206,14 @@ class TestYearKeywordWidening:
         assert ids(result.context.keyword_pool or ()) == [5, 6]
 
 
-class TestIdentifierPin:
-    def run_step(self, store, identifiers, per_token=True):
-        step = IdentifierPinStep(store, per_token=per_token)  # type: ignore[arg-type]
-        return step.run(
-            context(
-                facts=QueryFacts("q", identifiers=identifiers),
-                dense_pool=(chunk(1), chunk(2), chunk(3)),
-                ranked=(chunk(1), chunk(2)),
-            )
-        )
-
-    def test_it_searches_every_token_with_a_limit_of_the_pool_size(self):
-        store = SpyStore(by_identifier=(chunk(9),))
-
-        self.run_step(store, ("A/1", "B/2"))
-
-        assert store.identifier_calls == [
-            {"tokens": ["A/1", "B/2"], "top_k": 3, "per_token": True}
-        ]
-
-    @pytest.mark.parametrize("per_token", [True, False])
-    def test_it_passes_the_per_token_choice_on(self, per_token):
-        store = SpyStore(by_identifier=(chunk(9),))
-
-        self.run_step(store, ("A/1",), per_token=per_token)
-
-        assert store.identifier_calls[0]["per_token"] is per_token
-
-    def test_new_matches_go_in_front_and_every_match_is_pinned(self):
-        store = SpyStore(by_identifier=(chunk(9), chunk(2)))  # 2 is already ranked
-
-        result = self.run_step(store, ("A/1",))
-
-        assert isinstance(result, Continue)
-        assert ids(result.context.ranked or ()) == [9, 1, 2]
-        assert result.context.pins == {9, 2}
-        assert [r.label for r in result.records] == ["identifier_matches"]
-
-    def test_without_an_identifier_it_searches_nothing_and_pins_nothing(self):
-        store = SpyStore(by_identifier=(chunk(9),))
-
-        result = self.run_step(store, ())
-
-        assert store.identifier_calls == []
-        assert isinstance(result, Continue)
-        assert result.context.pins == frozenset()
-        assert ids(result.context.ranked or ()) == [1, 2]
-        assert result.records == ()
-
-
 class TestRerankScoreGate:
-    def test_a_pinned_chunk_survives_a_low_score(self):
-        ranked = (chunk(1, 0.9), chunk(2, 0.1), chunk(3, 0.1))
+    def test_a_low_score_is_dropped_and_the_numbers_are_kept(self):
+        ranked = (chunk(1, 0.9), chunk(2, 0.1), chunk(3, 0.5))
 
-        result = RerankScoreGateStep(0.5).run(
-            context(ranked=ranked, pins=frozenset({3}))
-        )
+        result = RerankScoreGateStep(0.5).run(context(ranked=ranked))
 
         assert isinstance(result, Continue)
-        assert ids(result.context.ranked or ()) == [1, 3]
+        assert ids(result.context.ranked or ()) == [1, 3]  # 0.5 itself is accepted
         assert result.notes == {
             "rerank_threshold": 0.5,
             "rerank_candidates": 3,
@@ -275,9 +222,7 @@ class TestRerankScoreGate:
         }
 
     def test_nothing_accepted_is_a_refusal_that_keeps_the_numbers(self):
-        result = RerankScoreGateStep(0.5).run(
-            context(ranked=(chunk(1, 0.1),), pins=frozenset())
-        )
+        result = RerankScoreGateStep(0.5).run(context(ranked=(chunk(1, 0.1),)))
 
         assert isinstance(result, Halt)
         assert result.declined.reason == "rerank_rejected"
@@ -289,7 +234,7 @@ class TestRerankScoreGate:
 
         path = tmp_path / "log.jsonl"
         gate = RerankScoreGateStep(0.5)
-        before = context(ranked=(chunk(1, 0.9), chunk(2, 0.1)), pins=frozenset())
+        before = context(ranked=(chunk(1, 0.9), chunk(2, 0.1)))
 
         AuditLogObserver(EventLogger(path), reranker_model="m").on_step(
             gate, before, gate.run(before), 0.0
@@ -331,7 +276,6 @@ class TestPortedFunctionsAgreeWithTheOriginals:
         rng = random.Random(seed)
         chunks = random_chunks(rng, rng.randint(0, 14))
         chunks.sort(key=lambda c: -c.score)
-        pins = {c.id for c in chunks if rng.random() < 0.4}
         top_k = rng.randint(1, 6)
         diversify = rng.random() < 0.5
         years = rng.choice([[], [2021], [2020, 2022]])
@@ -341,14 +285,13 @@ class TestPortedFunctionsAgreeWithTheOriginals:
             context(
                 facts=QueryFacts("q", years=tuple(years)),
                 ranked=tuple(chunks),
-                pins=frozenset(pins),
             )
         )
 
         assert isinstance(result, Continue)
         assert ids(result.context.selected or ()) == ids(
             _apply_top_k_with_guarantees(
-                chunks, pins, top_k, diversify=diversify, years=years
+                chunks, set(), top_k, diversify=diversify, years=years
             )
         )
 
@@ -377,12 +320,46 @@ def test_the_year_quota_only_applies_when_the_profile_asks_for_it():
     facts = QueryFacts("q", years=(2021,))
 
     with_quota = TopKWithGuaranteesStep(4, False, year_quota=True).run(
-        context(facts=facts, ranked=chunks, pins=frozenset())
+        context(facts=facts, ranked=chunks)
     )
     without = TopKWithGuaranteesStep(4, False, year_quota=False).run(
-        context(facts=facts, ranked=chunks, pins=frozenset())
+        context(facts=facts, ranked=chunks)
     )
 
     assert isinstance(with_quota, Continue) and isinstance(without, Continue)
     assert 9 in ids(with_quota.context.selected or ())
     assert 9 not in ids(without.context.selected or ())
+
+
+class TestSpreadOverNamedDocuments:
+    """A question that names several documents must show each of them."""
+
+    def chunks(self):
+        # document a holds the four best chunks, b only a weak one
+        return tuple(
+            [chunk(i, 1.0 - i / 10, source="a.docx") for i in range(1, 5)]
+            + [chunk(9, 0.2, source="b.docx")]
+        )
+
+    def select(self, spread, top_k=3):
+        result = TopKWithGuaranteesStep(top_k, False, year_quota=False).run(
+            context(ranked=self.chunks(), spread_documents=spread)
+        )
+        assert isinstance(result, Continue)
+        return ids(result.context.selected or ())
+
+    def test_without_it_the_best_document_fills_every_slot(self):
+        assert self.select(spread=False) == [1, 2, 3]
+
+    def test_with_it_the_documents_take_turns_best_first(self):
+        assert self.select(spread=True) == [1, 9, 2]
+
+    def test_one_document_is_unaffected(self):
+        only_a = tuple(c for c in self.chunks() if c.metadata.source_file == "a.docx")
+
+        result = TopKWithGuaranteesStep(3, False, year_quota=False).run(
+            context(ranked=only_a, spread_documents=True)
+        )
+
+        assert isinstance(result, Continue)
+        assert ids(result.context.selected or ()) == [1, 2, 3]

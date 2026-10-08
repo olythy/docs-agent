@@ -66,8 +66,7 @@ class LegacyTraceProjection:
         put("vector_csls", output(StepName.CSLS_REORDER, Slot.DENSE_POOL))
         put("fulltext", output(StepName.KEYWORD_SEARCH, Slot.KEYWORD_POOL))
         put("fulltext_years", aux(StepName.YEAR_KEYWORD_WIDENING, "year_pool"))
-        put("identifier", aux(StepName.IDENTIFIER_PIN, "identifier_matches"))
-        put("fused", output(StepName.IDENTIFIER_PIN, Slot.RANKED))
+        put("fused", output(StepName.RRF_FUSION, Slot.RANKED))
         put("reranked", output(StepName.RERANK, Slot.RANKED))
 
         selection = by_step.get(StepName.TOP_K_SELECTION) or by_step.get(

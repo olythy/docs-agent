@@ -87,6 +87,11 @@ class Scope:
         default_factory=lambda: ResolvedIdentifiers({})
     )
 
+    @property
+    def names_several_documents(self) -> bool:
+        """The question names more than one document (so each must be represented)."""
+        return len(self.identifiers.document_ids) > 1
+
 
 class PlanQueries(Protocol):
     """The slice of :class:`metadata.executor.PlanExecutor` the scope uses."""

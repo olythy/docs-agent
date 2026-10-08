@@ -72,7 +72,7 @@ flowchart TD
     PF --> RP["RetrievalPipeline.run()<br/>validated chain, observers told after each step"]
     RP --> S1["embed -> dense search -> relevance gate"]
     S1 --> S2["[year widening] -> CSLS -> keyword search -> [year widening]"]
-    S2 --> S3["RRF -> identifier pin -> rerank -> [score gate] -> [listwise]"]
+    S2 --> S3["RRF -> rerank -> [score gate] -> [listwise]"]
     S3 --> S4["top-k with guarantees"]
     S4 --> OUT{{"Answerable(chunks) | Declined(reason, stage)"}}
     RP -. notes, timings .-> OBS["TraceRecorder, AuditLogObserver,<br/>ProgressLogObserver"]

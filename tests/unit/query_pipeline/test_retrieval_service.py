@@ -153,3 +153,44 @@ class TestScope:
         assert isinstance(
             result.outcome, Declined
         )  # the relevance gate: nothing to look at
+
+
+class TestSpreadingOverNamedDocuments:
+    """The scope tells the retrieval that the question names several documents."""
+
+    class Watcher:
+        def __init__(self):
+            self.spread = set()
+
+        def on_step(self, step, before, result, seconds):
+            self.spread.add(before.spread_documents)
+
+    def run(self, settings_override, documents):
+        from metadata.identifier_resolver import ResolvedIdentifiers
+
+        watcher = self.Watcher()
+        scope = Scope(
+            selection=only("a.docx", "b.docx").selection,
+            identifiers=ResolvedIdentifiers({f"X/{d}": (d,) for d in documents}),
+        )
+        service(settings_override, observers=(watcher,)).retrieve(
+            RetrievalRequest("what about costs?", profile="vector", scope=scope),
+            FakeStore(),  # type: ignore[arg-type]
+        )
+        return watcher.spread
+
+    def test_several_named_documents_are_passed_on(self, settings_override):
+        assert self.run(settings_override, [1, 2]) == {True}
+
+    def test_one_named_document_is_not(self, settings_override):
+        assert self.run(settings_override, [1]) == {False}
+
+    def test_no_scope_is_not(self, settings_override):
+        watcher = self.Watcher()
+
+        service(settings_override, observers=(watcher,)).retrieve(
+            RetrievalRequest("what about costs?", profile="vector"),
+            FakeStore(),  # type: ignore[arg-type]
+        )
+
+        assert watcher.spread == {False}

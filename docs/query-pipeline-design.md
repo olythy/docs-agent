@@ -101,7 +101,7 @@ reference until the new ones are proven equal.**
 | `Decider` | Which way does the question go: exact, refuse, or read? | `QueryRouter.route` |
 | `Planner` | What kind of question is it, which type and filters? | `LLMQueryPlanner` (unchanged) |
 | `ScopeResolver` / `Scope` | **Which documents** may the retrieval look at? | `Routing.selection` + `apply_routing` |
-| `IdentifierResolver` | Which documents carry the identifier the question names? | the identifier pin (text search over chunks) |
+| `IdentifierResolver` | Which documents carry the identifier the question names? | the identifier pin (text search over chunks; **deleted from the new pipeline**, see section 8) |
 | `ProfileSelector` | **Which steps** run? (a name: `hybrid`, `vector`, later others) | `RETRIEVAL_STRATEGY` read inside retrieval |
 | `RetrievalService` | Run that profile over that scope: which chunks? | `retrieve_chunks` + `HybridRetrievalStrategy` |
 | `GroundedAnswerer` | Write the answer from the chunks | `_answer_from_documents` + `_build_prompt` |
@@ -153,7 +153,7 @@ for the eval; the MCP search tool stays as it is).
 
 ## 4. Modules and classes
 
-**Built:** `facts`, `outcome`, `context`, `step`, `candidate_steps`, `ranking_steps`, `gate_steps`, `selection_steps`, `profiles`, `runner`, `observers`, `legacy_trace`, `composition`, and `service.py` as far as `RetrievalService` and its request / result. **Built, not yet connected:** `decision` (`Scope`, `ScopeResolver`, `Decision`, `PlanningDecider`, `UnplannedDecider`, `ProfileSelector`, `as_routed`), and the `RefusalRenderer` with the wording of every refusal in `outcome`; the original `router.py` and `retrieval.py` import these, not the reverse. **Built (answering half, so far):** `answering.ExactAnswerer` (the result wording moved here from `router.py`, shared by both) and `answering.GroundedAnswerer` with `AnswerPolicy` (the prompt is `drivers.llm._build_prompt` with the policy passed in, tested equal for all four policies; drivers gained `generate(system, user)`). **Built, behind `QUERY_ENGINE=v2`:** `query_service.QueryService.answer` with `Answer` and `Explain` (the decision, the retrieval, who refused, whether the model refused), and `composition.build_query_service`; `query_knowledge_base` delegates to it under v2 and refuses a strategy or metadata_filter it cannot honour. The golden eval reads `Explain` under v2 (one service call; the chunks to grade come from `Explain.chunks`). **Not yet:** the ANSWER_GENERATED audit event. **To build (slice 2):** nothing in `answering`, the `RefusalRenderer` in `outcome`, and `QueryService.answer` with its `Explain`.
+**Built:** `facts`, `outcome`, `context`, `step`, `candidate_steps`, `ranking_steps`, `gate_steps`, `selection_steps`, `profiles`, `runner`, `observers`, `legacy_trace`, `composition`, and `service.py` as far as `RetrievalService` and its request / result. **Built, not yet connected:** `decision` (`Scope`, `ScopeResolver`, `Decision`, `PlanningDecider`, `UnplannedDecider`, `ProfileSelector`, `as_routed`), and the `RefusalRenderer` with the wording of every refusal in `outcome`; the original `router.py` and `retrieval.py` import these, not the reverse. **Built (answering half, so far):** `answering.ExactAnswerer` (the result wording moved here from `router.py`, shared by both) and `answering.GroundedAnswerer` with `AnswerPolicy` (the prompt is `drivers.llm._build_prompt` with the policy passed in, tested equal for all four policies; drivers gained `generate(system, user)`). **Built, behind `QUERY_ENGINE=v2`:** `query_service.QueryService.answer` with `Answer` and `Explain` (the decision, the retrieval, who refused, whether the model refused), and `composition.build_query_service`; `query_knowledge_base` delegates to it under v2 and refuses a strategy or metadata_filter it cannot honour. The golden eval reads `Explain` under v2 (one service call; the chunks to grade come from `Explain.chunks`). **Not yet:** the ANSWER_GENERATED audit event. **Identifier pin deleted from the new pipeline (2026-10-08):** the `IdentifierPinStep`, the `PINS` slot, the score-gate protection and the pin half of the guaranteed slots are gone; what the pin really did for a question naming several documents (every named one represented) moved to the scope (`Scope.names_several_documents` -> `RetrievalContext.spread_documents` -> the top-k step). The original engine keeps its pin until it is deleted. **To build (slice 2):** nothing in `answering`, the `RefusalRenderer` in `outcome`, and `QueryService.answer` with its `Explain`.
 
 | Module | Contents |
 |---|---|
@@ -162,7 +162,7 @@ for the eval; the MCP search tool stays as it is).
 | `query/decision.py` | `Decision` (tagged union), `Scope`, `Decider`, `PlanningDecider`, `UnplannedDecider` (temporary), `ScopeResolver`, `ProfileSelector` |
 | `query/context.py` | `RetrievalContext` (the one shared, frozen context), `Slot` |
 | `query/step.py` | `RetrievalStep` (the abstract contract of a step), `Continue` / `Halt` (`StepResult`), `AuxRecord`, `StepName` |
-| `query/candidate_steps.py` | embed, dense search, year widening (dense / keyword), CSLS reorder, keyword search, identifier pin |
+| `query/candidate_steps.py` | embed, dense search, year widening (dense / keyword), CSLS reorder, keyword search |
 | `query/ranking_steps.py` | RRF fusion, rerank, listwise rerank |
 | `query/gate_steps.py` | relevance gate (cosine), rerank-score gate |
 | `query/selection_steps.py` | top-k with guarantees, cosine cut |
@@ -204,7 +204,7 @@ for the eval; the MCP search tool stays as it is).
 ### 4.3 Context and steps
 - **One** frozen `RetrievalContext`, changed with `dataclasses.replace`: fixed `facts`, `scope`,
   and typed optional slots (`query_vector`, `dense_pool`, `keyword_pool`, `ranked`,
-  `pins`, `selected`). Slot names describe *what* is held, not the phase that produced it
+  `selected`; the `pins` slot existed until the identifier pin was deleted). Slot names describe *what* is held, not the phase that produced it
   (this avoids today's misnamed `listwise` key). New needs add a slot; each slot has one
   writer step. **Decided: slots.**
 - `RetrievalStep`: `name`, `requires`, `provides` (sets of `Slot`), `run(context) -> StepResult`.
@@ -224,11 +224,11 @@ Steps that reproduce today's behaviour (names stable, parameters via constructor
 | `CslsReorderStep` | `_csls_rerank` | stable; scores untouched; no hub score = raw score |
 | `KeywordSearchStep` / `YearKeywordWideningStep` | `search_fulltext` | limit = `len(dense_pool)`; the year merge only appends, no sort |
 | `RrfFusionStep` | `reciprocal_rank_fusion` | dense first, keyword second |
-| `IdentifierPinStep(per_token)` | identifier rescue | pins = all matches; only new ones are prepended; ignores years and `metadata_filter` |
-| `RerankStep` | `reranker.rerank` | sees the full list, pins included |
-| `RerankScoreGateStep(min_score)` | the `isinstance(CrossEncoderRerankerDriver)` branch | keeps score ≥ min or pinned; empty → `Declined(RERANK_REJECTED)` |
+| ~~`IdentifierPinStep`~~ | identifier rescue | **deleted 2026-10-08**: the scope restricts the store to the named documents, `spread_documents` makes the final cut take turns across them |
+| `RerankStep` | `reranker.rerank` | sees the full list |
+| `RerankScoreGateStep(min_score)` | the `isinstance(CrossEncoderRerankerDriver)` branch | keeps score ≥ min (a pinned chunk used to survive it); empty → `Declined(RERANK_REJECTED)` |
 | `ListwiseRerankStep` | `_maybe_listwise_rerank` | only when enabled |
-| `TopKWithGuaranteesStep(top_k, diversify, year_quota)` | `_apply_top_k_with_guarantees` | rounds robin by `source_file`; guarantees capped at top_k; year reserve ⌈top_k/2⌉ |
+| `TopKWithGuaranteesStep(top_k, diversify, year_quota)` | `_apply_top_k_with_guarantees` | rounds robin by `source_file` when the question names several documents (`spread_documents`) and for the in-period slots; year reserve ⌈top_k/2⌉ |
 | `CosineCutStep` | `VectorRetrievalStrategy` | |
 
 `RerankStep` and `RerankScoreGateStep` are separate on purpose: `reranked` is recorded
@@ -242,11 +242,11 @@ not imported from the old module; equality is proven by tests, not by shared cod
   `measured` names the `decisions.md` entry and snapshot it was verified with.
 - Profiles live only in the `PROFILES` registry (one Python module). `.env` selects a
   **name**; the existing flags are typed overrides applied in one `ProfileResolver`, so each
-  flag fans out in one visible place (`DIVERSIFY` → identifier pin + top-k; `PERIOD_FILTER`
+  flag fans out in one visible place (`DIVERSIFY` → the in-period slots of top-k; `PERIOD_FILTER`
   → both widening steps + the year quota). No step lists in `.env`/YAML, no runtime
   composition: every combination would be an unmeasured pipeline.
 - Shipped profiles: `hybrid` (embed, dense, gate, [year dense], CSLS, keyword, [year
-  keyword], RRF, identifier pin, rerank, [score gate], [listwise], top-k) and `vector`
+  keyword], RRF, rerank, [score gate], [listwise], top-k) and `vector`
   (embed, dense, gate, cosine cut). Resolved profiles have a fingerprint, recorded in the
   explain record.
 - `PipelineFactory` builds a pipeline **per query**: the store is scoped per query
@@ -265,7 +265,7 @@ not imported from the old module; equality is proven by tests, not by shared cod
 - **Retries stay in the drivers** (`retry_policy`). A step-level retry decorator would
   multiply attempts and stretch stalls.
 - `LegacyTraceProjection` maps the records onto today's trace keys, quirks included
-  (`fused` is the output of the identifier pin; `listwise` is the list entering selection;
+  (`fused` is the output of the RRF fusion; `listwise` is the list entering selection;
   `final` is `[]` after a late decline and absent after the relevance gate), so `funnel`,
   `retrieval-snapshot` and the characterization tests read an unchanged contract. Renaming
   `listwise` → `pre_selection` is a later, announced re-baseline.
@@ -303,7 +303,7 @@ contract. Therefore its own commit, behind the router flag.
 6. RRF: dense list first, `setdefault` keeps the dense chunk object, ranks from 1, k = 60.
 7. Identifiers are read from the raw question; the identifier search ignores `metadata_filter`
    and years but honours the store restriction.
-8. The reranker sees the whole fused list; the score gate keeps `score >= min or pinned`;
+8. The reranker sees the whole fused list; the score gate keeps `score >= min` (and, in the original, also a pinned chunk);
    with the dev `.env` (`RERANKER_DRIVER=vertex`) the gate never runs live, so the parity
    run must be repeated with `RERANKER_DRIVER=cross_encoder`.
 9. Listwise runs on the post-gate list; it is LLM-nondeterministic, so compare it with a
@@ -329,7 +329,7 @@ contract. Therefore its own commit, behind the router flag.
 1. The characterization harness runs every scenario on an engine-neutral description.
 2. Facts, outcome types, context, step contract, runner, trace recorder, legacy projection.
 3. The vector profile's steps and profile.
-4. CSLS, keyword, RRF, identifier pin, rerank, score gate, top-k.
+4. CSLS, keyword, RRF, rerank, score gate, top-k (the identifier pin was built, proven equal, and then deleted: section 8).
 5. Year widening, year quota, listwise.
 6. `RetrievalService.retrieve`, `build_retrieval_service`, the temporary `QUERY_ENGINE`.
    Live gate: the original engine identical to itself, then `--compare` v2 IDENTICAL on six

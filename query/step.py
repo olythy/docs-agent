@@ -37,7 +37,6 @@ class StepName(StrEnum):
     KEYWORD_SEARCH = "keyword_search"
     YEAR_KEYWORD_WIDENING = "year_keyword_widening"
     RRF_FUSION = "rrf_fusion"
-    IDENTIFIER_PIN = "identifier_pin"
     RERANK = "rerank"
     RERANK_SCORE_GATE = "rerank_score_gate"
     LISTWISE_RERANK = "listwise_rerank"

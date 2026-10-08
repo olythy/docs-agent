@@ -26,7 +26,6 @@ class Slot(StrEnum):
     DENSE_POOL = "dense_pool"
     KEYWORD_POOL = "keyword_pool"
     RANKED = "ranked"
-    PINS = "pins"
     SELECTED = "selected"
 
 
@@ -45,20 +44,21 @@ class RetrievalContext:
         metadata_filter: A key/value restriction on chunk metadata, passed to the
             searches that accept it.
         query_vector: The embedded question (may be supplied by the caller).
+        spread_documents: The question names several documents, so the final chunks must
+            take turns across them (decided by the scope, not by the retrieval).
         dense_pool: Candidates from the vector search (later widened and reordered).
         keyword_pool: Candidates from the full-text search.
         ranked: The candidates in the order the ranking steps leave them.
-        pins: Ids of chunks that must survive the cut (exact identifier matches).
         selected: The final context passed to the answer.
     """
 
     facts: QueryFacts
     metadata_filter: Mapping[str, object] | None = None
     query_vector: tuple[float, ...] | None = None
+    spread_documents: bool = False
     dense_pool: tuple[RetrievedChunk, ...] | None = None
     keyword_pool: tuple[RetrievedChunk, ...] | None = None
     ranked: tuple[RetrievedChunk, ...] | None = None
-    pins: frozenset[int] | None = None
     selected: tuple[RetrievedChunk, ...] | None = None
 
     def value(self, slot: Slot) -> object:

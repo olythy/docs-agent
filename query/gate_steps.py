@@ -49,18 +49,15 @@ class RelevanceGateStep(RetrievalStep):
 class RerankScoreGateStep(RetrievalStep):
     """Drops candidates the reranker scored below a threshold; refuses if none are left.
 
-    A pinned chunk (an exact identifier match) survives the threshold: a question that
-    names several cases can make the reranker score a definitionally right chunk low,
-    since it only reads as on-topic for part of the question. Only meaningful for a
-    reranker whose scores are calibrated (a cross-encoder's logits), which is why a
-    profile includes this step only for one.
+    Only meaningful for a reranker whose scores are calibrated (a cross-encoder's logits),
+    which is why a profile includes this step only for one.
 
     Args:
         min_score: The lowest reranker score that is accepted.
     """
 
     name = StepName.RERANK_SCORE_GATE
-    requires = frozenset({Slot.RANKED, Slot.PINS})
+    requires = frozenset({Slot.RANKED})
     provides = frozenset({Slot.RANKED})
 
     def __init__(self, min_score: float) -> None:
@@ -68,8 +65,7 @@ class RerankScoreGateStep(RetrievalStep):
 
     def run(self, context: RetrievalContext) -> StepResult:
         ranked = context.ranked or ()
-        pins = context.pins or frozenset()
-        kept = tuple(c for c in ranked if c.score >= self._min_score or c.id in pins)
+        kept = tuple(c for c in ranked if c.score >= self._min_score)
         notes = {
             "rerank_threshold": self._min_score,
             "rerank_candidates": len(ranked),

@@ -41,7 +41,6 @@ STEP_MEANING = {
     "keyword_search": "the pool found by keyword search (stemmed Hungarian words)",
     "year_keyword_widening": "adds a second keyword pool limited to the question's years",
     "rrf_fusion": "merges the similarity and keyword pools into one ranked list",
-    "identifier_pin": "pins the chunks that contain a case number written in the question",
     "rerank": "re-scores the merged list with the reranker model",
     "rerank_score_gate": "drops what the reranker scored too low (refuses if nothing is left)",
     "listwise_rerank": "the optional listwise LLM re-ordering",

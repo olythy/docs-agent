@@ -26,7 +26,6 @@ from query.candidate_steps import (
     CslsReorderStep,
     DenseSearchStep,
     EmbedQueryStep,
-    IdentifierPinStep,
     KeywordSearchStep,
     YearDenseWideningStep,
     YearKeywordWideningStep,
@@ -94,7 +93,6 @@ PROFILES: dict[str, ProfileSpec] = {
             StepSpec(StepName.KEYWORD_SEARCH),
             StepSpec(StepName.YEAR_KEYWORD_WIDENING, Condition.PERIOD_FILTER),
             StepSpec(StepName.RRF_FUSION),
-            StepSpec(StepName.IDENTIFIER_PIN),
             StepSpec(StepName.RERANK),
             StepSpec(StepName.RERANK_SCORE_GATE, Condition.CROSS_ENCODER),
             StepSpec(StepName.LISTWISE_RERANK, Condition.LISTWISE),
@@ -129,8 +127,7 @@ class RetrievalParams:
         top_k: How many chunks the context may hold (also the depth of the relevance gate).
         min_score: The cosine similarity threshold of the relevance gate.
         pool_size: How many candidates each search fetches.
-        diversify: Share the guaranteed slots across documents (the identifier pin
-            searches per token, the final cut takes turns across documents).
+        diversify: Share the guaranteed (in-period) slots across documents.
         rerank_min_score: The lowest reranker score the score gate accepts.
         period_filter: Whether the question's years narrow the retrieval.
     """
@@ -242,7 +239,6 @@ _BUILDERS: dict[StepName, Callable[[StepDeps], RetrievalStep]] = {
     StepName.LISTWISE_RERANK: lambda d: ListwiseRerankStep(d.listwise),
     StepName.KEYWORD_SEARCH: lambda d: KeywordSearchStep(d.store),
     StepName.RRF_FUSION: lambda d: RrfFusionStep(),
-    StepName.IDENTIFIER_PIN: lambda d: IdentifierPinStep(d.store, d.params.diversify),
     StepName.RERANK: lambda d: RerankStep(d.reranker),
     StepName.RERANK_SCORE_GATE: lambda d: RerankScoreGateStep(
         d.params.rerank_min_score

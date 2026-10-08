@@ -5,7 +5,6 @@ Key exports:
     DenseSearchStep    -- The vector (cosine) search over the candidate pool.
     CslsReorderStep    -- Re-orders the pool by a hubness-corrected score.
     KeywordSearchStep  -- The full-text search over a pool as large as the vector one.
-    IdentifierPinStep  -- Pins the chunks that contain an identifier of the question.
     YearDenseWideningStep, YearKeywordWideningStep
                        -- Add candidates from the question's years to the two pools.
 """
@@ -119,50 +118,6 @@ class KeywordSearchStep(RetrievalStep):
         else:
             pool = self._store.search_fulltext(question, top_k=limit)
         return Continue(context.with_slots(keyword_pool=tuple(pool)))
-
-
-class IdentifierPinStep(RetrievalStep):
-    """Pins the chunks that contain an identifier named in the question.
-
-    Full-text ranking loses a rare, exact identifier (a case number) to common words
-    that match far more often, so the chunks that contain one are searched directly,
-    merged in *front of* the fused list, and remembered as pins: the later steps let
-    a pinned chunk survive a score threshold and the final cut. Without an
-    identifier in the question nothing changes and no chunk is pinned.
-
-    Args:
-        store: The (possibly document-restricted) store to search.
-        per_token: Search every identifier on its own (so two named documents are both
-            represented) instead of all at once.
-    """
-
-    name = StepName.IDENTIFIER_PIN
-    requires = frozenset({Slot.DENSE_POOL, Slot.RANKED})
-    provides = frozenset({Slot.RANKED, Slot.PINS})
-
-    def __init__(self, store: VectorStore, per_token: bool) -> None:
-        self._store = store
-        self._per_token = per_token
-
-    def run(self, context: RetrievalContext) -> StepResult:
-        ranked = context.ranked or ()
-        tokens = list(context.facts.identifiers)
-        if not tokens:
-            return Continue(context.with_slots(pins=frozenset()))
-        matches = self._store.search_by_identifier(
-            tokens,
-            top_k=len(context.dense_pool or ()),
-            per_token=self._per_token,
-        )
-        known = {c.id for c in ranked}
-        new = tuple(c for c in matches if c.id not in known)
-        return Continue(
-            context.with_slots(
-                ranked=new + tuple(ranked),
-                pins=frozenset(c.id for c in matches),
-            ),
-            records=(AuxRecord("identifier_matches", tuple(matches)),),
-        )
 
 
 def _merge_unique(

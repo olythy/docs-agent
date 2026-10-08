@@ -183,6 +183,25 @@ class TestAnIdentifierNamesTheDocument:
         assert isinstance(scope, Scope)
         assert scope.selection and scope.selection.params == ([1, 2],)
 
+    def test_one_named_document_is_not_several(self):
+        scope = resolver(FakePlans()).resolve(
+            lookup(restricted=False), ["4.P.20.409/2023/4"]
+        )
+
+        assert isinstance(scope, Scope) and not scope.names_several_documents
+
+    def test_two_named_documents_are_several(self):
+        scope = resolver(FakePlans()).resolve(
+            lookup(restricted=False), ["4.P.20.409/2023/4", "27.P.20.339/2021/37"]
+        )
+
+        assert isinstance(scope, Scope) and scope.names_several_documents
+
+    def test_documents_selected_by_filters_are_not_named_ones(self):
+        scope = resolver(FakePlans()).resolve(lookup())
+
+        assert isinstance(scope, Scope) and not scope.names_several_documents
+
     def test_a_note_counts_only_the_documents_the_filter_leaves_out(self):
         plans = FakePlans(matching={1})  # 1 agrees, 2 does not
 
