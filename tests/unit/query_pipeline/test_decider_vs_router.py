@@ -7,9 +7,11 @@ made, content questions with and without a filter, a filter that selects nothing
 run through both and the kind of outcome compared (exact answer / refusal / read, and over
 which documents).
 
-The two intended differences are listed as such: a lookup that names an identifier. The
-router leaves it unrestricted and ignores the filters (the retrieval pins the document by
-text); the decider restricts it to the documents the identifier resolves to.
+The intended differences are listed as such, each in its own test: a lookup that names an
+identifier which resolves. The router leaves it unrestricted and ignores the filters (the
+retrieval pins the document by text); the decider restricts it to the documents the identifier
+resolves to, and says so when the filters disagree. When the named identifier resolves to
+nothing the decider does what the router does (unrestricted, filters not applied), and adds a note.
 """
 
 import pytest
@@ -34,11 +36,14 @@ from query.decision import (
     ProfileSelector,
     ReadDocuments,
     Refuse,
-    Scope,
     ScopeResolver,
 )
 from query.facts import QueryFactsReader
-from query.outcome import COULD_NOT_INTERPRET_MESSAGE, NOT_SUPPORTED_MESSAGE
+from query.outcome import (
+    COULD_NOT_INTERPRET_MESSAGE,
+    NOT_SUPPORTED_MESSAGE,
+    RefusalRenderer,
+)
 from query.router import QueryRouter
 
 DT = "court_decision"
@@ -168,6 +173,41 @@ class TestWhatWasChangedOnPurpose:
         routing, decision = run_both(question, plan=lookup(restricted=False))
 
         assert kind_of_routing(routing) == ("read", None)
-        assert isinstance(decision, ReadDocuments) and decision.scope == Scope(
-            identifiers=decision.scope.identifiers
-        )
+        assert kind_of_decision(decision) == ("read", None)
+
+    def test_and_so_does_a_filter_that_would_select_nothing(self):
+        """The 2026-10-06 regression: the router ignores the filters when an identifier is
+        named; the decider must too, or 'no documents match' comes back for a case that exists."""
+        question = "What did the Debrecen court decide in case 99.P.99.999/2099/1?"
+
+        routing, decision = run_both(question, plan=lookup(), count=0)
+
+        assert kind_of_routing(routing) == ("read", None)
+        assert kind_of_decision(decision) == ("read", None)
+        assert isinstance(decision, ReadDocuments)
+        assert (
+            decision.scope.note and "was not applied" in decision.scope.note
+        )  # now said
+
+
+class TestTheWordsOfARefusalAreTheRouters:
+    """The decider only decides; worded by the renderer it says what the router said."""
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            {"fail": "bad key"},
+            {
+                "plan": QueryPlan(
+                    None, Operation.UNSUPPORTED, reason="five similar cases"
+                )
+            },
+            {"plan": lookup(), "count": 0, "unknown": 2},
+        ],
+        ids=["could not interpret", "not supported", "no matching documents"],
+    )
+    def test_the_same_sentence(self, case):
+        routing, decision = run_both(QUESTION, **case)
+
+        assert isinstance(decision, Refuse)
+        assert RefusalRenderer().render(decision.declined) == routing.answer

@@ -195,6 +195,8 @@ class TestAnIdentifierNamesTheDocument:
 
 
 class TestAnIdentifierThatResolvesToNothing:
+    """Named, but nothing carries it: read unrestricted (as the router did), and say so."""
+
     def test_it_neither_narrows_nor_refuses(self):
         scope = resolver(FakePlans()).resolve(
             lookup(restricted=False), ["99.P.99.999/2099/1"]
@@ -204,16 +206,50 @@ class TestAnIdentifierThatResolvesToNothing:
         assert scope.selection is None  # the retrieval runs as it would without it
         assert scope.identifiers.unresolved == ("99.P.99.999/2099/1",)
 
-    def test_the_filters_still_apply(self):
-        plans = FakePlans(count=5)
+    def test_the_note_names_the_identifier(self):
+        scope = resolver(FakePlans()).resolve(
+            lookup(restricted=False), ["99.P.99.999/2099/1"]
+        )
+
+        assert isinstance(scope, Scope) and scope.note is not None
+        assert "no document carries the identifier(s) 99.P.99.999/2099/1" in scope.note
+
+    def test_the_planners_filters_are_not_applied_and_the_note_says_so(self):
+        """The planner sometimes puts an identifier or a court into a lookup's filters; a miss
+        must not turn a question that can be read into 'no documents match'."""
+        plans = FakePlans(count=0)  # these filters would select nothing
 
         scope = resolver(plans).resolve(lookup(), ["99.P.99.999/2099/1"])
 
-        assert isinstance(scope, Scope)
-        assert scope.selection == SELECTED
-        assert scope.identifiers.unresolved == ("99.P.99.999/2099/1",)
+        assert isinstance(scope, Scope)  # not a refusal
+        assert scope.selection is None
+        assert plans.executed == []  # the filters were not even run
+        assert scope.note is not None
+        assert "was not applied" in scope.note
+        assert "issuing_body is 'Debrecen'" in scope.note
 
-    def test_a_resolved_one_beside_an_unresolved_one_names_its_document(self):
+    def test_without_a_filter_the_note_does_not_talk_about_one(self):
+        scope = resolver(FakePlans()).resolve(
+            lookup(restricted=False), ["99.P.99.999/2099/1"]
+        )
+
+        assert isinstance(scope, Scope) and scope.note is not None
+        assert "filter" not in scope.note
+
+    def test_an_identifier_that_is_only_punctuation_names_nothing_so_the_filters_apply(
+        self,
+    ):
+        plans = FakePlans(count=5)
+
+        scope = resolver(plans).resolve(lookup(), [" ./ "])
+
+        assert isinstance(scope, Scope)
+        assert scope.selection == SELECTED  # the filters still narrow
+        assert scope.note is None
+
+    def test_a_resolved_one_beside_an_unresolved_one_names_its_document_and_the_other(
+        self,
+    ):
         scope = resolver(FakePlans()).resolve(
             lookup(restricted=False), ["P.20.457/2018/11", "4.P.20.409/2023/4"]
         )
@@ -221,6 +257,52 @@ class TestAnIdentifierThatResolvesToNothing:
         assert isinstance(scope, Scope)
         assert scope.selection and scope.selection.params == ([1],)
         assert scope.identifiers.unresolved == ("P.20.457/2018/11",)
+        assert scope.note is not None
+        assert "no document carries the identifier(s) P.20.457/2018/11" in scope.note
+
+
+class TestApproximateIdentifiersAreSaid:
+    def test_one_found_as_a_part_is_named(self):
+        scope = resolver(FakePlans()).resolve(
+            lookup(restricted=False), ["P.20.409/2023/4"]
+        )
+
+        assert isinstance(scope, Scope) and scope.note is not None
+        assert scope.selection and scope.selection.params == ([1],)
+        assert "P.20.409/2023/4 matched only as a part" in scope.note
+
+    def test_one_found_with_other_separators_is_named(self):
+        scope = resolver(FakePlans()).resolve(
+            lookup(restricted=False), ["P.20409.2023.4"]
+        )
+
+        assert isinstance(scope, Scope) and scope.note is not None
+        assert scope.selection and scope.selection.params == ([1],)
+        assert (
+            "P.20409.2023.4 matched a document only when the separators are ignored"
+            in (scope.note)
+        )
+
+    def test_one_found_as_written_needs_no_note(self):
+        scope = resolver(FakePlans()).resolve(
+            lookup(restricted=False), ["4.P.20.409/2023/4"]
+        )
+
+        assert isinstance(scope, Scope) and scope.note is None
+
+    def test_the_notes_come_together_with_the_filter_note(self):
+        plans = FakePlans(
+            matching=set()
+        )  # the filter disagrees with the named document
+
+        scope = resolver(plans).resolve(
+            lookup(), ["P.20.409/2023/4", "99.P.99.999/2099/1"]
+        )
+
+        assert isinstance(scope, Scope) and scope.note is not None
+        assert "matched only as a part" in scope.note
+        assert "no document carries" in scope.note
+        assert "was not applied" in scope.note
 
 
 def test_the_resolution_is_kept_for_the_explain_record():

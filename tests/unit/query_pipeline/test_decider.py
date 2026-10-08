@@ -201,6 +201,18 @@ class TestReading:
         assert decision.scope.selection is None
         assert decision.scope.identifiers.unresolved == ("99.P.99.999/2099/1",)
 
+    def test_an_unknown_identifier_is_read_unrestricted_even_with_filters_that_would_find_nothing(
+        self,
+    ):
+        """The step-1 regression: a filter must not turn a readable question into a refusal."""
+        made, _, plans = decider(lookup(), plans=FakePlans(count=0))
+
+        decision = made.decide(facts("case?", identifiers=["99.P.99.999/2099/1"]))
+
+        assert isinstance(decision, ReadDocuments)
+        assert decision.scope.selection is None
+        assert plans.executed == []
+
 
 class TestProfile:
     @pytest.mark.parametrize("name", ["hybrid", "vector"])
