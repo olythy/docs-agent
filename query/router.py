@@ -34,18 +34,15 @@ valid plan gets a plain "could not interpret" instead of a guess.
 Key exports:
     Routing            -- The decision: an answer, or a document set to read.
     QueryRouter        -- Makes the decision.
-    ResultPhraser      -- Phrases an exact result in the question's language.
-    render_result      -- The exact result as plain facts.
     as_routed          -- The plan as the router treats it (a residual means read, not count).
     get_query_router   -- Builds the router.
 """
 
 import logging
-import re
 from dataclasses import dataclass
 from typing import Protocol
 
-from metadata.executor import PlanExecutor, PlanResult
+from metadata.executor import PlanExecutor
 from metadata.plan import Operation, QueryPlan
 from metadata.planner import (
     CatalogSource,
@@ -56,6 +53,11 @@ from metadata.planner import (
     load_catalogs,
 )
 from models import DocumentSelection
+from query.answering import (
+    Phraser,
+    PlanRunner,
+    ResultPhraser,
+)
 from query.decision import as_routed
 from query.outcome import (
     COULD_NOT_INTERPRET_MESSAGE,
@@ -65,9 +67,6 @@ from query.outcome import (
 from store import extract_identifier_tokens
 
 logger = logging.getLogger(__name__)
-
-#: How many documents/groups are shown in a rendered answer.
-_SHOWN = 50
 
 
 @dataclass(frozen=True)
@@ -91,114 +90,6 @@ class Routing:
 
 class CatalogReader(CatalogSource, ValueSource, Protocol):
     """The slice of :class:`document_store.DocumentStore` the router reads."""
-
-
-class PlanRunner(Protocol):
-    """Runs a plan (:class:`metadata.executor.PlanExecutor`)."""
-
-    def execute(self, plan: QueryPlan) -> PlanResult: ...
-
-
-class Phraser(Protocol):
-    """Turns an exact result into an answer in the question's language."""
-
-    def phrase(self, question: str, plan: QueryPlan, result: PlanResult) -> str: ...
-
-
-def render_result(plan: QueryPlan, result: PlanResult) -> str:
-    """The exact result as plain facts (also the safe form of an answer).
-
-    Args:
-        plan: The executed plan.
-        result: What it returned.
-    """
-    lines = [f"Executed filter: {result.explanation}"]
-    unknown_note = (
-        f"{result.unknown} further document(s) could not be decided (a filtered "
-        "value is unverified or was not extracted), so the true figure may be "
-        f"up to {result.unknown} higher."
-        if result.unknown
-        else None
-    )
-    if result.operation is Operation.SUM:
-        lines.append(
-            f"Total of {plan.sum_key}: {result.total} "
-            f"(over {result.sum_documents} document(s) that state it)"
-        )
-    elif result.groups:
-        lines.append(f"Matching documents: {result.count}")
-        lines += [f"  {value}: {n}" for value, n in result.groups[:_SHOWN]]
-    elif result.operation is Operation.COUNT:
-        lines.append(f"Matching documents: {result.count}")
-    else:
-        lines.append(f"Matching documents: {result.count}")
-        for row in result.documents[:_SHOWN]:
-            _, source_file, *rest = row
-            summary = f" -- {str(rest[0])[:300]}" if rest and rest[0] else ""
-            lines.append(f"  {source_file}{summary}")
-        if result.truncated:
-            lines.append(f"  (showing {len(result.documents)} of {result.count})")
-    if unknown_note:
-        lines.append(unknown_note)
-    if plan.residual:
-        lines.append(
-            f"Not applied (no key covers it, so the result is not narrowed by it): {plan.residual}"
-        )
-    return "\n".join(lines)
-
-
-def _figures(result: PlanResult) -> list[str]:
-    """The numbers an answer must reproduce exactly."""
-    figures = [str(n) for n in (result.count, result.unknown or None) if n is not None]
-    figures += [str(n) for _, n in result.groups[:_SHOWN]]
-    if result.total is not None:
-        figures.append(str(int(result.total)))
-    return figures
-
-
-def _plain_digits(text: str) -> str:
-    """Drop thousands separators so "1 234" / "1.234" / "1,234" compare as 1234."""
-    return re.sub(r"(?<=\d)[ ., ](?=\d{3}(?!\d))", "", text)
-
-
-class ResultPhraser:
-    """Phrases an exact result in the question's own language, and checks the numbers.
-
-    The model only *words* the answer; every figure must appear in it unchanged. If
-    one is missing the answer falls back to the plain facts, and a warning is
-    logged, so a mis-copied number is never presented as exact.
-
-    Args:
-        llm: The driver used for the call.
-    """
-
-    def __init__(self, llm) -> None:
-        self._llm = llm
-
-    def phrase(self, question: str, plan: QueryPlan, result: PlanResult) -> str:
-        facts = render_result(plan, result)
-        prompt = (
-            "Answer the question in the same language as the question, using ONLY "
-            "the facts below. Copy every number exactly. If some documents could "
-            "not be decided, or part of the question is not applied, say so "
-            "plainly. Do not add anything the facts do not state.\n\n"
-            f"QUESTION: {question}\n\nFACTS:\n{facts}"
-        )
-        reply = (
-            self._llm.run_tool_calling_turn(
-                [{"role": "user", "content": prompt}]
-            ).content
-            or ""
-        ).strip()
-        digits = _plain_digits(reply)
-        missing = [f for f in _figures(result) if f not in digits]
-        if not reply or missing:
-            logger.warning(
-                "[router] Phrased answer dropped figure(s) %s; returning the plain facts.",
-                missing,
-            )
-            return facts
-        return f"{reply}\n\n[Executed filter: {result.explanation}]"
 
 
 class QueryRouter:

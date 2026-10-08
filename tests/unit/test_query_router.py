@@ -18,13 +18,12 @@ from models import (
     TypeStatus,
     ValueType,
 )
+from query.answering import ResultPhraser, render_result
 from query.router import (
     COULD_NOT_INTERPRET_MESSAGE,
     NOT_SUPPORTED_MESSAGE,
     QueryRouter,
-    ResultPhraser,
     Routing,
-    render_result,
 )
 
 DT = "court_decision"

@@ -153,7 +153,7 @@ for the eval; the MCP search tool stays as it is).
 
 ## 4. Modules and classes
 
-**Built:** `facts`, `outcome`, `context`, `step`, `candidate_steps`, `ranking_steps`, `gate_steps`, `selection_steps`, `profiles`, `runner`, `observers`, `legacy_trace`, `composition`, and `service.py` as far as `RetrievalService` and its request / result. **Built, not yet connected:** `decision` (`Scope`, `ScopeResolver`, `Decision`, `PlanningDecider`, `UnplannedDecider`, `ProfileSelector`, `as_routed`), and the `RefusalRenderer` with the wording of every refusal in `outcome`; the original `router.py` and `retrieval.py` import these, not the reverse. **To build (slice 2):** `answering` (`GroundedAnswerer`, `ExactAnswerer`, `AnswerPolicy`), the `RefusalRenderer` in `outcome`, and `QueryService.answer` with its `Explain`.
+**Built:** `facts`, `outcome`, `context`, `step`, `candidate_steps`, `ranking_steps`, `gate_steps`, `selection_steps`, `profiles`, `runner`, `observers`, `legacy_trace`, `composition`, and `service.py` as far as `RetrievalService` and its request / result. **Built, not yet connected:** `decision` (`Scope`, `ScopeResolver`, `Decision`, `PlanningDecider`, `UnplannedDecider`, `ProfileSelector`, `as_routed`), and the `RefusalRenderer` with the wording of every refusal in `outcome`; the original `router.py` and `retrieval.py` import these, not the reverse. **Built (answering half, so far):** `answering.ExactAnswerer` (the result wording moved here from `router.py`, shared by both). **To build (slice 2):** `answering` (`GroundedAnswerer`, `AnswerPolicy`), the `RefusalRenderer` in `outcome`, and `QueryService.answer` with its `Explain`.
 
 | Module | Contents |
 |---|---|

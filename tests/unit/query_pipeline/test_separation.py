@@ -32,6 +32,7 @@ NEW = [
     "composition",
     "decision",
     "inflection",
+    "answering",
 ]
 
 #: What the new modules may not import.
