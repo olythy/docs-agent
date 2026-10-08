@@ -142,3 +142,54 @@ def test_a_selection_by_document_ids_restricts_every_search(two_documents, db_co
     assert _files(store.search_fulltext("booking", top_k=5)) == ["a.pdf"]
     assert _files(store.search_by_identifier(["Pfv.100"], top_k=5)) == ["a.pdf"]
     assert store.search_by_identifier(["Pfv.200"], top_k=5) == []
+
+
+def test_a_retrieval_service_restricts_a_real_store_to_the_scope(
+    two_documents, db_conn
+):
+    """End to end on the real database: the scope a question's identifiers resolve to."""
+    from config import settings
+    from drivers.reranker import NoopRerankerDriver
+    from query.decision import Scope
+    from query.facts import QueryFactsReader
+    from query.outcome import Answerable
+    from query.profiles import PipelineFactory, ProfileResolver
+    from query.service import RetrievalRequest, RetrievalService
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id FROM documents WHERE source_file = 'b.pdf';")
+        b_id = cur.fetchone()[0]
+    embedding = two_documents
+    service = RetrievalService(
+        QueryFactsReader(),
+        ProfileResolver(settings),
+        PipelineFactory(embedding, NoopRerankerDriver(), lambda q, chunks: chunks),
+        embedding,
+    )
+    vector = embedding.embed_query("booking invoice")
+
+    def retrieve(scope):
+        result = service.retrieve(
+            RetrievalRequest(
+                "booking invoice",
+                profile="vector",
+                query_vector=vector,
+                min_score=0.0,
+                scope=scope,
+            ),
+            VectorStore(),
+        )
+        assert isinstance(result.outcome, Answerable)
+        return _files(list(result.outcome.chunks))
+
+    everywhere = retrieve(None)
+    inside = retrieve(
+        Scope(
+            selection=DocumentSelection(
+                "SELECT id FROM documents WHERE id = ANY(%s)", ([b_id],)
+            )
+        )
+    )
+
+    assert everywhere == ["a.pdf", "b.pdf"]
+    assert inside == ["b.pdf"]

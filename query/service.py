@@ -11,11 +11,12 @@ Key exports:
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from drivers.embedding import EmbeddingDriver
 from models import RetrievalTrace
 from query.context import RetrievalContext
+from query.decision import Scope
 from query.facts import QueryFactsReader
 from query.legacy_trace import LegacyTraceProjection
 from query.observers import CompositeObserver
@@ -36,6 +37,10 @@ class RetrievalRequest:
         query_vector: A precomputed embedding of the question.
         top_k: Overrides ``RETRIEVAL_TOP_K``.
         min_score: Overrides ``RETRIEVAL_MIN_SCORE``.
+        scope: Which documents the retrieval may look at (decided beforehand, from the
+            metadata). The service restricts the store to it, so no caller has to remember
+            to; when it has a selection it **replaces** any restriction the given store has.
+            ``None`` means unrestricted.
     """
 
     question: str
@@ -44,6 +49,7 @@ class RetrievalRequest:
     query_vector: Sequence[float] | None = None
     top_k: int | None = None
     min_score: float | None = None
+    scope: Scope | None = None
 
 
 @dataclass(frozen=True)
@@ -54,11 +60,14 @@ class RetrievalResult:
         outcome: The chunks, or the refusal (which says which stage refused).
         records: What every step that ran held going in and coming out.
         trace: The same as the original pipeline's trace keys (for the diagnostics).
+        scope: The scope the retrieval ran under, with its note (what was left out, what
+            matched only approximately), so the answer can carry it.
     """
 
     outcome: Answerable | Declined
     records: tuple[StageRecord, ...]
     trace: RetrievalTrace
+    scope: Scope = field(default_factory=Scope)
 
 
 class RetrievalService:
@@ -93,10 +102,17 @@ class RetrievalService:
     ) -> RetrievalResult:
         """Run the retrieval of ``request`` over ``store``.
 
+        If the request has a scope with a selection, the retrieval runs over the store
+        restricted to it (replacing any restriction ``store`` had), and the scope comes back
+        in the result with its note.
+
         Raises:
             RuntimeError: If the embedding driver's dimension does not match the store.
         """
         facts = self._facts_reader.read(request.question)
+        scope = request.scope if request.scope is not None else Scope()
+        if scope.selection is not None:
+            store = store.restricted_to(scope.selection)
         profile = self._resolver.resolve(
             request.profile, top_k=request.top_k, min_score=request.min_score
         )
@@ -118,4 +134,5 @@ class RetrievalService:
             outcome=run.outcome,
             records=tuple(recorder.records),
             trace=self._projection.project(recorder.records, run),
+            scope=scope,
         )

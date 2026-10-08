@@ -93,6 +93,11 @@ class FakeStore:
     def __exit__(self, *exc):
         return None
 
+    def restricted_to(self, selection):
+        """Like the real store: a store that only sees the selected documents (here, the
+        selection's first parameter is the set of source files)."""
+        return FakeStore(set(selection.params[0]), self._hubs)
+
     def assert_dimension_matches(self, expected):
         return None
 

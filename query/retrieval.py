@@ -714,22 +714,19 @@ def _retrieve_chunks_v2(
 ) -> list[RetrievedChunk]:
     """The step-based retrieval (``QUERY_ENGINE=v2``), as ``retrieve_chunks`` returns it.
 
-    The profile comes from ``RETRIEVAL_STRATEGY``; a strategy object has no meaning
-    there, so passing one is an error rather than something silently ignored.
+    The profile comes from ``RETRIEVAL_STRATEGY``, or from the strategy object a caller
+    passes when it is one of the two plain ones (so the golden eval runs unchanged on
+    both engines). A strategy that carries overrides the new engine does not take is an
+    error, not something silently ignored.
     """
     from query.composition import build_retrieval_service
     from query.outcome import Answerable
     from query.service import RetrievalRequest
 
-    if strategy is not None:
-        raise ValueError(
-            "QUERY_ENGINE=v2 takes the profile from RETRIEVAL_STRATEGY; "
-            "a strategy object cannot be passed."
-        )
     result = build_retrieval_service(settings).retrieve(
         RetrievalRequest(
             question,
-            profile=settings.RETRIEVAL_STRATEGY,
+            profile=_profile_of(strategy),
             metadata_filter=metadata_filter,
             query_vector=query_vector,
             top_k=top_k,
@@ -743,6 +740,33 @@ def _retrieve_chunks_v2(
     if isinstance(result.outcome, Answerable):
         return list(result.outcome.chunks)
     return []
+
+
+def _profile_of(strategy: RetrievalStrategy | None) -> str:
+    """The name of the profile that a strategy object stands for (``QUERY_ENGINE=v2``).
+
+    Raises:
+        ValueError: For a strategy the new engine cannot take: one with overrides of the
+            reranker, the guarantees or the period filter (set those in the settings), or
+            any other kind.
+    """
+    if strategy is None:
+        return settings.RETRIEVAL_STRATEGY
+    if type(strategy) is VectorRetrievalStrategy:
+        return "vector"
+    if type(strategy) is HybridRetrievalStrategy:
+        overridden = (
+            strategy._reranker_driver_name is not None
+            or strategy._diversify_guarantees != settings.RETRIEVAL_DIVERSIFY_GUARANTEES
+            or strategy.period_filter != settings.RETRIEVAL_PERIOD_FILTER
+        )
+        if overridden:
+            raise ValueError(
+                "QUERY_ENGINE=v2 does not take a HybridRetrievalStrategy with its own "
+                "reranker, guarantees or period filter; set them in the settings."
+            )
+        return "hybrid"
+    raise ValueError(f"QUERY_ENGINE=v2 cannot run a {type(strategy).__name__}.")
 
 
 def query_knowledge_base(

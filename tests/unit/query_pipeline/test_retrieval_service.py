@@ -7,6 +7,8 @@ from test_retrieval_characterization import (  # type: ignore[import-not-found]
 )
 
 from logger import EventLogger
+from models import DocumentSelection
+from query.decision import Scope
 from query.facts import QueryFactsReader
 from query.observers import AuditLogObserver
 from query.outcome import Answerable, Declined, DeclineReason
@@ -74,3 +76,80 @@ class TestRetrieve:
         )
 
         assert "relevance_gate_checked" in path.read_text()
+
+
+def only(*files: str) -> Scope:
+    """A scope over some documents (the fake store reads the files from the selection)."""
+    return Scope(selection=DocumentSelection("fake", (set(files),)), note="a note")
+
+
+def files_of(result) -> set[str]:
+    assert isinstance(result.outcome, Answerable)
+    return {c.metadata.source_file for c in result.outcome.chunks}
+
+
+class TestScope:
+    def retrieve(self, settings_override, scope=None, store=None):
+        return service(settings_override).retrieve(
+            RetrievalRequest(
+                "what about costs?", profile="vector", scope=scope, min_score=0.0
+            ),
+            store or FakeStore(),  # type: ignore[arg-type]
+        )
+
+    def test_without_a_scope_the_retrieval_is_unrestricted(self, settings_override):
+        result = self.retrieve(settings_override)
+
+        assert len(files_of(result)) > 1
+        assert result.scope == Scope()
+
+    def test_the_retrieval_only_sees_the_documents_of_the_scope(
+        self, settings_override
+    ):
+        result = self.retrieve(settings_override, only("c.docx"))
+
+        assert files_of(result) == {"c.docx"}
+
+    def test_the_service_restricts_the_store_so_no_caller_has_to(
+        self, settings_override
+    ):
+        """A caller passes the plain store and the scope, and gets the restricted retrieval."""
+        everything = FakeStore()
+
+        result = self.retrieve(settings_override, only("a.docx", "b.docx"), everything)
+
+        assert files_of(result) == {"a.docx", "b.docx"}
+
+    def test_the_scope_replaces_a_restriction_the_given_store_had(
+        self, settings_override
+    ):
+        already = FakeStore({"a.docx"})
+
+        result = self.retrieve(settings_override, only("c.docx"), already)
+
+        assert files_of(result) == {"c.docx"}  # the scope decides
+
+    def test_the_scope_and_its_note_come_back_in_the_result(self, settings_override):
+        scope = only("c.docx")
+
+        result = self.retrieve(settings_override, scope)
+
+        assert result.scope is scope
+        assert result.scope.note == "a note"
+
+    def test_a_scope_with_only_a_note_does_not_restrict_but_is_kept(
+        self, settings_override
+    ):
+        scope = Scope(note="the identifier matched no document")
+
+        result = self.retrieve(settings_override, scope)
+
+        assert len(files_of(result)) > 1  # unrestricted
+        assert result.scope.note == "the identifier matched no document"
+
+    def test_an_empty_selection_sees_nothing_not_everything(self, settings_override):
+        result = self.retrieve(settings_override, only())
+
+        assert isinstance(
+            result.outcome, Declined
+        )  # the relevance gate: nothing to look at

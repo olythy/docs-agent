@@ -18,7 +18,12 @@ from test_retrieval_characterization import (  # type: ignore[import-not-found]
 import query.composition as composition_module
 import query.retrieval as retrieval_module
 from logger import EventLogger
-from query.retrieval import VectorRetrievalStrategy, retrieve_chunks
+from query.retrieval import (
+    HybridRetrievalStrategy,
+    RetrievalStrategy,
+    VectorRetrievalStrategy,
+    retrieve_chunks,
+)
 
 QUESTION = "What about the costs of the proceedings?"
 
@@ -63,13 +68,83 @@ class TestGuards:
         with pytest.raises(ValueError, match="Unknown QUERY_ENGINE"):
             retrieve_chunks(QUESTION, store=FakeStore())  # type: ignore[arg-type]
 
-    def test_a_strategy_object_has_no_meaning_for_the_new_engine(self, wired):
+    def test_a_plain_vector_strategy_runs_the_vector_profile(self, wired):
+        wired()  # the settings say hybrid; the strategy object says vector
+
+        chunks = retrieve_chunks(
+            QUESTION,
+            strategy=VectorRetrievalStrategy(),
+            store=FakeStore(),  # type: ignore[arg-type]
+        )
+
+        assert [c.id for c in chunks] == [
+            1,
+            3,
+            5,
+            7,
+        ]  # the cosine cut, no keyword/rerank
+
+    def test_a_plain_hybrid_strategy_runs_the_hybrid_profile(self, wired):
+        wired(
+            RETRIEVAL_STRATEGY="vector"
+        )  # the settings say vector; the object says hybrid
+
+        chunks = retrieve_chunks(
+            QUESTION,
+            strategy=HybridRetrievalStrategy(),
+            store=FakeStore(),  # type: ignore[arg-type]
+        )
+
+        assert [c.id for c in chunks] == [
+            1,
+            3,
+            5,
+        ]  # the cross-encoder threshold dropped one
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"reranker_driver_name": "none"},
+            {"diversify_guarantees": False},
+            {"period_filter": True},
+        ],
+    )
+    def test_a_strategy_with_its_own_overrides_is_refused_loudly(
+        self, wired, overrides
+    ):
         wired()
 
-        with pytest.raises(ValueError, match="strategy object"):
+        with pytest.raises(ValueError, match="set them in the settings"):
             retrieve_chunks(
                 QUESTION,
-                strategy=VectorRetrievalStrategy(),
+                strategy=HybridRetrievalStrategy(**overrides),
+                store=FakeStore(),  # type: ignore[arg-type]
+            )
+
+    def test_an_override_equal_to_the_settings_is_not_an_override(self, wired):
+        wired(RETRIEVAL_PERIOD_FILTER=True, RETRIEVAL_DIVERSIFY_GUARANTEES=False)
+
+        chunks = retrieve_chunks(
+            QUESTION,
+            strategy=HybridRetrievalStrategy(
+                period_filter=True, diversify_guarantees=False
+            ),
+            store=FakeStore(),  # type: ignore[arg-type]
+        )
+
+        assert chunks  # accepted
+
+    def test_any_other_kind_of_strategy_is_refused(self, wired):
+        wired()
+
+        class Custom(RetrievalStrategy):
+            def select_chunks(self, *args, **kwargs):
+                return []
+
+        with pytest.raises(ValueError, match="cannot run a Custom"):
+            retrieve_chunks(
+                QUESTION,
+                strategy=Custom(),
                 store=FakeStore(),  # type: ignore[arg-type]
             )
 
