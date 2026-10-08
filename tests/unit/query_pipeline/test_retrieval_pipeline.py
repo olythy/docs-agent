@@ -1,4 +1,4 @@
-"""The retrieval pipeline's core: the chain check, the run, the trace, the legacy keys.
+"""The retrieval pipeline's core: the chain check, the run, the trace.
 
 Toy steps only; the steps that reproduce the real retrieval are tested against the
 characterization scenarios (``test_retrieval_characterization.py``).
@@ -12,7 +12,6 @@ import pytest
 from models import ChunkMetadata, RetrievedChunk
 from query.context import RetrievalContext, Slot
 from query.facts import QueryFactsReader
-from query.legacy_trace import LegacyTraceProjection
 from query.outcome import Answerable, Declined, DeclineReason
 from query.runner import PipelineError, RetrievalPipeline, TraceRecorder
 from query.step import (
@@ -20,7 +19,6 @@ from query.step import (
     Continue,
     Halt,
     RetrievalStep,
-    StepName,
     StepResult,
 )
 
@@ -168,154 +166,6 @@ class TestObserver:
         assert record.declined == refusal
         assert record.outputs == {}
         assert record.notes == {"gate_passed": False}
-
-
-def step(name: StepName, requires=(), provides=(), **kwargs) -> Toy:
-    return Toy(str(name), frozenset(requires), frozenset(provides), **kwargs)
-
-
-def hybrid_chain(*, score_gate=None, listwise=False):
-    """Toy steps with the real step names, in the order of the hybrid profile."""
-    pool = {"dense_pool": chunks(1, 2, 3)}
-    ranked = {"ranked": chunks(1, 2, 3)}
-    steps = [
-        step(StepName.DENSE_SEARCH, provides=DENSE, fill=pool),
-        step(
-            StepName.RELEVANCE_GATE,
-            requires=DENSE,
-            notes={"gate_passed": True},
-        ),
-        step(
-            StepName.CSLS_REORDER,
-            requires=DENSE,
-            provides=DENSE,
-            fill={"dense_pool": chunks(3, 1, 2)},
-        ),
-        step(
-            StepName.KEYWORD_SEARCH,
-            provides={Slot.KEYWORD_POOL},
-            fill={"keyword_pool": chunks(1)},
-        ),
-        step(
-            StepName.RRF_FUSION,
-            requires=DENSE | {Slot.KEYWORD_POOL},
-            provides={Slot.RANKED},
-            fill=ranked,
-        ),
-        step(
-            StepName.RERANK,
-            requires={Slot.RANKED},
-            provides={Slot.RANKED},
-            fill={"ranked": chunks(2, 1, 3)},
-        ),
-    ]
-    if score_gate:
-        steps.append(
-            step(
-                StepName.RERANK_SCORE_GATE,
-                requires={Slot.RANKED},
-                halt=score_gate,
-            )
-        )
-    if listwise:
-        steps.append(
-            step(
-                StepName.LISTWISE_RERANK,
-                requires={Slot.RANKED},
-                provides={Slot.RANKED},
-                fill={"ranked": chunks(3, 2, 1)},
-            )
-        )
-    steps.append(
-        step(
-            StepName.TOP_K_SELECTION,
-            requires={Slot.RANKED},
-            provides=SELECTED,
-            fill={"selected": chunks(2, 1)},
-        )
-    )
-    return steps
-
-
-def project(steps, provided=frozenset(), start=None):
-    recorder = TraceRecorder()
-    run = RetrievalPipeline(steps, provided).run(start or context(), recorder)
-    trace = LegacyTraceProjection().project(recorder.records, run)
-    return {k: ids(v) for k, v in trace.stages.items()}, trace.notes
-
-
-class TestLegacyProjection:
-    def test_it_reproduces_the_old_keys_in_the_old_order(self):
-        stages, notes = project(hybrid_chain())
-
-        assert list(stages) == [
-            "vector",
-            "vector_csls",
-            "fulltext",
-            "fused",
-            "reranked",
-            "listwise",
-            "final",
-        ]
-        assert stages["vector"] == [1, 2, 3]  # before the reorder
-        assert stages["vector_csls"] == [3, 1, 2]
-        assert stages["fused"] == [1, 2, 3]  # what the fusion left
-        assert stages["reranked"] == [2, 1, 3]
-        assert stages["final"] == [2, 1]
-        assert notes == {"gate_passed": True}
-
-    def test_the_fused_list_is_what_the_fusion_left(self):
-        stages, _ = project(hybrid_chain())
-
-        assert "identifier" not in stages  # the pin is gone, so is its key
-        assert stages["fused"] == [1, 2, 3]
-
-    def test_listwise_is_the_list_entering_the_cut_even_without_the_step(self):
-        without, _ = project(hybrid_chain(listwise=False))
-        with_it, _ = project(hybrid_chain(listwise=True))
-
-        assert without["listwise"] == [2, 1, 3]  # same as reranked
-        assert with_it["listwise"] == [3, 2, 1]  # after the listwise step
-
-    def test_a_refusal_after_the_relevance_gate_leaves_an_empty_final_and_no_listwise(
-        self,
-    ):
-        refusal = Declined(DeclineReason.RERANK_REJECTED, stage="rerank_score_gate")
-
-        stages, _ = project(hybrid_chain(score_gate=refusal))
-
-        assert stages["final"] == []
-        assert "listwise" not in stages
-
-    def test_a_relevance_gate_refusal_records_only_the_vector_stage(self):
-        refusal = Declined(DeclineReason.NOT_RELEVANT, stage="relevance_gate")
-        steps = hybrid_chain()
-        steps[1] = step(
-            StepName.RELEVANCE_GATE,
-            requires=DENSE,
-            halt=refusal,
-            notes={"gate_passed": False},
-        )
-
-        stages, notes = project(steps)
-
-        assert stages == {"vector": [1, 2, 3]}  # no "final" at all
-        assert notes == {"gate_passed": False}
-
-    def test_the_vector_profile_has_no_listwise_key(self):
-        steps = [
-            step(StepName.DENSE_SEARCH, provides=DENSE, fill={"dense_pool": chunks(1)}),
-            step(
-                StepName.COSINE_CUT,
-                requires=DENSE,
-                provides=SELECTED,
-                fill={"selected": chunks(1)},
-            ),
-        ]
-
-        stages, _ = project(steps)
-
-        assert stages == {"vector": [1], "final": [1]}
 
 
 class TestFacts:

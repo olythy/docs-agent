@@ -21,11 +21,9 @@ from logger import get_logger
 from models import RetrievedChunk
 from query.answering import AnswerPolicy, ExactAnswerer, GroundedAnswerer, ResultPhraser
 from query.decision import (
-    Decider,
     PlanningDecider,
     ProfileSelector,
     ScopeResolver,
-    UnplannedDecider,
 )
 from query.facts import QueryFactsReader
 from query.listwise_rerank import listwise_rerank
@@ -55,7 +53,9 @@ def build_retrieval_service(settings: Settings) -> RetrievalService:
     return RetrievalService(
         QueryFactsReader(),
         ProfileResolver(settings),
-        PipelineFactory(embedding, get_reranker_driver(), listwise),
+        PipelineFactory(
+            embedding, get_reranker_driver(settings.RERANKER_DRIVER), listwise
+        ),
         embedding,
         observers=(
             ProgressLogObserver(),
@@ -99,19 +99,15 @@ def build_planning(
 def build_query_service(settings: Settings) -> QueryService:
     """Build a :class:`QueryService` from ``settings``.
 
-    With ``QUERY_ROUTER`` on, a planner decides how each question is answered; off, every
-    question is read, unrestricted.
+    A planner decides how every question is answered (exactly from the metadata, by
+    reading documents, or not at all), so the metadata catalog must be loaded
+    (``load-catalog``); without an approved document type the first question fails loudly.
 
     Args:
         settings: Where the numbers, the choice of drivers and the answer policy come from.
     """
     llm = get_answer_driver()
-    decider: Decider
-    exact_answerer: ExactAnswerer | None = None
-    if settings.QUERY_ROUTER:
-        decider, exact_answerer = build_planning(settings, llm)
-    else:
-        decider = UnplannedDecider(ProfileSelector(settings.RETRIEVAL_STRATEGY))
+    decider, exact_answerer = build_planning(settings, llm)
     return QueryService(
         QueryFactsReader(),
         decider,
@@ -119,10 +115,8 @@ def build_query_service(settings: Settings) -> QueryService:
         exact_answerer,
         GroundedAnswerer(
             llm,
-            AnswerPolicy(
-                partial_coverage=settings.ANSWER_PARTIAL_COVERAGE,
-                expose_document_date=settings.EXPOSE_DOCUMENT_DATE,
-            ),
+            AnswerPolicy(expose_document_date=settings.EXPOSE_DOCUMENT_DATE),
         ),
         RefusalRenderer(),
+        default_profile=settings.RETRIEVAL_STRATEGY,
     )

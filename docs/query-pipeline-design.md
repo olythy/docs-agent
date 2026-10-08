@@ -1,9 +1,16 @@
 # Query pipeline: design of the rewrite
 
-Status: **slice 1 (the retrieval) is implemented and proven equal to the original** on every characterization scenario and on a six-question live snapshot under five settings (see section 6 and `docs/decisions.md`, 2026-10-06); nothing in production uses the new pipeline except behind the temporary `QUERY_ENGINE=v2` switch. The decision side (slice 2) and the identifier resolver (section 8) are next.
-It builds on `docs/query-workflow.md` (the as-is map and its tangles) and on an
-independent design review (Opus, read-only) of the first draft. Items marked
-**[to confirm]** are proposals that still need an explicit decision.
+Status (2026-10-08): **built, proven, and the original deleted.** The whole path
+question → decision → retrieval → answer runs on the classes described here
+(`QueryService.answer` is the one entry point; `query_knowledge_base` and the golden eval
+call it). It was built beside the original (`retrieve_chunks`, `QueryRouter`, the identifier
+pin) and proven equal on the characterization scenarios, on live snapshots and on the golden
+questions (`docs/decisions.md`, 2026-10-06 to 2026-10-08); then the original and the
+`QUERY_ROUTER`, `QUERY_ENGINE` and `ANSWER_PARTIAL_COVERAGE` switches were deleted.
+Text below that speaks of "today", "the original" or "legacy" describes the code as it was
+while the rewrite was built; it is kept as the record of why the new code looks as it does.
+The as-is map of the original (`docs/query-workflow.md`) is in git history, not on disk.
+It also rests on an independent design review (Opus, read-only) of the first draft.
 
 ## 1. Goal and scope
 
@@ -28,12 +35,10 @@ The new code is built **beside** the old one, proven equal, then the old code is
 
 ## 2. Principles
 
-0. **The new code never imports the original.** `query/retrieval.py` (the original
-   `retrieve_chunks` and strategies) and `query/router.py` are the reference the new pipeline
-   is proven against and are deleted when it has been; that is a deletion, not a rewrite,
-   only if the dependency goes one way. The original may import the new (the wording of a
-   refusal, the plan treatment); the reverse is refused by
-   `tests/unit/query_pipeline/test_separation.py`.
+0. **The new code never imported the original** (while both existed). `query/retrieval.py`
+   and `query/router.py` were the reference the new pipeline was proven against; deleting
+   them was a deletion, not a rewrite, because the dependency went one way only (a test,
+   `test_separation.py`, refused the reverse; it went with the originals).
 
 1. One class, one reason to change. Flat modules under `query/`, one concept per file.
 2. Steps never read `Settings`; parameters and collaborators arrive by constructor.
@@ -349,9 +354,9 @@ engines, the removal of the identifier pin (section 8), and the switch. The MCP 
 **End:** delete the legacy code and `QUERY_ENGINE`; the eval and `funnel` read `explain`;
 the prompt-builder driver change.
 
-**Deleting `QUERY_ROUTER` and `ANSWER_PARTIAL_COVERAGE` is not part of the refactor.** Both
-default to *off*, so deleting them changes the default behaviour. Each is its own measured
-commit after parity, conditioned on the full `--repeat 3` golden run.
+**Deleting `QUERY_ROUTER` and `ANSWER_PARTIAL_COVERAGE` was kept out of the refactor** (both
+defaulted to *off*, so deleting them changes the default behaviour) and was done after parity
+on 2026-10-08, with the strict refusal kept; see `docs/decisions.md`.
 
 Left out of the first slice: prompt builder and driver change, decider, MCP, kind-of-question
 profiles, trace key renames, map-reduce, comparison, similarity.

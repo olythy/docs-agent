@@ -1,7 +1,8 @@
 """The `retrieval-snapshot` command: pin what retrieval returns, to prove a refactor changed nothing.
 
-Runs the real retrieval path (``retrieve_chunks``, at the current settings) for the golden
-questions and records, per question, the ids each pipeline stage held and the final context.
+Runs the real retrieval service (at the current settings) for the golden questions and
+records, per question, the ids every step left in each chunk list it produced
+(``<step>.<list>``, plus a step's side results) and the final context.
 ``--out`` writes that to a JSON file; ``--compare`` runs again and lists every difference
 against such a file (exit status 1 if there is any). The point is a restructuring of the
 retrieval code: take a snapshot first, change the code in small steps, compare after every
@@ -74,25 +75,58 @@ def diff_snapshots(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
     return problems
 
 
+def stage_ids(records) -> dict[str, list[int]]:
+    """The chunk ids every step left, by ``<step>.<list>`` (side results by ``<step>.<label>``).
+
+    Args:
+        records: The step records of one retrieval (:class:`query.runner.StageRecord`).
+    """
+    stages: dict[str, list[int]] = {}
+    for record in records:
+        for slot, chunks in record.outputs.items():
+            stages[f"{record.step}.{slot}"] = [c.id for c in chunks]
+        for label, chunks in record.aux.items():
+            stages[f"{record.step}.{label}"] = [c.id for c in chunks]
+    return stages
+
+
 def take_snapshot(questions: list[dict]) -> dict[str, Any]:
-    """Run retrieval for ``questions`` and record what each stage held."""
+    """Run retrieval for ``questions`` and record what each step held."""
     from config import settings
     from drivers.embedding import get_embedding_driver
-    from models import RetrievalTrace
-    from query.retrieval import retrieve_chunks
+    from query.composition import build_retrieval_service
+    from query.outcome import Answerable
+    from query.service import RetrievalRequest
+    from store import VectorStore
 
     driver = get_embedding_driver()
+    service = build_retrieval_service(settings)
     recorded: dict[str, Any] = {}
     for q in questions:
-        trace = RetrievalTrace()
-        chunks = retrieve_chunks(
-            q["question"], query_vector=driver.embed_query(q["question"]), trace=trace
+        result = service.retrieve(
+            RetrievalRequest(
+                q["question"],
+                profile=settings.RETRIEVAL_STRATEGY,
+                query_vector=driver.embed_query(q["question"]),
+            ),
+            VectorStore(),
         )
         recorded[q["id"]] = {
             "question": q["question"],
-            "stages": {k: [c.id for c in v] for k, v in trace.stages.items()},
-            "final": [c.id for c in chunks],
-            "gate_passed": trace.notes.get("gate_passed"),
+            "stages": stage_ids(result.records),
+            "final": (
+                [c.id for c in result.outcome.chunks]
+                if isinstance(result.outcome, Answerable)
+                else []
+            ),
+            "gate_passed": next(
+                (
+                    r.notes["gate_passed"]
+                    for r in result.records
+                    if "gate_passed" in r.notes
+                ),
+                None,
+            ),
         }
     return {
         "settings": {name: getattr(settings, name) for name in _SETTINGS},

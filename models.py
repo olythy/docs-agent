@@ -11,7 +11,6 @@ Key exports:
     ChunkMetadata  -- Everything stored in document_chunks.metadata (JSONB).
     Chunk          -- One chunk before storage: content + ChunkMetadata.
     RetrievedChunk -- One chunk returned by a search, with its id and score.
-    RetrievalTrace -- Optional recorder of every retrieval stage's candidates.
     Document, MetaKey, MetaValue, MetaStatus -- The structured-metadata layer
         (see docs/structured-metadata-design.md): a document's identity, the
         key catalog, an extracted value with its evidence, and what is known
@@ -76,7 +75,7 @@ class ChunkMetadata:
             score means the chunk's embedding sits in a "generic"/central
             region of the embedding space (many other chunks look similar
             to it); used to penalize generic chunks at query time (see
-            ``query.retrieval._csls_rerank``) without ever excluding them
+            ``query.candidate_steps.CslsReorderStep``) without ever excluding them
             outright -- see ``docs/decisions.md`` for why a hard exclusion
             threshold was tried first and rejected.
         document_summary: A short, LLM-generated, fact-focused summary of
@@ -201,30 +200,6 @@ class RetrievedChunk:
             "metadata": self.metadata.to_dict(),
             "score": self.score,
         }
-
-
-@dataclass
-class RetrievalTrace:
-    """Optional recorder of what each retrieval stage produced, for diagnostics.
-
-    Pass one to :func:`query.retrieval.retrieve_chunks` and it fills ``stages``
-    with the candidate chunks as they stood after each stage (insertion order =
-    pipeline order), so a diagnostic can see *where* a document that ought to be
-    retrieved drops out: candidate generation, fusion, reranking or the final
-    ``top_k`` cut. Production callers never pass one, so it costs nothing there.
-
-    Attributes:
-        stages: Stage name -> the chunks after that stage, in that stage's order.
-        notes: Small facts about the run (e.g. whether the relevance gate passed,
-            which years were read from the question).
-    """
-
-    stages: dict[str, list["RetrievedChunk"]] = field(default_factory=dict)
-    notes: dict[str, object] = field(default_factory=dict)
-
-    def record(self, stage: str, chunks: list["RetrievedChunk"]) -> None:
-        """Store a copy of ``chunks`` as the outcome of ``stage``."""
-        self.stages[stage] = list(chunks)
 
 
 class ValueType(StrEnum):

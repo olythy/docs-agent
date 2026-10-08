@@ -69,15 +69,13 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── summarize.py          # generate_document_summary: one LLM call per document, embedded into every chunk
 │   └── ingest.py             # add_document and add_directory orchestration
 ├── query/
-│   ├── retrieval.py          # query_knowledge_base + the original retrieve_chunks / HybridRetrievalStrategy (QUERY_ENGINE=legacy, the default)
-│   ├── router.py             # QueryRouter (opt-in QUERY_ROUTER): exact answers for count/list/sum questions, "not supported yet", restricted lookup otherwise (the original; it imports the new modules, never the reverse)
 │   ├── hybrid.py             # reciprocal_rank_fusion: pure RRF fusion logic
 │   ├── listwise_rerank.py    # Optional final LLM disambiguation pass over near-duplicate candidates
 │   ├── time_filter.py        # extract_years(): the years a question names (for the opt-in period-aware retrieval)
 │   ├── decline_detection.py  # Shared "did the model honestly decline" heuristic (eval + scripts/eval_cli.py)
-│   │   # The step-based retrieval (QUERY_ENGINE=v2), built beside the original; see docs/query-pipeline-design.md
+│   │   # Decision, retrieval and answering as small classes; see docs/query-pipeline-design.md
 │   ├── facts.py              # QueryFacts / QueryFactsReader: identifiers and years read from the question, once
-│   ├── answering.py          # GroundedAnswerer (+AnswerPolicy) writes an answer from the chunks read, ExactAnswerer runs an exact plan; ResultPhraser/render_result word the result (shared by the original router and the new pipeline)
+│   ├── answering.py          # GroundedAnswerer (+AnswerPolicy) writes an answer from the chunks read, ExactAnswerer runs an exact plan; ResultPhraser/render_result word the result 
 │   ├── inflection.py         # strip_case_ending: a Hungarian case ending glued to an identifier ("…/4-es"); the language layer, kept out of the generic rules
 │   ├── outcome.py            # Answerable / Declined(reason, stage) (a refusal is a value, not an empty list), RefusalRenderer and the wording of every refusal, in one place
 │   ├── decision.py           # Scope / ScopeResolver (which documents), Decision (ReadDocuments | AnswerExactly | Refuse), PlanningDecider, ProfileSelector
@@ -90,9 +88,9 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── profiles.py           # registered profiles (hybrid, vector), ProfileResolver, PipelineFactory (built per query)
 │   ├── runner.py             # RetrievalPipeline: validates the chain, runs it, tells observers; TraceRecorder
 │   ├── observers.py          # progress and audit-log observers (steps never log)
-│   ├── legacy_trace.py       # LegacyTraceProjection: the original trace keys, for funnel / retrieval-snapshot
 │   ├── service.py            # RetrievalService.retrieve: one entry, owns the store session
-│   ├── query_service.py      # QueryService.answer: decide -> refuse | answer exactly | retrieve and write; returns the text with an Explain (QUERY_ENGINE=v2 routes query_knowledge_base through it)
+│   ├── query_service.py      # QueryService.answer: decide -> refuse | answer exactly | retrieve and write; returns the text with an Explain
+│   ├── knowledge_base.py     # query_knowledge_base (the agent's entry point) and search_knowledge_base (passages only, for the MCP)
 │   └── composition.py        # build_retrieval_service / build_query_service: the one place that reads Settings and the driver factories
 ├── migrations/              # Python migrations (Laravel-artisan-style runner)
 │   ├── base.py                # Migration ABC: up()/down() run raw SQL, no ORM
@@ -120,8 +118,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── decisions.md          # Engineering decision & bug-log history (the "why" behind this README)
 │   ├── architecture.md       # Pipeline diagrams, Strategy/Driver table, and the index of every switch + its measured effect (the "how it flows")
 │   ├── structured-metadata-design.md  # Typed per-document metadata + query planner/router, for counting/listing questions (built; status line at the top)
-│   ├── query-workflow.md     # The question-to-answer path of the original retrieval at file/method level, with its decision points and tangles
-│   └── query-pipeline-design.md  # Design and build status of the step-based retrieval that replaces it (QUERY_ENGINE=v2)
+│   └── query-pipeline-design.md  # Design, build status and decisions of the query pipeline (decision, retrieval, answering)
 ├── corpus/                  # The real-estate-law evaluation corpus "sub-app" — see corpus/cli.py
 │   ├── cli.py                # Thin Typer entrypoint: merges commands/ modules via add_typer()
 │   ├── commands/
@@ -130,12 +127,11 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   │   ├── eval.py            # `eval` command: persona-bucketed golden-set accuracy + citation correctness
 │   │   ├── compute_hub_scores.py  # `compute-hub-scores` command (CSLS hub_score batch pass)
 │   │   ├── coverage.py        # `coverage` command: how much of the golden set is answerable now; flags missing hub scores
-│   │   ├── compare_retrieval.py  # `compare-retrieval` command: retrieval-only A/B of identifier-guarantee / period options
 │   │   ├── funnel.py          # `funnel` command: per-step retrieval trace (in, out, time, which step dropped a golden document)
 │   │   ├── meta_accuracy.py   # `meta-accuracy` command: extracted metadata vs meta.csv (measurement truth only)
 │   │   └── meta_plan_eval.py  # `meta-plan-eval` command: planner + compiler scored on generated count/list questions
-│   │   ├── retrieval_snapshot.py  # `retrieval-snapshot` command: pin and compare what retrieval returns (proves a refactor changed nothing; honours QUERY_ENGINE)
-│   │   ├── routing_eval.py    # `routing-eval` command: does the router pick the right flow (read / exact / not supported yet), and does a restriction select any document? planner only
+│   │   ├── retrieval_snapshot.py  # `retrieval-snapshot` command: pin and compare what retrieval returns (proves a change to the retrieval changed nothing it should not)
+│   │   ├── routing_eval.py    # `routing-eval` command: does the decider pick the right flow (read / exact / not supported yet), and does a restriction select any document? decider only, no retrieval, no answer
 │   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/
@@ -414,11 +410,11 @@ Since a chunk's words can now come from more than one page, `page_number` in its
 
 The retrieval side went through the same "own numbers, not just intuition" treatment as the chunking side above. This section is a direct answer to four things worth knowing about it: how search combines vector and keyword matching, how (and whether) results get reranked, how quality is actually measured, and what happens when nothing relevant exists.
 
-Two implementations of this path exist side by side while the second is being proven: the original (`QUERY_ENGINE=legacy`, the default) and a step-based one (`QUERY_ENGINE=v2`) that must give the same results; the switch is temporary. See `docs/query-pipeline-design.md`.
+The path from question to chunks is a short chain of small steps (`query/*_steps.py`) over one frozen context, chosen as a named profile; see `docs/query-pipeline-design.md` for the design and `docs/decisions.md` for how the original single-method implementation was replaced and proven equal.
 
 ### Hybrid search (vector + keyword, fused by rank)
 
-Pure cosine-similarity search (the original design) misses one common case: an exact name, number, or code-like token can score poorly on embedding similarity even when it's a perfect keyword match — the embedding "smooths over" exact tokens that a keyword search finds trivially. `query/retrieval.py`'s `retrieve_chunks()` runs **both**, by default:
+Pure cosine-similarity search (the original design) misses one common case: an exact name, number, or code-like token can score poorly on embedding similarity even when it's a perfect keyword match — the embedding "smooths over" exact tokens that a keyword search finds trivially. The `hybrid` profile (`query/profiles.py`, run by `query/service.py`) runs **both**, by default:
 
 - `VectorStore.search()` — pgvector cosine similarity (unchanged).
 - `VectorStore.search_fulltext()` — Postgres full-text search over a generated `tsvector` column (`migrations/0002_add_fulltext_search.py`), using the `simple` text-search configuration deliberately, not `english`/`hungarian` — the corpus mixes both languages, and a single language-specific configuration (with its stemming and stopword list) would only serve one of them well.
@@ -427,7 +423,7 @@ The two ranked lists are combined with **Reciprocal Rank Fusion** (`query/hybrid
 
 **A real bug this surfaced**, found while building the eval script below, not by inspection: `search_fulltext()` originally passed the raw question straight into `websearch_to_tsquery('simple', question)`. Because `simple` has no stopword list (that's exactly why it was chosen — see above), every word of the question — including grammar words like "milyen"/"used"/"is" — became a **mandatory** term (`websearch_to_tsquery` ANDs bare words together). A real chunk almost never contains a question's grammar words verbatim, so keyword search was silently returning **zero results for nearly every natural-language question**, undetected until the eval script's real numbers showed `0 keyword result(s)` on every single run. The fix: the question's words are OR-joined (`" or ".join(query_text.split())`) before being passed to `websearch_to_tsquery`, so a chunk matching *any* of the question's content words now contributes to the fusion, ranked by how many/how prominently they matched. Covered by both a unit test (asserts the OR-joined string reaches the query) and a DB test (a real sentence full of grammar words that would have failed pre-fix).
 
-Which retrieval path runs is itself a Strategy (`query/retrieval.py`'s `RetrievalStrategy` ABC, same shape as every other driver/strategy in this project), controlled by `RETRIEVAL_STRATEGY` (`.env`, default `hybrid`): `hybrid` (`HybridRetrievalStrategy`) is everything described above; `vector` (`VectorRetrievalStrategy`) skips keyword search and fusion entirely, reproducing the pre-hybrid-search behavior exactly (same `min_score` filtering, same ordering). Kept as a real, selectable strategy rather than a one-off comparison hack specifically so `scripts/eval_cli.py eval` (`make eval`) measures the actual production code path, not a hand-rolled stand-in that could quietly drift out of sync with it. In practice there's little reason to prefer `vector` day-to-day — hybrid search only ever adds recall on top of it, at negligible extra cost (one more indexed Postgres query and a pure fusion function, no model involved) — its main use is exactly that eval/debug comparison.
+Which retrieval path runs is a registered profile (`query/profiles.py`: an ordered list of steps), chosen by name from `RETRIEVAL_STRATEGY` (`.env`, default `hybrid`) or by the decision: `hybrid` is everything described above; `vector` skips keyword search and fusion entirely, reproducing the pre-hybrid-search behavior exactly (same `min_score` filtering, same ordering). Kept as a real, selectable strategy rather than a one-off comparison hack specifically so `scripts/eval_cli.py eval` (`make eval`) measures the actual production code path, not a hand-rolled stand-in that could quietly drift out of sync with it. In practice there's little reason to prefer `vector` day-to-day — hybrid search only ever adds recall on top of it, at negligible extra cost (one more indexed Postgres query and a pure fusion function, no model involved) — its main use is exactly that eval/debug comparison.
 
 ### Reranking (on by default)
 
@@ -441,7 +437,7 @@ Controlled by `RERANKER_DRIVER` (`.env`, default `cross_encoder`) — a Strategy
 
 ### How quality is measured
 
-`scripts/eval_cli.py eval` (`make eval`) + `scripts/eval_data/sample_questions.json` — **25 bilingual questions** (19 answerable, 6 deliberately unanswerable) across three committed fixtures (`tests/data/sample.md`, `tests/data/sample.pdf`, `tests/data/sample_hu.md` — an Hungarian enterprise IT policy). It runs every question through `retrieve_chunks()` with each `RetrievalStrategy` swapped in explicitly — **vector-only** (`VectorRetrievalStrategy`) and **hybrid+rerank** (`HybridRetrievalStrategy`, with whatever `RERANKER_DRIVER` is currently configured) — through the exact same production code path, not a hand-rolled duplicate, and reports:
+`scripts/eval_cli.py eval` (`make eval`) + `scripts/eval_data/sample_questions.json` — **25 bilingual questions** (19 answerable, 6 deliberately unanswerable) across three committed fixtures (`tests/data/sample.md`, `tests/data/sample.pdf`, `tests/data/sample_hu.md` — an Hungarian enterprise IT policy). It runs every question through the retrieval service with each profile selected explicitly — **vector-only** (the `vector` profile) and **hybrid+rerank** (the `hybrid` profile, with whatever `RERANKER_DRIVER` is currently configured) — through the exact same production code path, not a hand-rolled duplicate, and reports:
 
 - **Passage Hit@1**: did the passage containing the expected gold fact land at rank 1?
 - **Passage Recall@k**: did it land anywhere in the top-k?
@@ -493,7 +489,7 @@ Language breakdown for `hybrid+rerank (cross_encoder)`:
 
 Two independent layers, not one:
 
-1. **Retrieval-layer gate** (`query/retrieval.py`'s `_passes_relevance_gate`): if *nothing* in the vector-search candidate pool clears `RETRIEVAL_MIN_SCORE`, `query_knowledge_base()` returns `NO_RESULTS_MESSAGE` immediately — no LLM call at all. This deliberately checks pure vector cosine similarity only, never the fused RRF/reranker score: cosine similarity lives on a calibrated [0, 1] scale with a meaningful "too-low-to-be-relevant" interpretation (the original motivation for `RETRIEVAL_MIN_SCORE=0.25`). This catches questions genuinely unrelated to anything in the knowledge base.
+1. **Retrieval-layer gate** (`RelevanceGateStep`, `query/gate_steps.py`): if *nothing* in the vector-search candidate pool clears `RETRIEVAL_MIN_SCORE`, `query_knowledge_base()` returns `NO_RESULTS_MESSAGE` immediately — no LLM call at all. This deliberately checks pure vector cosine similarity only, never the fused RRF/reranker score: cosine similarity lives on a calibrated [0, 1] scale with a meaningful "too-low-to-be-relevant" interpretation (the original motivation for `RETRIEVAL_MIN_SCORE=0.25`). This catches questions genuinely unrelated to anything in the knowledge base.
 2. **Cross-encoder reranking gate** (`RERANKER_DRIVER=cross_encoder`, the default): when enabled, `CrossEncoderRerankerDriver` scores each `(question, chunk)` pair jointly and discards any chunk scoring below `RERANKER_MIN_SCORE=-2.0` on the logit scale. This is a *second* gate that fires *after* the cosine gate — it operates on the already-filtered candidate pool, not the raw corpus. Its logit scale (unbounded, centered around 0) has a natural "irrelevant" region confirmed empirically: relevant chunks score +2 to +6, clearly irrelevant ones score -3.5 to -9. With `cross_encoder` enabled, the measured `Fallback = 1.00` (6/6 unanswerable queries correctly rejected at the retrieval layer, zero reaching the LLM), vs. `Fallback = 0.00` without it — a 6-chunk saving per irrelevant query with no LLM call at all.
 
   **Caveat:** `-2.0` was calibrated on the same 6 unanswerable questions that the `Fallback = 1.00` number above is then measured against — that's training-set accuracy, not a demonstrated generalization to unseen questions. Validating it properly needs a larger, independent eval set that wasn't used for tuning.
@@ -505,7 +501,7 @@ The default LLM model is pinned to `google/gemini-3.1-flash-lite` (via OpenRoute
 
 ## Local Diagnostic & Evaluation Scripts
 
-Three hand-runnable `eval_cli.py` subcommands, no test framework involved — point them at a real document (or the committed fixtures) and read the output. Each one uses the exact same production code the real pipeline does (extractors, `chunk_document()`, `retrieve_chunks()`), never a reimplementation, so what they show is what `add_document()`/`query_knowledge_base()` would actually do.
+Three hand-runnable `eval_cli.py` subcommands, no test framework involved — point them at a real document (or the committed fixtures) and read the output. Each one uses the exact same production code the real pipeline does (extractors, `chunk_document()`, the retrieval service), never a reimplementation, so what they show is what `add_document()`/`query_knowledge_base()` would actually do.
 
 | Subcommand | What it's for | Run it |
 |---|---|---|
@@ -525,7 +521,7 @@ All three fall back to `TEST_DOC_PATH` (`.env`) when no path is given, except `e
 
 **Transport is stdio, not HTTP** — the host (Claude Desktop) spawns `mcp_server.py` itself and talks over stdin/stdout, which is what "add a local MCP server" means and needs no extra infrastructure. A network-reachable version (FastAPI + Docker) would only matter for a *remotely* accessible server and isn't built.
 
-**The retrieval tool is named `search_knowledge_base`, not `query_knowledge_base`, and deliberately doesn't call this project's own `LLM_DRIVER`** — it wraps `query.retrieval.retrieve_chunks()` directly and returns the raw excerpts (`content`/`source_file`/`page_number`), not a generated answer. The point: the MCP *host's own model* (e.g. whatever Claude Desktop is already running) writes the final grounded answer from those excerpts, in its own conversation turn — no extra API call or cost to this project at all. The grounding instruction ("answer only from these excerpts, say so if they don't answer the question") is carried in the tool's `description`, the same mechanism `drivers/llm.py`'s own prompt uses, just addressed to the host model instead of `LLM_DRIVER`.
+**The retrieval tool is named `search_knowledge_base`, not `query_knowledge_base`, and deliberately doesn't call this project's own `LLM_DRIVER`** — it wraps `query.knowledge_base.search_knowledge_base()` (the retrieval service, no planner) and returns the raw excerpts (`content`/`source_file`/`page_number`), not a generated answer. The point: the MCP *host's own model* (e.g. whatever Claude Desktop is already running) writes the final grounded answer from those excerpts, in its own conversation turn — no extra API call or cost to this project at all. The grounding instruction ("answer only from these excerpts, say so if they don't answer the question") is carried in the tool's `description`, the same mechanism `drivers/llm.py`'s own prompt uses, just addressed to the host model instead of `LLM_DRIVER`.
 
 **`search_knowledge_base` alone wasn't reliable in practice — `/my-docs` is the fix.** Tested for real in Claude Desktop: asked about "the Player Central MVP's technology stack," and got back a detailed, entirely wrong answer (a Laravel/Nuxt-4/Stripe+Billingo stack) — nothing like the actual fixture content. The model hadn't used the tool's results at all; it answered from its own memory of an unrelated, same-named real project. A `tools` call is the *model's own judgment call*, and that judgment isn't trustworthy enough to rely on alone, even with a strongly-worded description. The fix is a `my-docs` **prompt** (a different MCP primitive from `tools`) — `/my-docs <question>` in Claude Desktop is *user*-invoked, so the instruction to call `search_knowledge_base` and answer only from its results becomes mandatory, not a suggestion the model can talk itself out of. Confirmed working afterward: forcing tool-only mode surfaced an honest, grounded, partial answer instead (see `docs/decisions.md`'s bug 4 for what that partial answer actually revealed) rather than a confident wrong one — though a second real test showed Claude Desktop's own memory feature *still* contributed alongside a correct, transparent tool call (labeled separately, not conflated — but still there). Tightened `/my-docs`'s wording further as a result ("no other tool", "every claim traceable to a specific excerpt") — a best-effort improvement, not a guarantee, since that memory feature is client-side and outside what any MCP prompt can necessarily override. For consistency, `drivers/llm.py`'s own system prompt (used by `query_knowledge_base()`'s `LLM_DRIVER` call, a separate code path from MCP entirely) got the same tightening: explicitly forbids outside/training knowledge and requires saying what's missing on a partial match, not just citing sources.
 
@@ -563,8 +559,9 @@ An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast appro
 
 A snapshot of major completed phases, newest first. Each phase's specific decisions/numbers live in `docs/decisions.md`; this list is just "what's done," not "why."
 
-- [x] **Step-based retrieval beside the original** — the path from question to chunks rewritten as small classes (one frozen context, steps that declare what they read and provide, registered profiles, an explicit `Declined` result, observers for logging), reachable with `QUERY_ENGINE=v2` and proven identical to the original on every characterization scenario and on live snapshots under five settings; the funnel reads its per-step records. The original stays the default until the golden eval is repeated; see `docs/query-pipeline-design.md` and `docs/decisions.md`.
-- [x] **Structured metadata and a query planner/router** — typed, verified, per-document metadata (document types, a key catalog, extraction with quoted evidence and statuses, an `identifier` type with one normalised comparison rule), and an opt-in router (`QUERY_ROUTER`): count / list / sum / overview questions are answered exactly from SQL, content questions are read inside the documents the filters select, and a request that cannot be done yet (documents *similar* to a named one) is said so plainly.
+- [x] **Query pipeline rewrite** — decision, retrieval and answering rebuilt as small classes with one responsibility each (a decider that returns `ReadDocuments | AnswerExactly | Refuse`, a scope that says which documents may be read, a retrieval of named steps over one frozen context, a grounded answerer and an exact answerer, an `Explain` with every answer). Proven equal to the original on the characterization scenarios, on live snapshots and on the golden questions, then the original (`retrieve_chunks`, `QueryRouter`, the identifier pin) and the `QUERY_ROUTER` / `QUERY_ENGINE` / `ANSWER_PARTIAL_COVERAGE` switches were deleted. See `docs/query-pipeline-design.md` and `docs/decisions.md`.
+- [x] **Step-based retrieval beside the original** — the path from question to chunks rewritten as small classes (one frozen context, steps that declare what they read and provide, registered profiles, an explicit `Declined` result, observers for logging), reachable with `QUERY_ENGINE=v2` and proven identical to the original on every characterization scenario and on live snapshots under five settings; the funnel reads its per-step records (the first stage of the rewrite above).
+- [x] **Structured metadata and a query planner/router** — typed, verified, per-document metadata (document types, a key catalog, extraction with quoted evidence and statuses, an `identifier` type with one normalised comparison rule), and a planner that decides how every question is answered: count / list / sum / overview questions are answered exactly from SQL, content questions are read inside the documents the filters select, and a request that cannot be done yet (documents *similar* to a named one) is said so plainly.
 - [x] **Retrieval-quality hardening on the Hungarian legal corpus** — embedding model switched to one actually evaluated on non-English text; `hungarian` full-text search config; `document_date` extraction; a fix for an identifier-match flooding bug; "lost in the middle" prompt reordering; CSLS hub-score re-ranking and an optional `document_summary` chunk enrichment + listwise LLM rerank for near-duplicate documents.
 - [x] **Golden-set measurement infrastructure** — `corpus/cli.py eval` (persona-bucketed accuracy + citation correctness, dual grading strategies — exact-match vs. independent-fact-verification — per persona), `coverage` (how much of the golden set is answerable against the current, possibly-partial corpus), and per-question retrieval-miss rank diagnostics.
 - [x] **Real-estate-law evaluation corpus** — `corpus/` sub-app: downloading real Hungarian court decisions, drafting+verifying golden questions per user persona (`corpus/data/personas.json`), and the `Typer`-based `corpus/cli.py`.

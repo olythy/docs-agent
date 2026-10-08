@@ -1,4 +1,4 @@
-"""Tests for corpus.commands.funnel's pure helpers and models.RetrievalTrace."""
+"""Tests for corpus.commands.funnel's pure helpers"""
 
 from corpus.commands.funnel import (
     court_of,
@@ -7,7 +7,7 @@ from corpus.commands.funnel import (
     satisfies,
     verdict,
 )
-from models import ChunkMetadata, RetrievalTrace, RetrievedChunk
+from models import ChunkMetadata, RetrievedChunk
 
 
 def _chunk(chunk_id, source):
@@ -54,19 +54,6 @@ def test_satisfies_checks_only_the_constraints_the_question_states():
     assert satisfies(egri, None, set(), [])
     # a year is required but the document has no date: cannot be shown to qualify
     assert not satisfies(egri, None, set(), [2022])
-
-
-def test_retrieval_trace_records_a_copy_per_stage_in_pipeline_order():
-    trace = RetrievalTrace()
-    chunks = [_chunk(1, "a.docx")]
-
-    trace.record("vector", chunks)
-    chunks.append(_chunk(2, "b.docx"))  # later mutation must not leak in
-    trace.record("final", chunks)
-
-    assert list(trace.stages) == ["vector", "final"]
-    assert len(trace.stages["vector"]) == 1
-    assert len(trace.stages["final"]) == 2
 
 
 def test_verdict_flags_a_final_context_dominated_by_few_documents():

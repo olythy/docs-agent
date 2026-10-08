@@ -13,7 +13,7 @@ Three classes with one job each, which the decision (``query.decision``) only ch
   presented as exact.
 
 Key exports:
-    AnswerPolicy     -- How the model is asked to answer (partial coverage, dates shown).
+    AnswerPolicy     -- How the model is asked to answer (whether dates are shown).
     GroundedAnswer   -- The text, and whether it is the model's own refusal.
     GroundedAnswerer -- Writes an answer from the chunks read.
     ExactAnswerer -- Executes an exact plan and words the result.
@@ -42,12 +42,9 @@ class AnswerPolicy:
     """How the model is asked to answer.
 
     Attributes:
-        partial_coverage: Answer with what the excerpts show instead of refusing
-            whenever one of them is relevant.
         expose_document_date: Show each excerpt's document date.
     """
 
-    partial_coverage: bool
     expose_document_date: bool
 
 
@@ -87,7 +84,6 @@ class GroundedAnswerer:
         system_prompt, user_message = _build_prompt(
             question,
             list(chunks),
-            partial_coverage=self._policy.partial_coverage,
             expose_document_date=self._policy.expose_document_date,
         )
         text = self._driver.generate(system_prompt, user_message, self._max_tokens)

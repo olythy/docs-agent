@@ -91,3 +91,52 @@ def test_the_routers_other_plain_refusals_are_declines_too():
     assert not looks_like_a_decline(
         "The supported claim was granted."
     )  # not just any "support"
+
+
+class TestRetrievalFn:
+    """The benchmark reads chunks from the retrieval service, per profile."""
+
+    def chunk(self, i):
+        from models import ChunkMetadata, RetrievedChunk
+
+        return RetrievedChunk(
+            id=i,
+            content="c",
+            metadata=ChunkMetadata(source_file="a.pdf", page_number=1, chunk_index=i),
+            score=0.5,
+        )
+
+    def service(self, outcome):
+        from query.service import RetrievalResult
+
+        calls = []
+
+        class Fake:
+            def retrieve(self, request, store):
+                calls.append(request)
+                return RetrievalResult(outcome, ())
+
+        return Fake(), calls
+
+    def test_it_returns_the_selected_chunks_for_the_profile_with_the_precomputed_vector(
+        self,
+    ):
+        from query.outcome import Answerable
+
+        service, calls = self.service(Answerable((self.chunk(1), self.chunk(2))))
+
+        chunks = eval_cli_module._retrieval_fn(service, "vector", {"q": [0.1, 0.2]})(
+            "q"
+        )
+
+        assert [c.id for c in chunks] == [1, 2]
+        assert (calls[0].profile, calls[0].query_vector) == ("vector", [0.1, 0.2])
+
+    def test_a_refusal_is_no_chunks(self):
+        from query.outcome import Declined, DeclineReason
+
+        service, _ = self.service(
+            Declined(DeclineReason.NOT_RELEVANT, "relevance_gate")
+        )
+
+        assert eval_cli_module._retrieval_fn(service, "hybrid", {"q": []})("q") == []

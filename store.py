@@ -1,7 +1,7 @@
 """Vector store: all document_chunks persistence (save + search).
 
 Owns the only SQL that touches the document_chunks table. The orchestrator
-functions (ingestion.ingest.add_document, query.retrieval.query_knowledge_base)
+functions (ingestion.ingest.add_document, query.knowledge_base.query_knowledge_base)
 never build or execute SQL themselves — they call VectorStore.save()/.search()/
 .search_fulltext().
 
@@ -280,9 +280,9 @@ def extract_identifier_tokens(query_text: str) -> list[str]:
     which tokens look like identifiers, document-type-agnostic (a court
     case number, an invoice number like "HU001", a contract reference —
     none of these should need their own hardcoded pattern); what the
-    caller does with them (a direct, unranked text match --
-    :meth:`VectorStore.search_by_identifier`) is what actually rescues them
-    from the ranking problem.
+    caller does with them is its own business (the query facts keep them for
+    the scope, the chunker stores them with the document; a direct, unranked
+    text match is :meth:`VectorStore.search_by_identifier`).
 
     A token counts as identifier-like if it is not a plain word and not a
     short plain number:
@@ -635,7 +635,7 @@ class VectorStore:
             years: Optional years; only chunks whose ``document_date`` falls
                 in one of them are considered (documents without a date are
                 excluded from this call -- callers that want them back run
-                an unfiltered search too, see ``query.retrieval``).
+                an unfiltered search too, see ``query.service``).
 
         Returns:
             A list of :class:`models.RetrievedChunk` ordered by descending
@@ -726,7 +726,7 @@ class VectorStore:
         reasoning scored just as "similar to many other chunks" as actual
         copy-pasted boilerplate -- a hard threshold can't tell those
         apart. A continuous penalty applied at *query* time (CSLS-style,
-        see :func:`query.retrieval._csls_rerank`) never excludes anything
+        see :class:`query.candidate_steps.CslsReorderStep`) never excludes anything
         outright, so it can't repeat that failure mode; confirmed live on
         the same real test case that CSLS re-ranking alone (no exclusion)
         moved a known-correct document from rank 16 to rank 6 of 19 real
@@ -938,7 +938,7 @@ class VectorStore:
 
         Returns:
             Matching chunks, each with a placeholder ``score`` (1.0) — the
-            caller (:class:`query.retrieval.HybridRetrievalStrategy`)
+            caller (the ``hybrid`` profile of ``query.profiles``)
             doesn't rank these against the vector/full-text results, it
             merges them in directly, and the reranker re-scores everything
             downstream anyway.

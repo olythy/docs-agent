@@ -25,7 +25,6 @@ from query.decision import (
     Refuse,
     Scope,
     ScopeResolver,
-    UnplannedDecider,
 )
 from query.facts import QueryFacts
 from query.outcome import DeclineReason
@@ -249,11 +248,28 @@ def test_the_planner_is_asked_the_question_once():
     assert planner.questions == ["What did the court decide?"]
 
 
-class TestUnplannedDecider:
-    def test_it_reads_everything_unrestricted_without_asking_a_planner(self):
-        decision = UnplannedDecider(ProfileSelector("vector")).decide(facts("anything"))
+def test_as_routed_turns_an_exact_plan_with_a_residual_into_a_lookup_and_leaves_the_rest():
+    from metadata.plan import Filter, FilterOp, Operation, QueryPlan
+    from query.decision import as_routed
 
-        assert isinstance(decision, ReadDocuments)
-        assert decision.plan is None
-        assert decision.scope == Scope()
-        assert decision.profile == "vector"
+    filters = (Filter("issuing_body", FilterOp.EQ, "X"),)
+    exact_with_residual = QueryPlan(
+        "court_decision",
+        Operation.COUNT,
+        filters,
+        group_by="document_kind",
+        residual="limitation",
+    )
+    exact = QueryPlan("court_decision", Operation.COUNT, filters)
+    lookup = QueryPlan(
+        "court_decision", Operation.LOOKUP, filters, residual="limitation"
+    )
+    unsupported = QueryPlan(None, Operation.UNSUPPORTED, reason="similar", residual="x")
+
+    routed = as_routed(exact_with_residual)
+
+    assert routed.operation is Operation.LOOKUP and routed.group_by is None
+    assert routed.filters == filters and routed.doc_type == "court_decision"
+    assert as_routed(exact) is exact
+    assert as_routed(lookup) is lookup
+    assert as_routed(unsupported) is unsupported  # never turned into a search

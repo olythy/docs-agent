@@ -129,15 +129,14 @@ def test_the_grader_reads_only_a_few_cited_documents_and_says_so(monkeypatch):
 
 
 class TestAnswerAndRetrieved:
-    """On ``QUERY_ENGINE=v2`` the eval asks the query service once, and grades the chunks
-    its explanation holds."""
+    """The eval asks the query service once, and grades the chunks its explanation holds."""
 
     def test_v2_asks_the_service_once_with_the_strategy_as_the_profile(
-        self, monkeypatch, settings_override
+        self, monkeypatch
     ):
         import query.composition as composition_module
         from corpus.commands.eval import _answer_and_retrieved
-        from models import ChunkMetadata, RetrievalTrace, RetrievedChunk
+        from models import ChunkMetadata, RetrievedChunk
         from query.decision import ReadDocuments, Scope
         from query.facts import QueryFacts
         from query.outcome import Answerable
@@ -156,17 +155,58 @@ class TestAnswerAndRetrieved:
             def answer(self, question, **kwargs):
                 calls.append((question, kwargs))
                 decision = ReadDocuments(QueryFacts(question), None, "vector", Scope())
-                result = RetrievalResult(Answerable((chunk,)), (), RetrievalTrace())
+                result = RetrievalResult(Answerable((chunk,)), ())
                 return Answer("TEXT", Explain(decision, result))
 
-        monkeypatch.setattr(
-            "config.settings", settings_override(QUERY_ENGINE="v2"), raising=False
-        )
         monkeypatch.setattr(
             composition_module, "build_query_service", lambda settings: FakeService()
         )
 
-        answer, chunks = _answer_and_retrieved("Q?", None, "vector")
+        answer, chunks = _answer_and_retrieved("Q?", "vector")
 
         assert (answer, chunks) == ("TEXT", [chunk])
         assert calls == [("Q?", {"profile": "vector"})]
+
+
+class TestCitationRanks:
+    """The diagnostic ranks each cited document in a wide pool, over all documents."""
+
+    def test_documents_are_ranked_by_first_appearance_and_missing_ones_are_none(
+        self, monkeypatch
+    ):
+        import query.composition as composition_module
+        from corpus.commands.eval import DIAGNOSTIC_POOL_SIZE, _citation_ranks
+        from models import ChunkMetadata, RetrievedChunk
+        from query.outcome import Answerable
+        from query.service import RetrievalResult
+
+        def chunk(i, source):
+            return RetrievedChunk(
+                id=i,
+                content="c",
+                metadata=ChunkMetadata(
+                    source_file=source, page_number=1, chunk_index=i
+                ),
+                score=0.5,
+            )
+
+        requests = []
+
+        class FakeRetrieval:
+            def retrieve(self, request, store):
+                requests.append((request, store))
+                chunks = (chunk(1, "a.pdf"), chunk(2, "a.pdf"), chunk(3, "b.pdf"))
+                return RetrievalResult(Answerable(chunks), ())
+
+        monkeypatch.setattr(
+            composition_module, "build_retrieval_service", lambda s: FakeRetrieval()
+        )
+
+        ranks = _citation_ranks(
+            "q", [{"source_file": "b.pdf"}, {"source_file": "z.pdf"}], "hybrid"
+        )
+
+        assert ranks == {"b.pdf": 2, "z.pdf": None}
+        request, _ = requests[0]
+        assert (request.profile, request.top_k) == ("hybrid", DIAGNOSTIC_POOL_SIZE)
+        assert request.scope is None  # over all documents

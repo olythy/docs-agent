@@ -3,10 +3,8 @@ in test_query_router.py, where the phraser was first written)."""
 
 import pytest
 
-import query.router as router_module
 from metadata.executor import PlanResult
 from metadata.plan import Filter, FilterOp, Operation, PlanError, QueryPlan
-from query import answering
 from query.answering import ExactAnswerer
 
 PLAN = QueryPlan(
@@ -68,7 +66,3 @@ class TestExactAnswerer:
 
         with pytest.raises(PlanError, match="unknown key"):
             answerer.answer("q", PLAN)
-
-
-def test_the_wording_has_one_source_that_the_original_router_uses_too():
-    assert router_module.ResultPhraser is answering.ResultPhraser

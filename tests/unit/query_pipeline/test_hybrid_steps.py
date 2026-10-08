@@ -2,14 +2,9 @@
 
 The scenarios (``test_retrieval_characterization.py``) pin what the whole chain does on
 a small corpus. These tests cover what a fake store cannot show (the arguments a step
-passes to the store) and compare the two steps that were *ported* from the original
-functions against those functions on many random inputs, so a slip in the port cannot
-hide behind the few scenarios.
+passes to the store) and the rules of the two steps that were ported from the original
+functions (the hubness reorder and the final cut with its year quota).
 """
-
-import random
-
-import pytest
 
 from logger import EventLogger
 from models import ChunkMetadata, RetrievedChunk
@@ -23,7 +18,6 @@ from query.context import RetrievalContext
 from query.facts import QueryFacts
 from query.gate_steps import RerankScoreGateStep
 from query.observers import AuditLogObserver
-from query.retrieval import _apply_top_k_with_guarantees, _csls_rerank
 from query.selection_steps import TopKWithGuaranteesStep
 from query.step import Continue, Halt
 
@@ -252,65 +246,98 @@ class TestRerankScoreGate:
         }
 
 
-def random_chunks(rng: random.Random, n: int) -> list[RetrievedChunk]:
-    sources = ["a.docx", "b.docx", "c.docx"]
-    dates = ["2020-01-01", "2021-05-05", "2022-09-09", None]
-    return [
-        chunk(
-            i,
-            score=round(rng.random(), 2),  # ties are likely on purpose
-            source=rng.choice(sources),
-            date=rng.choice(dates),
-            hub=rng.choice([None, round(rng.random(), 2)]),
-        )
-        for i in range(1, n + 1)
-    ]
-
-
-class TestPortedFunctionsAgreeWithTheOriginals:
-    """The steps are ports of private functions of ``query.retrieval``; on random
-    inputs (with score ties) they must give exactly what those functions give."""
-
-    @pytest.mark.parametrize("seed", range(150))
-    def test_top_k_with_guarantees(self, seed):
-        rng = random.Random(seed)
-        chunks = random_chunks(rng, rng.randint(0, 14))
-        chunks.sort(key=lambda c: -c.score)
-        top_k = rng.randint(1, 6)
-        diversify = rng.random() < 0.5
-        years = rng.choice([[], [2021], [2020, 2022]])
-        step = TopKWithGuaranteesStep(top_k, diversify, year_quota=bool(years))
-
-        result = step.run(
-            context(
-                facts=QueryFacts("q", years=tuple(years)),
-                ranked=tuple(chunks),
-            )
-        )
-
-        assert isinstance(result, Continue)
-        assert ids(result.context.selected or ()) == ids(
-            _apply_top_k_with_guarantees(
-                chunks, set(), top_k, diversify=diversify, years=years
-            )
-        )
-
-    @pytest.mark.parametrize("seed", range(150))
-    def test_csls(self, seed):
-        rng = random.Random(seed)
-        pool = random_chunks(rng, rng.randint(0, 12))
-
+class TestCslsReorder:
+    def reorder(self, pool):
         result = CslsReorderStep().run(context(dense_pool=tuple(pool)))
-
         assert isinstance(result, Continue)
-        assert ids(result.context.dense_pool or ()) == ids(_csls_rerank(pool))
-        assert all(
-            a.score == b.score
-            for a, b in zip(
-                sorted(result.context.dense_pool or (), key=lambda c: c.id),
-                sorted(pool, key=lambda c: c.id),
-            )
-        )  # raw scores untouched
+        return result.context.dense_pool or ()
+
+    def test_a_less_generic_chunk_is_promoted_above_a_higher_raw_score(self):
+        """The real near-duplicate-dilution case (docs/decisions.md): a lower raw score
+        with a *much* lower hub score beats a higher one that sits in the generic centre
+        of the embedding space."""
+        pool = [
+            chunk(1, 0.87, hub=0.98),  # generic, high raw score
+            chunk(2, 0.84, hub=0.90),  # less generic
+        ]
+
+        assert ids(self.reorder(pool)) == [2, 1]
+
+    def test_without_a_hub_score_the_raw_score_decides(self):
+        """No hub score yet (compute-hub-scores has not run, or a new chunk): neither a
+        crash nor a place at the bottom."""
+        pool = [chunk(1, 0.5), chunk(2, 0.9)]
+
+        assert ids(self.reorder(pool)) == [2, 1]
+
+    def test_the_raw_scores_are_untouched(self):
+        pool = [chunk(1, 0.87, hub=0.98), chunk(2, 0.84, hub=0.90), chunk(3, 0.5)]
+
+        out = self.reorder(pool)
+
+        assert {c.id: c.score for c in out} == {c.id: c.score for c in pool}
+
+
+class TestTopKYearQuota:
+    """The reranker knows nothing about dates, so off-year chunks kept the whole top_k."""
+
+    def select(self, chunks, top_k=4, years=(2022,), diversify=False):
+        result = TopKWithGuaranteesStep(top_k, diversify, year_quota=True).run(
+            context(facts=QueryFacts("q", years=tuple(years)), ranked=tuple(chunks))
+        )
+        assert isinstance(result, Continue)
+        return result.context.selected or ()
+
+    def test_half_the_slots_are_reserved_for_the_questions_years(self):
+        chunks = [
+            chunk(1, 0.9, "a.docx", "2019-01-01"),
+            chunk(2, 0.8, "b.docx", "2019-02-01"),
+            chunk(3, 0.7, "c.docx", "2018-03-01"),
+            chunk(4, 0.6, "d.docx", "2017-04-01"),
+            chunk(5, 0.5, "e.docx", "2022-05-01"),
+            chunk(6, 0.4, "f.docx", "2022-06-01"),
+        ]
+
+        result = self.select(chunks)
+
+        assert sorted(
+            c.id for c in result if (c.metadata.document_date or "")[:4] == "2022"
+        ) == [5, 6]
+        assert len(result) == 4
+
+    def test_nothing_changes_without_an_in_period_chunk(self):
+        chunks = [chunk(i, 1.0 - i / 10, "a.docx", "2019-01-01") for i in range(1, 7)]
+
+        assert ids(self.select(chunks)) == [1, 2, 3, 4]
+
+    def test_the_reserved_slots_take_turns_across_documents_when_diversifying(self):
+        chunks = [
+            chunk(1, 0.9, "x.docx", "2019-01-01"),
+            chunk(2, 0.8, "x.docx", "2019-01-01"),
+            chunk(3, 0.7, "a.docx", "2022-01-01"),
+            chunk(4, 0.6, "a.docx", "2022-01-01"),
+            chunk(5, 0.5, "b.docx", "2022-02-01"),
+        ]
+
+        result = self.select(chunks, diversify=True)
+
+        reserved = {c.metadata.source_file for c in result if c.id in {3, 4, 5}}
+        assert reserved == {"a.docx", "b.docx"}
+
+    def test_without_diversifying_one_document_may_take_every_reserved_slot(self):
+        chunks = [
+            chunk(1, 0.9, "x.docx", "2019-01-01"),
+            chunk(2, 0.8, "x.docx", "2019-01-01"),
+            chunk(3, 0.7, "a.docx", "2022-01-01"),
+            chunk(4, 0.6, "a.docx", "2022-01-01"),
+            chunk(5, 0.5, "b.docx", "2022-02-01"),
+        ]
+
+        result = self.select(chunks, diversify=False)
+
+        assert {c.metadata.source_file for c in result if c.id in {3, 4, 5}} == {
+            "a.docx"
+        }
 
 
 def test_the_year_quota_only_applies_when_the_profile_asks_for_it():

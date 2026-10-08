@@ -1,16 +1,21 @@
-"""Characterization tests: what the retrieval pipeline does today, pinned end to end.
+"""Characterization tests: what the retrieval pipeline does, pinned end to end.
 
-These do not say the behaviour is *right*; they say it is *this*. The retrieval
-path is the most heavily measured part of the system (see docs/decisions.md), and
-it is about to be restructured (steps pulled out of ``HybridRetrievalStrategy``,
-a shared state, profiles). Every such step must leave these results identical;
-when a result is *meant* to change, the change is made here on purpose, in the
-same commit, and explained.
+These do not say the behaviour is *right*; they say it is *this*. The retrieval path is the
+most heavily measured part of the system (see docs/decisions.md), so a change to a step,
+a profile or the order of the chain must leave these results identical; when a result is
+*meant* to change, the change is made here on purpose, in the same commit, and explained.
+
+The numbers of the scenarios without an identifier were first measured on the original
+engine (``retrieve_chunks`` with the strategy classes) and found identical on the new one;
+they were then carried over here unchanged under the step names (2026-10-08, the commit that
+deleted the original). The scenarios that name an identifier describe the new behaviour only:
+the original pulled the named document's chunks in with a text search, the new pipeline does
+not (the scope restricts the store to the named documents instead).
 
 A small deterministic corpus, a fake ``VectorStore`` that really filters by year /
-metadata and really searches by identifier, and a fake reranker run the whole of
-:func:`query.retrieval.retrieve_chunks`. For each scenario both the recorded stages
-(the ids each stage held: what ``funnel`` shows) and the final context are pinned.
+metadata, and a fake reranker run the whole retrieval service. For each scenario both the
+ids every step left (``<step>.<list>``: what ``funnel`` shows) and the final context are
+pinned.
 
 The corpus (id: cosine, document, year, what the text is about):
 
@@ -26,15 +31,12 @@ from dataclasses import replace
 
 import pytest
 
-import query.composition as composition_module
-import query.retrieval as retrieval_module
+from corpus.commands.retrieval_snapshot import stage_ids
 from drivers.reranker import CrossEncoderRerankerDriver, RerankerDriver
-from logger import EventLogger
-from models import ChunkMetadata, RetrievalTrace, RetrievedChunk
+from models import ChunkMetadata, RetrievedChunk
 from query.facts import QueryFactsReader
 from query.outcome import Answerable
 from query.profiles import PipelineFactory, ProfileResolver
-from query.retrieval import retrieve_chunks
 from query.service import RetrievalRequest, RetrievalService
 
 CASE = "10.P.20.100/2022/5"
@@ -190,7 +192,6 @@ class FakeListwise:
 
 
 _BASE_SETTINGS = {
-    "QUERY_ENGINE": "legacy",
     "RETRIEVAL_STRATEGY": "hybrid",
     "RERANKER_DRIVER": "cross_encoder",
     "RETRIEVAL_TOP_K": 4,
@@ -203,8 +204,7 @@ _BASE_SETTINGS = {
 }
 
 
-def _run_legacy(
-    monkeypatch,
+def run_scenario(
     settings_override,
     question,
     *,
@@ -213,49 +213,8 @@ def _run_legacy(
     metadata_filter=None,
     **settings,
 ):
-    """Run the original pipeline (``retrieve_chunks`` with the strategy classes).
-
-    A scenario is described engine-neutrally (settings overrides, a store, a reranker,
-    a metadata filter); an engine turns that into a run and returns the ids each
-    recorded stage held and the final ids.
-    """
-    base = {**_BASE_SETTINGS, **settings}
-    monkeypatch.setattr(retrieval_module, "settings", settings_override(**base))
-    monkeypatch.setattr(
-        retrieval_module, "get_embedding_driver", lambda: FakeEmbedding()
-    )
-    monkeypatch.setattr(
-        retrieval_module,
-        "get_reranker_driver",
-        lambda *a, **k: reranker or FakeCrossEncoder(),
-    )
-    monkeypatch.setattr(retrieval_module, "get_answer_driver", lambda: object())
-    monkeypatch.setattr(retrieval_module, "listwise_rerank", FakeListwise())
-    trace = RetrievalTrace()
-    chunks = retrieve_chunks(
-        question,
-        store=store or FakeStore(),  # type: ignore[arg-type]
-        trace=trace,
-        metadata_filter=metadata_filter,
-    )
-    return {k: [c.id for c in v] for k, v in trace.stages.items()}, [
-        c.id for c in chunks
-    ]
-
-
-def _run_v2(
-    monkeypatch,
-    settings_override,
-    question,
-    *,
-    store=None,
-    reranker=None,
-    metadata_filter=None,
-    **settings,
-):
-    """Run the new pipeline (``RetrievalService``) on the same neutral description."""
-    merged = {**_BASE_SETTINGS, **settings}
-    config = settings_override(**merged)
+    """Run the retrieval service on a scenario; the ids each step left, and the final ids."""
+    config = settings_override(**{**_BASE_SETTINGS, **settings})
     embedding = FakeEmbedding()
     service = RetrievalService(
         QueryFactsReader(),
@@ -280,51 +239,7 @@ def _run_v2(
         if isinstance(result.outcome, Answerable)
         else []
     )
-    return {k: [c.id for c in v] for k, v in result.trace.stages.items()}, final
-
-
-def _run_switch(
-    monkeypatch,
-    settings_override,
-    question,
-    *,
-    store=None,
-    reranker=None,
-    metadata_filter=None,
-    **settings,
-):
-    """Run the new pipeline the way production reaches it: ``retrieve_chunks`` with
-    ``QUERY_ENGINE=v2``, which builds the service from the settings and the drivers."""
-    config = settings_override(**{**_BASE_SETTINGS, "QUERY_ENGINE": "v2", **settings})
-    monkeypatch.setattr(retrieval_module, "settings", config)
-    monkeypatch.setattr(
-        composition_module, "get_embedding_driver", lambda: FakeEmbedding()
-    )
-    monkeypatch.setattr(
-        composition_module,
-        "get_reranker_driver",
-        lambda *a, **k: reranker or FakeCrossEncoder(),
-    )
-    monkeypatch.setattr(composition_module, "get_answer_driver", lambda: object())
-    monkeypatch.setattr(composition_module, "listwise_rerank", FakeListwise())
-    monkeypatch.setattr(
-        composition_module, "get_logger", lambda: EventLogger("/dev/null")
-    )
-    trace = RetrievalTrace()
-    chunks = retrieve_chunks(
-        question,
-        store=store or FakeStore(),  # type: ignore[arg-type]
-        trace=trace,
-        metadata_filter=metadata_filter,
-    )
-    return {k: [c.id for c in v] for k, v in trace.stages.items()}, [
-        c.id for c in chunks
-    ]
-
-
-#: engine name -> how to run a scenario on it. A new pipeline implementation is added
-#: here and must reproduce every ``EXPECTED`` result unchanged.
-ENGINES = {"legacy": _run_legacy, "v2": _run_v2, "switch": _run_switch}
+    return stage_ids(result.records), final
 
 
 QUESTION = "What about the costs of the proceedings?"
@@ -491,232 +406,229 @@ SCENARIOS = {
 EXPECTED = {
     "plain": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_csls": [1, 3, 5, 7, 2, 4],
-            "fulltext": [1, 3, 5],
-            "fused": [1, 3, 5, 7, 2, 4],
-            "reranked": [1, 3, 5, 7, 2, 4],
-            "listwise": [1, 3, 5],
-            "final": [1, 3, 5],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "csls_reorder.dense_pool": [1, 3, 5, 7, 2, 4],
+            "keyword_search.keyword_pool": [1, 3, 5],
+            "rrf_fusion.ranked": [1, 3, 5, 7, 2, 4],
+            "rerank.ranked": [1, 3, 5, 7, 2, 4],
+            "rerank_score_gate.ranked": [1, 3, 5],
+            "top_k_selection.selected": [1, 3, 5],
         },
         [1, 3, 5],
     ),
     "years": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_years": [3, 5, 7, 4, 6, 8],
-            "vector_csls": [1, 3, 5, 7, 2, 4, 6, 8],
-            "fulltext": [1, 3, 5, 9, 10, 11, 12, 13],
-            "fulltext_years": [3, 5, 13, 14],
-            "fused": [1, 3, 5, 7, 9, 2, 10, 4, 11, 6, 12, 8, 13, 14],
-            "reranked": [1, 3, 5, 7, 9, 2, 10, 4, 11, 6, 12, 8, 13, 14],
-            "listwise": [1, 3, 5],
-            "final": [3, 5, 1],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "year_dense_widening.dense_pool": [1, 3, 5, 7, 2, 4, 6, 8],
+            "year_dense_widening.year_pool": [3, 5, 7, 4, 6, 8],
+            "csls_reorder.dense_pool": [1, 3, 5, 7, 2, 4, 6, 8],
+            "keyword_search.keyword_pool": [1, 3, 5, 9, 10, 11, 12, 13],
+            "year_keyword_widening.keyword_pool": [1, 3, 5, 9, 10, 11, 12, 13, 14],
+            "year_keyword_widening.year_pool": [3, 5, 13, 14],
+            "rrf_fusion.ranked": [1, 3, 5, 7, 9, 2, 10, 4, 11, 6, 12, 8, 13, 14],
+            "rerank.ranked": [1, 3, 5, 7, 9, 2, 10, 4, 11, 6, 12, 8, 13, 14],
+            "rerank_score_gate.ranked": [1, 3, 5],
+            "top_k_selection.selected": [3, 5, 1],
         },
         [3, 5, 1],
     ),
     "period_filter_without_years": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_csls": [1, 3, 5, 7, 2, 4],
-            "fulltext": [1, 3, 5],
-            "fused": [1, 3, 5, 7, 2, 4],
-            "reranked": [1, 3, 5, 7, 2, 4],
-            "listwise": [1, 3, 5],
-            "final": [1, 3, 5],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "year_dense_widening.dense_pool": [1, 3, 5, 7, 2, 4],
+            "csls_reorder.dense_pool": [1, 3, 5, 7, 2, 4],
+            "keyword_search.keyword_pool": [1, 3, 5],
+            "year_keyword_widening.keyword_pool": [1, 3, 5],
+            "rrf_fusion.ranked": [1, 3, 5, 7, 2, 4],
+            "rerank.ranked": [1, 3, 5, 7, 2, 4],
+            "rerank_score_gate.ranked": [1, 3, 5],
+            "top_k_selection.selected": [1, 3, 5],
         },
         [1, 3, 5],
     ),
     "years_with_metadata_filter": (
         {
-            "vector": [3, 4],
-            "vector_years": [3, 4],
-            "vector_csls": [3, 4],
-            "fulltext": [3],
-            "fulltext_years": [3],
-            "fused": [3, 4],
-            "reranked": [3, 4],
-            "listwise": [3],
-            "final": [3],
+            "dense_search.dense_pool": [3, 4],
+            "year_dense_widening.dense_pool": [3, 4],
+            "year_dense_widening.year_pool": [3, 4],
+            "csls_reorder.dense_pool": [3, 4],
+            "keyword_search.keyword_pool": [3],
+            "year_keyword_widening.keyword_pool": [3],
+            "year_keyword_widening.year_pool": [3],
+            "rrf_fusion.ranked": [3, 4],
+            "rerank.ranked": [3, 4],
+            "rerank_score_gate.ranked": [3],
+            "top_k_selection.selected": [3],
         },
         [3],
     ),
     "another_reranker_has_no_score_gate": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_csls": [1, 3, 5, 7, 2, 4],
-            "fulltext": [1, 3, 5],
-            "fused": [1, 3, 5, 7, 2, 4],
-            "reranked": [1, 3, 5, 7, 2, 4],
-            "listwise": [1, 3, 5, 7, 2, 4],
-            "final": [1, 3, 5, 7],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "csls_reorder.dense_pool": [1, 3, 5, 7, 2, 4],
+            "keyword_search.keyword_pool": [1, 3, 5],
+            "rrf_fusion.ranked": [1, 3, 5, 7, 2, 4],
+            "rerank.ranked": [1, 3, 5, 7, 2, 4],
+            "top_k_selection.selected": [1, 3, 5, 7],
         },
         [1, 3, 5, 7],
     ),
     "one_identifier": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_csls": [1, 3, 5, 7, 2, 4],
-            "fulltext": [9, 10, 11, 12, 13, 14],
-            "identifier": [9, 10, 11, 12],
-            "fused": [1, 9, 3, 10, 5, 11, 7, 12, 2, 13, 4, 14],
-            "reranked": [1, 3, 5, 9, 10, 11, 7, 12, 2, 13, 4, 14],
-            "listwise": [1, 3, 5, 9, 10, 11, 12],
-            "final": [9, 10, 11, 12],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "csls_reorder.dense_pool": [1, 3, 5, 7, 2, 4],
+            "keyword_search.keyword_pool": [9, 10, 11, 12, 13, 14],
+            "rrf_fusion.ranked": [1, 9, 3, 10, 5, 11, 7, 12, 2, 13, 4, 14],
+            "rerank.ranked": [1, 3, 5, 9, 10, 11, 7, 12, 2, 13, 4, 14],
+            "rerank_score_gate.ranked": [1, 3, 5],
+            "top_k_selection.selected": [1, 3, 5],
         },
-        [9, 10, 11, 12],
+        [1, 3, 5],
     ),
     "two_identifiers_diversified": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_csls": [1, 3, 5, 7, 2, 4],
-            "fulltext": [9, 10, 11, 12, 13, 14],
-            "identifier": [9, 10, 11, 12, 13, 14],
-            "fused": [1, 9, 3, 10, 5, 11, 7, 12, 2, 13, 4, 14],
-            "reranked": [1, 3, 5, 9, 10, 11, 7, 12, 2, 13, 4, 14],
-            "listwise": [1, 3, 5, 9, 10, 11, 12, 13, 14],
-            "final": [9, 13, 10, 14],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "csls_reorder.dense_pool": [1, 3, 5, 7, 2, 4],
+            "keyword_search.keyword_pool": [9, 10, 11, 12, 13, 14],
+            "rrf_fusion.ranked": [1, 9, 3, 10, 5, 11, 7, 12, 2, 13, 4, 14],
+            "rerank.ranked": [1, 3, 5, 9, 10, 11, 7, 12, 2, 13, 4, 14],
+            "rerank_score_gate.ranked": [1, 3, 5],
+            "top_k_selection.selected": [1, 3, 5],
         },
-        [9, 13, 10, 14],
+        [1, 3, 5],
     ),
     "two_identifiers_not_diversified": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_csls": [1, 3, 5, 7, 2, 4],
-            "fulltext": [9, 10, 11, 12, 13, 14],
-            "identifier": [9, 10, 11, 12, 13, 14],
-            "fused": [1, 9, 3, 10, 5, 11, 7, 12, 2, 13, 4, 14],
-            "reranked": [1, 3, 5, 9, 10, 11, 7, 12, 2, 13, 4, 14],
-            "listwise": [1, 3, 5, 9, 10, 11, 12, 13, 14],
-            "final": [9, 10, 11, 12],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "csls_reorder.dense_pool": [1, 3, 5, 7, 2, 4],
+            "keyword_search.keyword_pool": [9, 10, 11, 12, 13, 14],
+            "rrf_fusion.ranked": [1, 9, 3, 10, 5, 11, 7, 12, 2, 13, 4, 14],
+            "rerank.ranked": [1, 3, 5, 9, 10, 11, 7, 12, 2, 13, 4, 14],
+            "rerank_score_gate.ranked": [1, 3, 5],
+            "top_k_selection.selected": [1, 3, 5],
         },
-        [9, 10, 11, 12],
+        [1, 3, 5],
     ),
     "identifier_and_topic": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_csls": [1, 3, 5, 7, 2, 4],
-            "fulltext": [1, 3, 5, 9, 10, 11],
-            "identifier": [9, 10, 11, 12],
-            "fused": [12, 1, 3, 5, 7, 9, 2, 10, 4, 11],
-            "reranked": [1, 3, 5, 12, 7, 9, 2, 10, 4, 11],
-            "listwise": [1, 3, 5, 12, 9, 10, 11],
-            "final": [12, 9, 10, 11],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "csls_reorder.dense_pool": [1, 3, 5, 7, 2, 4],
+            "keyword_search.keyword_pool": [1, 3, 5, 9, 10, 11],
+            "rrf_fusion.ranked": [1, 3, 5, 7, 9, 2, 10, 4, 11],
+            "rerank.ranked": [1, 3, 5, 7, 9, 2, 10, 4, 11],
+            "rerank_score_gate.ranked": [1, 3, 5],
+            "top_k_selection.selected": [1, 3, 5],
         },
-        [12, 9, 10, 11],
+        [1, 3, 5],
     ),
     "cross_encoder_rejects_everything": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_csls": [1, 3, 5, 7, 2, 4],
-            "fulltext": [1, 3, 5],
-            "fused": [1, 3, 5, 7, 2, 4],
-            "reranked": [1, 3, 5, 7, 2, 4],
-            "final": [],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "csls_reorder.dense_pool": [1, 3, 5, 7, 2, 4],
+            "keyword_search.keyword_pool": [1, 3, 5],
+            "rrf_fusion.ranked": [1, 3, 5, 7, 2, 4],
+            "rerank.ranked": [1, 3, 5, 7, 2, 4],
         },
         [],
     ),
-    "cosine_gate_fails": (
-        {
-            "vector": [1, 3, 5, 7, 2, 4],
-        },
-        [],
-    ),
+    "cosine_gate_fails": ({"dense_search.dense_pool": [1, 3, 5, 7, 2, 4]}, []),
     "listwise_rerank": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_csls": [1, 3, 5, 7, 2, 4],
-            "fulltext": [1, 3, 5],
-            "fused": [1, 3, 5, 7, 2, 4],
-            "reranked": [1, 3, 5, 7, 2, 4],
-            "listwise": [5, 3, 1],
-            "final": [5, 3, 1],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "csls_reorder.dense_pool": [1, 3, 5, 7, 2, 4],
+            "keyword_search.keyword_pool": [1, 3, 5],
+            "rrf_fusion.ranked": [1, 3, 5, 7, 2, 4],
+            "rerank.ranked": [1, 3, 5, 7, 2, 4],
+            "rerank_score_gate.ranked": [1, 3, 5],
+            "listwise_rerank.ranked": [5, 3, 1],
+            "top_k_selection.selected": [5, 3, 1],
         },
         [5, 3, 1],
     ),
     "vector_strategy": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "final": [1, 3, 5, 7],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "cosine_cut.selected": [1, 3, 5, 7],
         },
         [1, 3, 5, 7],
     ),
-    "vector_cosine_gate_fails": (
-        {"vector": [1, 3, 5, 7, 2, 4]},
-        [],
-    ),
+    "vector_cosine_gate_fails": ({"dense_search.dense_pool": [1, 3, 5, 7, 2, 4]}, []),
     "vector_metadata_filter": (
-        {"vector": [3, 4], "final": [3, 4]},
+        {"dense_search.dense_pool": [3, 4], "cosine_cut.selected": [3, 4]},
         [3, 4],
     ),
     "vector_similarity_cut": (
-        {"vector": [1, 3, 5, 7, 2, 4], "final": [1, 3, 5, 7]},
+        {
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "cosine_cut.selected": [1, 3, 5, 7],
+        },
         [1, 3, 5, 7],
     ),
     "vector_top_k_above_pool": (
-        {"vector": [1, 3, 5, 7, 2, 4, 6, 8], "final": [1, 3, 5, 7, 2, 4, 6, 8]},
+        {
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4, 6, 8],
+            "cosine_cut.selected": [1, 3, 5, 7, 2, 4, 6, 8],
+        },
         [1, 3, 5, 7, 2, 4, 6, 8],
     ),
     "vector_top_k_two": (
-        {"vector": [1, 3, 5, 7, 2, 4], "final": [1, 3]},
+        {"dense_search.dense_pool": [1, 3, 5, 7, 2, 4], "cosine_cut.selected": [1, 3]},
         [1, 3],
     ),
     "metadata_filter": (
         {
-            "vector": [3, 4],
-            "vector_csls": [3, 4],
-            "fulltext": [3],
-            "fused": [3, 4],
-            "reranked": [3, 4],
-            "listwise": [3],
-            "final": [3],
+            "dense_search.dense_pool": [3, 4],
+            "csls_reorder.dense_pool": [3, 4],
+            "keyword_search.keyword_pool": [3],
+            "rrf_fusion.ranked": [3, 4],
+            "rerank.ranked": [3, 4],
+            "rerank_score_gate.ranked": [3],
+            "top_k_selection.selected": [3],
         },
         [3],
     ),
     "restricted_store": (
         {
-            "vector": [5, 7, 6, 8],
-            "vector_csls": [5, 7, 6, 8],
-            "fulltext": [5],
-            "fused": [5, 7, 6, 8],
-            "reranked": [5, 7, 6, 8],
-            "listwise": [5],
-            "final": [5],
+            "dense_search.dense_pool": [5, 7, 6, 8],
+            "csls_reorder.dense_pool": [5, 7, 6, 8],
+            "keyword_search.keyword_pool": [5],
+            "rrf_fusion.ranked": [5, 7, 6, 8],
+            "rerank.ranked": [5, 7, 6, 8],
+            "rerank_score_gate.ranked": [5],
+            "top_k_selection.selected": [5],
         },
         [5],
     ),
     "csls_demotes_a_generic_chunk": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_csls": [3, 1, 5, 7, 2, 4],
-            "fulltext": [1, 3, 5],
-            "fused": [3, 1, 5, 7, 2, 4],
-            "reranked": [3, 1, 5, 7, 2, 4],
-            "listwise": [3, 1, 5],
-            "final": [3, 1, 5],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "csls_reorder.dense_pool": [3, 1, 5, 7, 2, 4],
+            "keyword_search.keyword_pool": [1, 3, 5],
+            "rrf_fusion.ranked": [3, 1, 5, 7, 2, 4],
+            "rerank.ranked": [3, 1, 5, 7, 2, 4],
+            "rerank_score_gate.ranked": [3, 1, 5],
+            "top_k_selection.selected": [3, 1, 5],
         },
         [3, 1, 5],
     ),
     "top_k_two": (
         {
-            "vector": [1, 3, 5, 7, 2, 4],
-            "vector_csls": [1, 3, 5, 7, 2, 4],
-            "fulltext": [1, 3, 5],
-            "fused": [1, 3, 5, 7, 2, 4],
-            "reranked": [1, 3, 5, 7, 2, 4],
-            "listwise": [1, 3, 5],
-            "final": [1, 3],
+            "dense_search.dense_pool": [1, 3, 5, 7, 2, 4],
+            "csls_reorder.dense_pool": [1, 3, 5, 7, 2, 4],
+            "keyword_search.keyword_pool": [1, 3, 5],
+            "rrf_fusion.ranked": [1, 3, 5, 7, 2, 4],
+            "rerank.ranked": [1, 3, 5, 7, 2, 4],
+            "rerank_score_gate.ranked": [1, 3, 5],
+            "top_k_selection.selected": [1, 3],
         },
         [1, 3],
     ),
 }
 
 
-#: The scenarios that describe the original's identifier pin. The new pipeline has no pin
-#: (the scope restricts the store to the named documents and the final cut spreads over
-#: them), so on it these questions are retrieved like any other; see
-#: ``test_the_new_pipeline_has_no_identifier_pin``.
-PIN_SCENARIOS = {
+#: The scenarios that name an identifier: the original pulled the named document's chunks
+#: in (a text search), the new pipeline does not; see the module docstring.
+IDENTIFIER_SCENARIOS = {
     "one_identifier",
     "two_identifiers_diversified",
     "two_identifiers_not_diversified",
@@ -724,74 +636,56 @@ PIN_SCENARIOS = {
 }
 
 
-@pytest.mark.parametrize(
-    ("engine", "name"),
-    [
-        (e, n)
-        for e in ENGINES
-        for n in SCENARIOS
-        if e == "legacy" or n not in PIN_SCENARIOS
-    ],
-)
-def test_the_pipeline_still_does_exactly_what_it_did(
-    engine, name, monkeypatch, settings_override
-):
-    """The recorded stages and the final context of every scenario are unchanged."""
+@pytest.mark.parametrize("name", SCENARIOS)
+def test_the_pipeline_still_does_exactly_what_it_did(name, settings_override):
+    """The ids every step left and the final context of every scenario are unchanged."""
     _, question, how = SCENARIOS[name]
 
-    stages, final = ENGINES[engine](monkeypatch, settings_override, question, **how())
-
-    assert (stages, final) == EXPECTED[name]
+    assert run_scenario(settings_override, question, **how()) == EXPECTED[name]
 
 
-@pytest.mark.parametrize("engine", ["legacy"])
-def test_two_runs_of_a_scenario_give_the_same_result(
-    engine, monkeypatch, settings_override
+@pytest.mark.parametrize("name", sorted(IDENTIFIER_SCENARIOS))
+def test_an_identifier_in_the_question_does_not_pull_its_chunks_in(
+    name, settings_override
 ):
-    """The pinned results only mean something if the fixtures are deterministic."""
-    _, question, how = SCENARIOS["one_identifier"]
-    run = ENGINES[engine]
+    """Naming a document restricts the *store* (the scope), not the ranking: the fixture's
+    identifier chunks (ids 9-14) are not forced into the context."""
+    _, question, how = SCENARIOS[name]
 
-    first = run(monkeypatch, settings_override, question, **how())
-    second = run(monkeypatch, settings_override, question, **how())
+    stages, final = run_scenario(settings_override, question, **how())
+
+    assert not any(key.startswith("identifier_pin") for key in stages)
+    assert not set(final) & {9, 10, 11, 12, 13, 14}
+
+
+def test_two_runs_of_a_scenario_give_the_same_result(settings_override):
+    """The pinned results only mean something if the fixtures are deterministic."""
+    _, question, how = SCENARIOS["years"]
+
+    first = run_scenario(settings_override, question, **how())
+    second = run_scenario(settings_override, question, **how())
 
     assert first == second
 
 
-@pytest.mark.parametrize("engine", ["legacy"])
-def test_the_scenarios_cover_every_stage_name_the_funnel_reads(
-    engine, monkeypatch, settings_override
-):
-    """Stage names are a contract with corpus/commands/funnel.py: if one stops being
-    produced, the funnel silently loses a column."""
+def test_the_scenarios_cover_every_step_the_funnel_describes(settings_override):
+    """Step names are a contract with corpus/commands/funnel.py: if one stops being
+    produced, the funnel silently loses a row."""
     seen: set[str] = set()
     for _, question, how in SCENARIOS.values():
-        stages, _ = ENGINES[engine](monkeypatch, settings_override, question, **how())
-        seen |= set(stages)
+        stages, _ = run_scenario(settings_override, question, **how())
+        seen |= {key.split(".")[0] for key in stages}
 
     assert seen >= {
-        "vector",
-        "vector_years",
-        "vector_csls",
-        "fulltext",
-        "fulltext_years",
-        "identifier",
-        "fused",
-        "reranked",
-        "listwise",
-        "final",
+        "dense_search",
+        "year_dense_widening",
+        "csls_reorder",
+        "keyword_search",
+        "year_keyword_widening",
+        "rrf_fusion",
+        "rerank",
+        "rerank_score_gate",
+        "listwise_rerank",
+        "top_k_selection",
+        "cosine_cut",
     }
-
-
-@pytest.mark.parametrize("name", sorted(PIN_SCENARIOS))
-def test_the_new_pipeline_has_no_identifier_pin(name, monkeypatch, settings_override):
-    """An identifier in the question no longer pulls its chunks into the context: with no
-    scope, the question is retrieved on its meaning like any other (both ways in)."""
-    _, question, how = SCENARIOS[name]
-
-    stages, final = ENGINES["v2"](monkeypatch, settings_override, question, **how())
-    via_switch = ENGINES["switch"](monkeypatch, settings_override, question, **how())
-
-    assert "identifier" not in stages
-    assert not set(final) & {9, 10, 11, 12, 13, 14}  # the fixture's identifier chunks
-    assert (stages, final) == via_switch

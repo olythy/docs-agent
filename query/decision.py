@@ -39,10 +39,10 @@ Key exports:
     Scope            -- Which documents the retrieval may look at, and why.
     as_routed        -- The plan as treated: a residual means read, not count.
     ScopeResolver    -- Builds a scope from the plan and the question's identifiers.
+    scope_of_source_file -- The scope of one named file, for a caller that already knows it.
     Decision         -- ReadDocuments | AnswerExactly | Refuse.
     ProfileSelector  -- Which profile (steps) a question to read gets.
     PlanningDecider  -- Decides with the query planner (the router's successor).
-    UnplannedDecider -- Reads everything, unrestricted (no planner: QUERY_ROUTER off).
 """
 
 import logging
@@ -91,6 +91,19 @@ class Scope:
     def names_several_documents(self) -> bool:
         """The question names more than one document (so each must be represented)."""
         return len(self.identifiers.document_ids) > 1
+
+
+def scope_of_source_file(source_file: str) -> Scope:
+    """The scope of one ingested file (a caller that already knows which document it means).
+
+    Args:
+        source_file: The file name as ingested.
+    """
+    return Scope(
+        selection=DocumentSelection(
+            "SELECT id FROM documents WHERE source_file = %s", (source_file,)
+        )
+    )
 
 
 class PlanQueries(Protocol):
@@ -375,23 +388,6 @@ class PlanningDecider:
         if isinstance(scope, Declined):
             return Refuse(facts, scope)
         return ReadDocuments(facts, plan, self._profiles.select(facts, plan), scope)
-
-
-class UnplannedDecider:
-    """Reads every question, unrestricted: no planner is asked (the router switched off).
-
-    Deleted together with ``QUERY_ROUTER``.
-
-    Args:
-        profiles: Chooses the profile of a question to read.
-    """
-
-    def __init__(self, profiles: ProfileSelector) -> None:
-        self._profiles = profiles
-
-    def decide(self, facts: QueryFacts) -> Decision:
-        """Always: read, unrestricted."""
-        return ReadDocuments(facts, None, self._profiles.select(facts, None), Scope())
 
 
 class CatalogReader(CatalogSource, ValueSource, Protocol):

@@ -2,8 +2,6 @@
 
 import pytest
 
-import query.retrieval as retrieval_module
-import query.router as router_module
 from query.decline_detection import looks_like_a_decline
 from query.outcome import (
     COULD_NOT_INTERPRET_MESSAGE,
@@ -71,11 +69,21 @@ class TestTheWords:
         assert render(Declined(reason, "some_gate")) == NO_RESULTS_MESSAGE
 
 
-class TestOneSourceForTheWording:
-    def test_the_original_modules_use_the_same_texts(self):
-        assert router_module.NOT_SUPPORTED_MESSAGE is NOT_SUPPORTED_MESSAGE
-        assert router_module.COULD_NOT_INTERPRET_MESSAGE is COULD_NOT_INTERPRET_MESSAGE
-        assert retrieval_module.NO_RESULTS_MESSAGE is NO_RESULTS_MESSAGE
+class TestTheWordsAreFixed:
+    """The eval's decline detection and the adversarial questions depend on these exact
+    sentences, so they are written out here, not read back from the constants."""
+
+    def test_the_fixed_sentences(self):
+        assert NO_RESULTS_MESSAGE == (
+            "I could not find relevant information about this in the provided documents."
+        )
+        assert NOT_SUPPORTED_MESSAGE == (
+            "This kind of question is not supported yet, so I will not guess at an answer."
+        )
+        assert COULD_NOT_INTERPRET_MESSAGE == (
+            "I could not interpret this question well enough to answer it from the "
+            "structured data, and I did not want to guess."
+        )
 
     def test_the_empty_filter_message_is_built_in_one_place(self):
         assert (

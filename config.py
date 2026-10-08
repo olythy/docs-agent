@@ -263,7 +263,7 @@ class Settings:
                               little reason to prefer it in production,
                               since hybrid search only adds recall over
                               vector-only at negligible extra cost. See
-                              ``query/retrieval.py``.
+                              ``query/profiles.py``.
         RERANKER_DRIVER       ``cross_encoder`` (default) reorders the hybrid-search
                               candidate list with a local cross-encoder model
                               before truncating to RETRIEVAL_TOP_K, and is the
@@ -314,7 +314,7 @@ class Settings:
                               reranking) — always at least RETRIEVAL_TOP_K,
                               but wider by default so fusion/reranking has
                               something to actually reorder (default: 20).
-                              See ``query/retrieval.py``.
+                              See ``query/profiles.py``.
         HUB_SCORE_NEIGHBOR_SAMPLE_SIZE
                               How many nearest neighbors (in the whole
                               corpus, by cosine similarity)
@@ -326,10 +326,10 @@ class Settings:
                               — see docs/decisions.md for why it was
                               rejected): this score is a continuous
                               genericness measure, used only to re-rank
-                              (:func:`query.retrieval._csls_rerank`), never
+                              (:class:`query.candidate_steps.CslsReorderStep`), never
                               to exclude a chunk outright.
         LISTWISE_RERANK_ENABLED
-                              Whether ``HybridRetrievalStrategy`` runs a
+                              Whether the ``hybrid`` profile runs a
                               final listwise LLM disambiguation pass (see
                               ``query.listwise_rerank.listwise_rerank``)
                               right before the ``top_k`` cut (default:
@@ -349,19 +349,16 @@ class Settings:
                               bounded size regardless of candidate pool
                               width.
         RETRIEVAL_DIVERSIFY_GUARANTEES
-                              Whether exact-identifier matches (case
-                              numbers, ...) are spread across the distinct
-                              documents a question names (default:
-                              ``True``). When ``True``,
-                              ``store.search_by_identifier`` takes a bounded
-                              share per identifier token (deterministic
-                              order) instead of one shared ``LIMIT``, and
-                              ``query.retrieval._apply_top_k_with_guarantees``
-                              fills the guaranteed slots round-robin by
-                              document instead of letting one long document
-                              take every slot. On by default after an A/B
-                              measurement (see ``corpus/cli.py
-                              compare-retrieval`` and docs/decisions.md).
+                              Whether the slots reserved for the question's
+                              years (``RETRIEVAL_PERIOD_FILTER``) are shared
+                              round-robin across the distinct documents
+                              instead of letting one long document take them
+                              all (default: ``True``). Taking turns across the
+                              documents a question *names* (case numbers) is
+                              not a setting: it always happens
+                              (``query.selection_steps.TopKWithGuaranteesStep``).
+                              On by default after an A/B measurement (see
+                              docs/decisions.md).
 
         RETRIEVAL_PERIOD_FILTER
                               Whether retrieval widens its candidate pool
@@ -377,58 +374,6 @@ class Settings:
                               replaces) the normal candidate pool. Off by
                               default pending an A/B measurement.
 
-        ANSWER_PARTIAL_COVERAGE
-                              Whether the answer LLM is told to refuse only
-                              when *no* excerpt is relevant, and otherwise to
-                              answer with what the excerpts show and say what
-                              they do not cover (default: ``False``). With the
-                              strict wording, a broad question ("how did the
-                              practice develop ...") whose relevant excerpts
-                              cover only part of it was refused every time
-                              (3/3 on q0010); the partial-coverage wording
-                              plus a note that the excerpts are a *sample* of
-                              a larger collection brought that to 0/3. The
-                              exact refusal sentence is kept. Its regression
-                              check passed on 2026-10-05 (the adversarial
-                              questions are still declined, the single-
-                              document ones do not regress; see
-                              docs/decisions.md). It stays *off by default
-                              while the system is being developed*, so runs
-                              can be compared with and without it; the plan
-                              is to make it the only behaviour, and delete
-                              this switch, once the full end-of-work run
-                              confirms it.
-        QUERY_ROUTER          Whether ``query_knowledge_base`` first asks the
-                              query planner what kind of question this is
-                              (default: ``False``). Counting, listing and
-                              summing questions ("how many ... last
-                              October") are then answered exactly from the
-                              structured metadata; content questions run
-                              the normal retrieval, restricted to the
-                              documents the planner's filters select. A
-                              question naming a case/document identifier is
-                              planned too (the identifier is a parameter, not
-                              an intent) and is not restricted by the plan's
-                              filters. The planner chooses
-                              the document type itself from the approved
-                              types' descriptions (nothing to configure).
-                              Needs the metadata catalog and extracted values (see
-                              docs/structured-metadata-design.md). Off by
-                              default pending the planner's measurement.
-        QUERY_ENGINE          TEMPORARY, for testing the retrieval rewrite
-                              (docs/query-pipeline-design.md): ``legacy``
-                              (default) runs the original ``retrieve_chunks``
-                              pipeline, ``v2`` the step-based one, and with ``v2`` the whole
-                              answer (decision, retrieval, wording) comes from
-                              ``QueryService`` (the router's flag decides
-                              whether a planner is asked; a strategy or a
-                              metadata_filter passed in is refused). The two
-                              must give identical results (see
-                              ``retrieval-snapshot --compare``); the switch and
-                              the original code are deleted once that is
-                              proven. ``v2`` takes the profile from
-                              RETRIEVAL_STRATEGY and does not accept a
-                              strategy object.
         EXPOSE_DOCUMENT_DATE  Whether each excerpt's document date is shown to
                               the answer LLM (default: ``False``). When
                               ``True``, the excerpt header gets
@@ -577,11 +522,6 @@ class Settings:
     RETRIEVAL_PERIOD_FILTER: bool = (
         os.getenv("RETRIEVAL_PERIOD_FILTER", "false").lower() == "true"
     )
-    ANSWER_PARTIAL_COVERAGE: bool = (
-        os.getenv("ANSWER_PARTIAL_COVERAGE", "false").lower() == "true"
-    )
-    QUERY_ROUTER: bool = os.getenv("QUERY_ROUTER", "false").lower() == "true"
-    QUERY_ENGINE: str = os.getenv("QUERY_ENGINE", "legacy")
     EXPOSE_DOCUMENT_DATE: bool = (
         os.getenv("EXPOSE_DOCUMENT_DATE", "false").lower() == "true"
     )

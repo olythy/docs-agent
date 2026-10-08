@@ -53,8 +53,19 @@ def test_call_tool_query_knowledge_base_returns_answer(monkeypatch):
 
     result = _call_tool("query_knowledge_base", {"question": "What is X?"})
 
-    fake_query.assert_called_once_with("What is X?")
+    fake_query.assert_called_once_with("What is X?", source_file=None)
     assert result == "ANSWER"
+
+
+def test_call_tool_query_knowledge_base_passes_the_source_file_on(monkeypatch):
+    fake_query = MagicMock(return_value="ANSWER")
+    monkeypatch.setattr(agent, "query_knowledge_base", fake_query)
+
+    _call_tool(
+        "query_knowledge_base", {"question": "What is X?", "source_file": "a.docx"}
+    )
+
+    fake_query.assert_called_once_with("What is X?", source_file="a.docx")
 
 
 def test_call_tool_raises_on_unknown_tool():
@@ -93,7 +104,7 @@ def test_run_agent_executes_tool_call_and_returns_final_reply(monkeypatch):
     result = run_agent("What is X?")
 
     assert result == "Final answer"
-    fake_query.assert_called_once_with("What is X?")
+    fake_query.assert_called_once_with("What is X?", source_file=None)
 
     second_call_messages = fake_driver.run_tool_calling_turn.call_args_list[1].args[0]
     tool_messages = [m for m in second_call_messages if m["role"] == "tool"]

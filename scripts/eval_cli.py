@@ -27,6 +27,7 @@ import sys
 import time
 from dataclasses import replace
 from pathlib import Path
+from typing import Protocol
 from urllib.parse import urlsplit
 
 # Ensure project root is on sys.path for direct script execution
@@ -43,13 +44,10 @@ from ingestion.chunker import (
 from ingestion.extractors import get_extractor
 from ingestion.ingest import add_document
 from models import Chunk, RetrievedChunk
+from query.composition import build_retrieval_service
 from query.decline_detection import looks_like_a_decline as _looks_like_a_decline
-from query.retrieval import (
-    NO_RESULTS_MESSAGE,
-    HybridRetrievalStrategy,
-    VectorRetrievalStrategy,
-    retrieve_chunks,
-)
+from query.outcome import NO_RESULTS_MESSAGE, Answerable
+from query.service import RetrievalRequest, RetrievalResult
 from scripts.utils import (
     format_paragraphs,
     resolve_doc_path,
@@ -654,6 +652,41 @@ def print_llm_answers(vector_result: dict, hybrid_result: dict) -> None:
     _print_llm_scorecard(stats["vec"], stats["hyb"])
 
 
+class _Retrieves(Protocol):
+    """What the benchmark needs of a retrieval service."""
+
+    def retrieve(
+        self, request: RetrievalRequest, store: VectorStore
+    ) -> RetrievalResult: ...
+
+
+def _retrieval_fn(
+    service: _Retrieves, profile: str, embeddings: dict[str, list[float]]
+):
+    """A ``question -> chunks`` function over one retrieval service and profile.
+
+    Args:
+        service: The retrieval service (built for the settings under test).
+        profile: ``vector`` or ``hybrid``.
+        embeddings: The questions' precomputed embeddings.
+
+    Returns:
+        A function that returns the chunks the profile selects (none when it refuses).
+    """
+
+    def retrieve(question: str) -> list[RetrievedChunk]:
+        result = service.retrieve(
+            RetrievalRequest(
+                question, profile=profile, query_vector=embeddings[question]
+            ),
+            VectorStore(),
+        )
+        outcome = result.outcome
+        return list(outcome.chunks) if isinstance(outcome, Answerable) else []
+
+    return retrieve
+
+
 def cmd_eval(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="eval_cli.py eval",
@@ -697,9 +730,7 @@ def cmd_eval(argv: list[str]) -> int:
     print("\n[eval] Running vector-only baseline ...")
     vector_only_results = evaluate(
         "vector-only",
-        lambda q: retrieve_chunks(
-            q, strategy=VectorRetrievalStrategy(), query_vector=embeddings[q]
-        ),
+        _retrieval_fn(build_retrieval_service(settings), "vector", embeddings),
         questions,
     )
 
@@ -709,10 +740,12 @@ def cmd_eval(argv: list[str]) -> int:
     )
     hybrid_results = evaluate(
         f"hybrid+rerank ({resolved_reranker_name})",
-        lambda q: retrieve_chunks(
-            q,
-            strategy=HybridRetrievalStrategy(reranker_driver_name=reranker_driver_name),
-            query_vector=embeddings[q],
+        _retrieval_fn(
+            build_retrieval_service(
+                replace(settings, RERANKER_DRIVER=resolved_reranker_name)
+            ),
+            "hybrid",
+            embeddings,
         ),
         questions,
     )

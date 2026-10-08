@@ -25,43 +25,31 @@ flowchart TD
 
 `VectorStore.compute_hub_scores()` is a separate, decoupled batch pass over the whole corpus (not part of the per-document flow above) — run it after a bulk ingest to (re)populate every chunk's `hub_score`, used by retrieval's CSLS re-ranking below. Idempotent; safe to re-run after any corpus change.
 
-## Retrieval & answering: `query_knowledge_base()` (`query/retrieval.py`)
+## Question to answer: `QueryService` (`query/query_service.py`)
 
 ```mermaid
 flowchart TD
-    Q[Question] --> QE["EmbeddingDriver.embed_query()"]
-    Q --> YR["extract_years()<br/>(query/time_filter.py)<br/>only if RETRIEVAL_PERIOD_FILTER"]
-    QE --> VS["VectorStore.search()<br/>wide candidate pool (chunks)"]
-    YR -. years found .-> VSY["VectorStore.search(years=...)<br/>2nd pool, merged in, never replaces<br/>(HNSW iterative scan)"]
-    VSY -.-> RG
-    VS --> RG{"_passes_relevance_gate()<br/>pure cosine similarity"}
-    RG -- no --> NR[["NO_RESULTS_MESSAGE<br/>(no LLM call)"]]
-    RG -- yes --> RS["RetrievalStrategy.select_chunks()"]
-    RS --> VRS["VectorRetrievalStrategy<br/>(filter + truncate)"]
-    RS --> HRS["HybridRetrievalStrategy"]
-    HRS --> CSLS["_csls_rerank()<br/>hub_score-adjusted re-order<br/>(query/retrieval.py)"]
-    CSLS --> FTS["VectorStore.search_fulltext()<br/>(+ a years-restricted pool)"]
-    FTS --> RRF["reciprocal_rank_fusion()<br/>(query/hybrid.py)"]
-    RRF --> IDR["search_by_identifier() rescue<br/>per-token share; merged in, not RRF-blended"]
-    IDR --> RR["RerankerDriver.rerank()<br/>(optional)"]
-    RR --> LW["listwise_rerank()<br/>(optional, LISTWISE_RERANK_ENABLED —<br/>query/listwise_rerank.py)"]
-    LW --> TK["_apply_top_k_with_guarantees()<br/>identifier guarantees (round-robin by document)<br/>+ reserved slots for the question's years"]
-    VRS --> AD["AnswerDriver.answer()<br/>(excerpt header can carry the date)"]
-    TK --> AD
-    AD --> ANS["Grounded answer, cited to source_file/page_number"]
+    Q[Question] --> FR["QueryFactsReader<br/>identifiers and years, once"]
+    FR --> DEC{"PlanningDecider<br/>planner + ScopeResolver"}
+    DEC -- Refuse --> REF["RefusalRenderer<br/>(could not interpret / not supported /<br/>no documents match)"]
+    DEC -- AnswerExactly --> EXA["ExactAnswerer<br/>SQL, then ResultPhraser (figures checked)"]
+    DEC -- ReadDocuments --> RET["RetrievalService.retrieve()<br/>profile + the scope's documents"]
+    RET -- Declined --> REF
+    RET -- Answerable --> GRO["GroundedAnswerer<br/>prompt + the model's own refusal recognised"]
+    REF --> OUT[["Answer(text, Explain)"]]
+    EXA --> OUT
+    GRO --> OUT
 ```
 
-Dashed edges and the "years" nodes only exist when `RETRIEVAL_PERIOD_FILTER` is on. Everything else is always part of the default path.
+Every answer carries an `Explain`: the decision taken, what the retrieval did (a record per step), who refused, whether the model refused. The agent calls `query_knowledge_base` (`query/knowledge_base.py`), which builds the service from the settings; the MCP calls `search_knowledge_base`, which runs only the retrieval service (no planner, no answer).
 
-The relevance gate always runs on plain cosine similarity, regardless of which `RetrievalStrategy` is active -- hybrid/rerank scores live on different, non-comparable scales, so they're never used as the "is there a reliable source at all" check. See `docs/decisions.md` for why.
+### The retrieval
 
-`_csls_rerank()` and `listwise_rerank()` only ever re-order candidates, never drop one -- see `docs/decisions.md` for why an earlier, harder approach (excluding chunks outright past a fixed similarity threshold) was tried and rejected. The period-aware additions follow the same rule: they *add* candidates and *reserve* slots, they never remove an unfiltered candidate, so a wrongly-read year can only cost slots, not lose a document.
+The relevance gate always runs on plain cosine similarity, regardless of which profile is active -- hybrid/rerank scores live on different, non-comparable scales, so they're never used as the "is there a reliable source at all" check. See `docs/decisions.md` for why.
+
+`CslsReorderStep` and the listwise step only ever re-order candidates, never drop one -- see `docs/decisions.md` for why an earlier, harder approach (excluding chunks outright past a fixed similarity threshold) was tried and rejected. The period-aware additions follow the same rule: they *add* candidates and *reserve* slots, they never remove an unfiltered candidate, so a wrongly-read year can only cost slots, not lose a document.
 
 A candidate pool is counted in **chunks, not documents**. A document contributes ~20 chunks that all start with the same embedded summary, so a pool of 20 can come from only a handful of documents -- keep that in mind when reading any "pool" number.
-
-## The step-based retrieval (`QUERY_ENGINE=v2`)
-
-The path above is the original implementation (`QUERY_ENGINE=legacy`, the default). A second one is being proven beside it: the same retrieval as small, single-purpose classes. It must give identical results (every characterization scenario, and `retrieval-snapshot --compare` on the real data); the switch and the original are removed once it is the only one. The full design, with its decisions and parity traps, is `docs/query-pipeline-design.md`.
 
 ```mermaid
 flowchart TD
@@ -76,7 +64,6 @@ flowchart TD
     S3 --> S4["top-k with guarantees"]
     S4 --> OUT{{"Answerable(chunks) | Declined(reason, stage)"}}
     RP -. notes, timings .-> OBS["TraceRecorder, AuditLogObserver,<br/>ProgressLogObserver"]
-    OBS -.-> LT["LegacyTraceProjection<br/>(the original trace keys: funnel, retrieval-snapshot)"]
 ```
 
 Steps in `[brackets]` are in a profile only under a condition decided from the settings (the years when `RETRIEVAL_PERIOD_FILTER` is on, the score gate only for a cross-encoder reranker, the listwise pass when it is enabled); a condition whose step has no builder fails loudly instead of being skipped. All steps share one frozen `RetrievalContext` with named slots; each declares the slots it requires and provides, and a chain that cannot work is refused when it is built. The two refusing steps (the cosine gate before fusion, the reranker's score gate after the rerank) use different signals at different points and are deliberately **not** merged; they share only the `Declined` type and the wording.
@@ -90,7 +77,7 @@ Every swappable backend in this project follows the same shape: an ABC, one or m
 | Embedding backend | `EmbeddingDriver` | `LocalSentenceTransformerDriver`, `OpenAIEmbeddingDriver`, `OpenRouterEmbeddingDriver`, `GeminiEmbeddingDriver`, `JinaEmbeddingDriver`, `VertexEmbeddingDriver` | `EMBEDDING_DRIVER` | `get_embedding_driver()` (`drivers/embedding.py`) |
 | Answer generation | `AnswerDriver` | `OpenRouterAnswerDriver`, `OpenAIAnswerDriver`, `GeminiAnswerDriver`, `VertexAnswerDriver` | `LLM_DRIVER` | `get_answer_driver()` (`drivers/llm.py`) |
 | Reranking | `RerankerDriver` | `NoopRerankerDriver`, `CrossEncoderRerankerDriver`, `JinaRerankerDriver`, `VertexRankerDriver` | `RERANKER_DRIVER` | `get_reranker_driver()` (`drivers/reranker.py`) |
-| Final chunk selection | `RetrievalStrategy` | `VectorRetrievalStrategy`, `HybridRetrievalStrategy` | `RETRIEVAL_STRATEGY` | `get_retrieval_strategy()` (`query/retrieval.py`) |
+| Which steps retrieve (a profile) | `ProfileSpec` | `hybrid`, `vector` (registered data in `query/profiles.py`) | `RETRIEVAL_STRATEGY` (the decision may choose another) | `ProfileResolver` / `PipelineFactory` (`query/profiles.py`) |
 | How a document is split into chunks | `ChunkingStrategy` | `WordChunkingStrategy`, `LangChainChunkingStrategy` | `CHUNKING_STRATEGY` | `get_chunking_strategy()` (`ingestion/chunker.py`) |
 | What happens to an over-limit chunk | `ChunkOverflowStrategy` | `WarnOverflowStrategy`, `SplitOverflowStrategy` | `CHUNK_OVERFLOW_STRATEGY` | `get_chunk_overflow_strategy()` (`ingestion/chunker.py`) |
 | Document text extraction | `Extractor` | `PDFExtractor`, `MarkdownExtractor` | **the file's extension** — the one deliberate exception; see `AGENTS.md` | `get_extractor(path)` (`ingestion/extractors.py`) |
@@ -124,7 +111,7 @@ Defaults are `config.py`'s (this project's own `.env` overrides some, e.g. Verte
 | `RERANKER_DRIVER` / `RERANKER_MODEL` (this project: Vertex) | `cross_encoder` | Second-stage re-scoring of the candidate pool. | The Vertex ranker sees only chunk `content`. Sending the date as its `title` field did **not** help (in-period share of results 62 -> 56%) and was removed. |
 | `RERANKER_MIN_SCORE` | -2.0 | Logit cut-off, cross-encoder only. | Not applied to the Vertex ranker. Identifier-matched chunks bypass it. |
 | `LISTWISE_RERANK_ENABLED` (+ `_MAX_CANDIDATES`) | `False` | One extra LLM call per query: reads every candidate document's summary and promotes the **single** best one. | The strongest fix for the 19-near-duplicates case (2026-10-03). **Never enabled in any golden-set run so far.** Picks one document, so likely a poor fit for category questions as written; untested there. |
-| `RETRIEVAL_DIVERSIFY_GUARANTEES` | `True` | Identifier search gives each case-number token its own share; guaranteed slots are filled round-robin across documents. | Fixed a question naming two case numbers whose 4 slots were all one long document: synthesizer exact-hit 0 -> 14-20%, no single-document regression (23 questions, 2026-10-04). |
+| `RETRIEVAL_DIVERSIFY_GUARANTEES` | `True` | The slots reserved for the question's years are filled round-robin across documents. (Taking turns across the documents a question *names* is not a setting: the scope always asks for it.) | Fixed a question naming two case numbers whose 4 slots were all one long document: synthesizer exact-hit 0 -> 14-20%, no single-document regression (23 questions, 2026-10-04). |
 | `RETRIEVAL_PERIOD_FILTER` | `False` | Reads years from the question, adds a `document_date`-restricted vector + full-text pool, and reserves half of `top_k` for in-period chunks. | In-period share of final chunks 53 -> 62% (pool only) -> 69% (with reservation) at k=4. **But** a full eval did not improve correct answers (weak personas 8/26 both ways) and refusals fell 15 -> 9 by turning into unsupported answers. Off. |
 | Identifier rescue (always on) | -- | Case numbers in the question are matched literally and guaranteed a slot, bypassing the reranker cut-off. | The reason single-document questions are at 100%. |
 
@@ -134,11 +121,8 @@ Defaults are `config.py`'s (this project's own `.env` overrides some, e.g. Verte
 |---|---|---|---|
 | `LLM_DRIVER` / `LLM_MODEL` | `openrouter` (this project: Vertex) | Generates the grounded answer. | Oracle test (2026-10-04): handing the same LLM and prompt the golden documents' own chunks answered 11 of 13 questions it had refused -- generation is mostly fine, retrieval is the bottleneck. |
 | `LLM_THINKING_BUDGET` | 0 | Gemini "thinking" tokens; 0 disables. | Left on, hidden reasoning ate the answer budget and truncated answers mid-sentence. |
-| Prompt (always on) | -- | Strictly grounded; may answer partially and say what is missing; refuses with a fixed sentence when the excerpts don't answer; best excerpt placed last. | Reordering against "lost in the middle" (2026-10-03). |
-| `ANSWER_PARTIAL_COVERAGE` | `False` | Refuse only when *no* excerpt is relevant; otherwise answer with what the excerpts show and say what they do not cover, and tell the model the excerpts are a *sample* of a larger collection. The exact refusal sentence is kept. | The strict wording refused broad questions with partial context every time (q0010: 5/5); a sentence appended to it did not help, rewriting the rule plus the sample note did (0/5 refusals). Full eval 2026-10-04: precedent_seeker 67 -> 92%, synthesizer 36 -> 100%, adversarial and single-document personas unchanged. `independent_fact` rewards accurate partial answers, not completeness; one run per arm. 2026-10-05: with the router, 6 of 7 questions stuck at 0/3 (refused 3/3 by the strict wording) answered correctly, and the regression check passed (adversarial 4/4 still declined, single-document questions and six already-correct content questions unchanged). Stays off while the system is developed, so runs can be compared; planned to become the only behaviour once the full end-of-work run confirms it. |
+| Prompt (always on) | -- | Strictly grounded; says exactly what the excerpts do and do not cover; refuses with a fixed sentence when they do not answer; best excerpt placed last. | Reordering against "lost in the middle" (2026-10-03). The partial-coverage variant was measured, judged cosmetic (it does not raise the retrieval hit) and deleted on 2026-10-08. |
 | `EXPOSE_DOCUMENT_DATE` | `False` | Adds `date: YYYY-MM-DD` to each excerpt's header so a date range in the question can be checked. | Part of the run that did not improve the weak personas (above). Off. |
-| `QUERY_ROUTER` | `False` | Asks the query planner first: count / list / sum / overview questions are answered exactly from the structured metadata (stating the executed filter and how many documents could not be decided) **only when the plan covers the whole question; a plan with a residual is read like a lookup**; content questions run the normal retrieval inside the documents the planner's filters select; an identifier in the question is a parameter, not an intent: the planner still decides (a request for documents *similar* to a named one is answered "not supported yet"), and a lookup that names an identifier is not restricted by the plan's filters (the retrieval pins the named document). The planner chooses the document type itself from the approved types' descriptions (nothing to configure); a count/list/sum/overview needs a type, and a question that fits none is read, not counted. A question the planner cannot interpret gets a plain "could not interpret". | Off until `meta-plan-eval` has measured the planner. Needs the catalog and extracted values. |
-| `QUERY_ENGINE` | `legacy` | **Temporary**, for proving the rewrite: `legacy` runs the original `retrieve_chunks`, `v2` the step-based retrieval (profile from `RETRIEVAL_STRATEGY`; a strategy object cannot be passed). Unknown values are an error. | Identical results on 22 characterization scenarios (three engines) and on a six-question live snapshot under five settings (2026-10-06, `docs/decisions.md`). Removed with the original code. |
 
 ### Measuring (`corpus/cli.py`, the golden-set sub-app)
 
@@ -146,12 +130,11 @@ Defaults are `config.py`'s (this project's own `.env` overrides some, e.g. Verte
 |---|---|
 | `coverage` | Per persona, how many golden questions have every cited document ingested -- and, in red, how many chunks lack a `hub_score`. Run it before trusting any eval. |
 | `eval [--only-covered] [--verbose] [--persona P] [--strategy S]` | Persona-bucketed retrieval / answer / citation accuracy, with a legend printed under the table. `--verbose` adds, per question, the answer, retrieved and cited documents, whether it refused, and the grader's reason. Costs LLM calls. |
-| `compare-retrieval [--top-k N]` | Retrieval-only A/B (identifier guarantees off / on / on + period): strict `all` hit, loose `any` proxy, document recall, in-period share. No LLM calls. |
 | `funnel -q ID [-q ID ...]` | Follows a question through the step-based retrieval and shows, per step, the chunks and distinct documents it **received and passed on**, where each golden document ranks afterwards, how many documents meet the court/year the question names, the step's time, what the step reported about itself (a gate's scores, side pools), and which step **dropped** a golden document an earlier step had found; a refusing gate is flagged. Retrieval only, no LLM calls; honours the environment's switches. |
 | `meta-accuracy` | Compares the extracted structured metadata (`issuing_body`, `document_kind`) with `corpus/meta.csv`, this corpus's by-product ground truth. Measurement only: the generic metadata core never reads that file. |
 | `meta-plan-eval` | Phrases generated count/list facts (any language, many period shapes, fixed clock) as questions and asks them through the real `LLMQueryPlanner` and executor and scores the answers exactly (expected sets computed in Python from the stored values, not by the compiler). Measurement only; it reads corpus-specific stored keys, so it lives under `corpus/`. |
-| `retrieval-snapshot` | Records, for the golden questions, the ids every retrieval stage held and the final context (`--out F`), and compares a fresh run against such a file (`--compare F`; exit 1 on any difference). Retrieval only (no router, no answer LLM), so it costs an embedding and a rerank per question. The tool to prove a restructuring of the retrieval code changed nothing. |
-| `routing-eval` | Runs only the planner on `corpus/data/routing_cases.json` (questions with the flow each should get: read the passages, answer exactly from the metadata, or not supported yet) and compares the flow the router would choose. Cheap, and it measures the router's decision, which the golden-set eval (it grades answers) cannot. |
+| `retrieval-snapshot` | Records, for the golden questions, the ids every retrieval step left and the final context (`--out F`), and compares a fresh run against such a file (`--compare F`; exit 1 on any difference). Retrieval only (no router, no answer LLM), so it costs an embedding and a rerank per question. The tool to prove a restructuring of the retrieval code changed nothing. |
+| `routing-eval` | Runs the real decider (planner + scope) on `corpus/data/routing_cases.json` (questions with the flow each should get: read the passages, answer exactly from the metadata, or not supported yet) and compares the flow the router would choose. Cheap, and it measures the router's decision, which the golden-set eval (it grades answers) cannot. |
 | `compute-hub-scores` | (Re)computes every chunk's `hub_score`. |
 | `generate-questions` / `download` | Golden-question drafting and verification; corpus acquisition. |
 
@@ -163,7 +146,7 @@ Two yardsticks, on purpose: `exact_match` (every golden document must be in the 
 flowchart LR
     subgraph Orchestrators["Agent-facing tools (stay thin — no SQL, no business branching)"]
         ingest["ingestion/ingest.py<br/>add_document / add_directory"]
-        retrieval["query/retrieval.py<br/>query_knowledge_base"]
+        retrieval["query/knowledge_base.py<br/>query_knowledge_base / search_knowledge_base<br/>(over query/query_service.py)"]
     end
     subgraph Strategies["Strategies & Drivers (swappable backends)"]
         drivers["drivers/*.py"]
@@ -175,7 +158,7 @@ flowchart LR
     subgraph DataAccess["Data access (all SQL lives here)"]
         db["db.py — connection factory"]
         store["store.py — VectorStore"]
-        docstore["document_store.py — DocumentStore<br/>(structured metadata; read by the opt-in query router)"]
+        docstore["document_store.py — DocumentStore<br/>(structured metadata; read by the query decider)"]
         metadata["metadata/ — catalog, evidence selection,<br/>LLM / adapter sources, verification, runner"]
     end
     subgraph Shapes["Core data shapes"]
@@ -186,7 +169,7 @@ flowchart LR
         timefilter["query/time_filter.py<br/>extract_years"]
     end
     subgraph Measuring["Golden-set sub-app (not part of the agent)"]
-        corpus["corpus/cli.py<br/>eval · coverage · compare-retrieval · funnel · retrieval-snapshot · routing-eval · compute-hub-scores"]
+        corpus["corpus/cli.py<br/>eval · coverage · funnel · retrieval-snapshot · routing-eval · compute-hub-scores"]
     end
 
     Orchestrators --> Strategies

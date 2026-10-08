@@ -19,7 +19,6 @@ Usage::
     uv run python corpus/cli.py eval [--persona ID] [--strategy hybrid] [--only-covered] [--verbose] [-q ID ...] [--repeat N]
     uv run python corpus/cli.py compute-hub-scores
     uv run python corpus/cli.py coverage
-    uv run python corpus/cli.py compare-retrieval [--persona ID]
     uv run python corpus/cli.py funnel -q ID [-q ID ...]
     uv run python corpus/cli.py meta-accuracy
     uv run python corpus/cli.py meta-plan-eval
@@ -37,7 +36,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from corpus.commands import (
-    compare_retrieval,
     compute_hub_scores,
     coverage,
     download,
@@ -56,7 +54,6 @@ app.add_typer(generate_questions.app)
 app.add_typer(eval.app)
 app.add_typer(compute_hub_scores.app)
 app.add_typer(coverage.app)
-app.add_typer(compare_retrieval.app)
 app.add_typer(funnel.app)
 app.add_typer(meta_accuracy.app)
 app.add_typer(meta_plan_eval.app)

@@ -2,7 +2,7 @@
 
 No real MCP protocol/transport involved — the @mcp.tool()-decorated
 functions are plain Python underneath, so they're called directly. No
-real DB or embedding model either: retrieve_chunks()/add_document() are
+real DB or embedding model either: search_knowledge_base()/add_document() are
 monkeypatched, the same pattern tests/unit/test_agent.py uses for its
 tool dispatch.
 """
@@ -57,16 +57,25 @@ def test_search_knowledge_base_returns_mapped_chunks(monkeypatch):
     fake_retrieve = MagicMock(
         return_value=[_chunk(1, content="first"), _chunk(2, content="second")]
     )
-    monkeypatch.setattr(mcp_server, "retrieve_chunks", fake_retrieve)
+    monkeypatch.setattr(mcp_server, "_search", fake_retrieve)
 
     result = mcp_server.search_knowledge_base("What is X?")
 
-    fake_retrieve.assert_called_once_with("What is X?")
+    fake_retrieve.assert_called_once_with("What is X?", None)
     assert [r["content"] for r in result] == ["first", "second"]
 
 
+def test_search_knowledge_base_passes_the_source_file_on(monkeypatch):
+    fake_search = MagicMock(return_value=[])
+    monkeypatch.setattr(mcp_server, "_search", fake_search)
+
+    mcp_server.search_knowledge_base("What is X?", source_file="a.pdf")
+
+    fake_search.assert_called_once_with("What is X?", "a.pdf")
+
+
 def test_search_knowledge_base_returns_empty_list_when_nothing_found(monkeypatch):
-    monkeypatch.setattr(mcp_server, "retrieve_chunks", MagicMock(return_value=[]))
+    monkeypatch.setattr(mcp_server, "_search", MagicMock(return_value=[]))
 
     assert mcp_server.search_knowledge_base("Anything?") == []
 

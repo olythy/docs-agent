@@ -14,11 +14,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from drivers.embedding import EmbeddingDriver
-from models import RetrievalTrace
 from query.context import RetrievalContext
 from query.decision import Scope
 from query.facts import QueryFactsReader
-from query.legacy_trace import LegacyTraceProjection
 from query.observers import CompositeObserver
 from query.outcome import Answerable, Declined
 from query.profiles import PipelineFactory, ProfileResolver
@@ -59,14 +57,12 @@ class RetrievalResult:
     Attributes:
         outcome: The chunks, or the refusal (which says which stage refused).
         records: What every step that ran held going in and coming out.
-        trace: The same as the original pipeline's trace keys (for the diagnostics).
         scope: The scope the retrieval ran under, with its note (what was left out, what
             matched only approximately), so the answer can carry it.
     """
 
     outcome: Answerable | Declined
     records: tuple[StageRecord, ...]
-    trace: RetrievalTrace
     scope: Scope = field(default_factory=Scope)
 
 
@@ -95,7 +91,6 @@ class RetrievalService:
         self._factory = factory
         self._embedding = embedding
         self._observers = tuple(observers)
-        self._projection = LegacyTraceProjection()
 
     def retrieve(
         self, request: RetrievalRequest, store: VectorStore
@@ -134,6 +129,5 @@ class RetrievalService:
         return RetrievalResult(
             outcome=run.outcome,
             records=tuple(recorder.records),
-            trace=self._projection.project(recorder.records, run),
             scope=scope,
         )

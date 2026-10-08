@@ -341,3 +341,14 @@ def test_an_identifier_that_is_only_punctuation_changes_nothing(junk):
     assert isinstance(scope, Scope)
     assert scope == Scope(identifiers=scope.identifiers)  # an unrestricted scope
     assert plans.executed == []
+
+
+def test_the_scope_of_a_source_file_selects_that_file_only():
+    from query.decision import scope_of_source_file
+
+    scope = scope_of_source_file("a.docx")
+
+    assert scope.selection == DocumentSelection(
+        "SELECT id FROM documents WHERE source_file = %s", ("a.docx",)
+    )
+    assert scope.note is None and not scope.names_several_documents

@@ -753,36 +753,14 @@ def _prompt_chunks():
     ]
 
 
-def test_build_prompt_keeps_the_strict_refusal_by_default(
-    monkeypatch, settings_override
-):
-    from drivers.llm import _build_prompt
-
-    monkeypatch.setattr(
-        llm_module, "settings", settings_override(ANSWER_PARTIAL_COVERAGE=False)
-    )
+def test_build_prompt_refuses_only_when_the_answer_cannot_be_found_at_all():
+    """The refusal rule is the strict one, with the exact sentence the decline detection
+    and the adversarial questions depend on."""
+    from drivers.llm import REFUSAL_SENTENCE, _build_prompt
 
     system, _ = _build_prompt("q?", _prompt_chunks())
 
     assert "If the answer cannot be found in the excerpts at all" in system
+    assert f"'{REFUSAL_SENTENCE}'" in system
     assert "sample selected from a much larger collection" not in system
-
-
-def test_build_prompt_partial_coverage_refuses_only_without_a_relevant_excerpt(
-    monkeypatch, settings_override
-):
-    """Regression: with the strict wording a broad question with partial context
-    was refused 3/3; the exact refusal sentence must stay (decline detection and
-    the adversarial questions depend on it)."""
-    from drivers.llm import _build_prompt
-
-    monkeypatch.setattr(
-        llm_module, "settings", settings_override(ANSWER_PARTIAL_COVERAGE=True)
-    )
-
-    system, _ = _build_prompt("q?", _prompt_chunks())
-
-    assert "Refuse only when NONE of the excerpts is relevant" in system
-    assert "sample selected from a much larger collection" in system
-    assert "I could not find this information in the provided documents." in system
-    assert "If the answer cannot be found in the excerpts at all" not in system
+    assert "A partial answer is always better" not in system

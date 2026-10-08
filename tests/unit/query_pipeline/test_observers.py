@@ -8,9 +8,7 @@ from models import ChunkMetadata, RetrievedChunk
 from query.context import RetrievalContext
 from query.facts import QueryFacts
 from query.gate_steps import RelevanceGateStep
-from query.legacy_trace import LegacyTraceProjection
 from query.observers import AuditLogObserver, CompositeObserver, ProgressLogObserver
-from query.runner import PipelineRun, StageRecord
 from query.step import Continue, RetrievalStep
 
 
@@ -118,31 +116,3 @@ class TestComposite:
         )
 
         assert seen == ["a", "b"]
-
-
-class TestLegacyNotes:
-    def test_only_the_notes_the_old_trace_had_reach_it(self):
-        """Steps report more notes (for the logs); the old trace must not grow."""
-        record = StageRecord(
-            step="relevance_gate",
-            inputs={},
-            outputs={},
-            aux={},
-            notes={
-                "gate_passed": True,
-                "gate_top_score": 0.9,
-                "gate_min_score": 0.5,
-                "gate_depth": 4,
-                "gate_candidates": 20,
-            },
-            seconds=0.0,
-        )
-        run = PipelineRun(outcome=None, context=context(), halted_by=None)  # type: ignore[arg-type]
-
-        trace = LegacyTraceProjection().project([record], run)
-
-        assert trace.notes == {
-            "gate_passed": True,
-            "gate_top_score": 0.9,
-            "gate_min_score": 0.5,
-        }

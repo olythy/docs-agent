@@ -72,3 +72,45 @@ def test_different_settings_make_the_comparison_meaningless_and_say_so():
     problems = diff_snapshots(BASE, other)
 
     assert problems == ["settings differ (RETRIEVAL_TOP_K: 4 -> 8): not comparable"]
+
+
+def test_the_stage_ids_name_each_list_by_its_step_and_keep_side_results():
+    from models import ChunkMetadata, RetrievedChunk
+    from query.context import Slot
+    from query.runner import StageRecord
+
+    def chunk(i):
+        return RetrievedChunk(
+            id=i,
+            content="c",
+            metadata=ChunkMetadata(source_file="a", page_number=1, chunk_index=i),
+            score=0.1,
+        )
+
+    records = [
+        StageRecord(
+            "dense_search",
+            {},
+            {Slot.DENSE_POOL: (chunk(1), chunk(2))},
+            {},
+            {},
+            0.0,
+        ),
+        StageRecord(
+            "year_dense_widening",
+            {},
+            {Slot.DENSE_POOL: (chunk(3),)},
+            {"year_pool": (chunk(4),)},
+            {},
+            0.0,
+        ),
+        StageRecord("relevance_gate", {}, {}, {}, {"gate_passed": True}, 0.0),
+    ]
+
+    from corpus.commands.retrieval_snapshot import stage_ids
+
+    assert stage_ids(records) == {
+        "dense_search.dense_pool": [1, 2],
+        "year_dense_widening.dense_pool": [3],
+        "year_dense_widening.year_pool": [4],
+    }

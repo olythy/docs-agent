@@ -42,7 +42,7 @@ import logging
 
 from drivers.llm import ToolCallRequest, get_answer_driver
 from ingestion.ingest import add_directory, add_document
-from query.retrieval import query_knowledge_base
+from query.knowledge_base import query_knowledge_base
 
 TOOLS = [
     {
@@ -192,12 +192,9 @@ def _call_tool(name: str, arguments: dict) -> str:
             f"{len(summary['failed'])} failed (out of {summary['total_found']} found)."
         )
     if name == "query_knowledge_base":
-        source_file = arguments.get("source_file")
-        if source_file:
-            return query_knowledge_base(
-                arguments["question"], metadata_filter={"source_file": source_file}
-            )
-        return query_knowledge_base(arguments["question"])
+        return query_knowledge_base(
+            arguments["question"], source_file=arguments.get("source_file")
+        )
     raise ValueError(f"Unknown tool requested by the model: '{name}'")
 
 
@@ -273,7 +270,7 @@ def run_interactive() -> None:
 
 
 if __name__ == "__main__":
-    # ingestion.ingest/query.retrieval log their progress via `logging`, not
+    # ingestion.ingest/query.knowledge_base log their progress via `logging`, not
     # print() (mcp_server.py needs stdout clean for the MCP protocol) — this
     # CLI still wants to see those messages, so configure a bare, print()-like
     # handler here rather than leaving them silent (logging's default when

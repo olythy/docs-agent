@@ -168,10 +168,10 @@ def _resolve_cited_source_files(generated_answer: str) -> list[str]:
 
     Extracts identifier-like tokens (case numbers, ...) directly from the
     answer's own text and looks each one up against real document
-    content -- deterministic, no LLM involved. The same mechanism
-    query.retrieval's identifier-rescue already uses at query time
-    (extract_identifier_tokens/search_by_identifier), reused here to
-    verify what the answer itself claims instead of what a question asks.
+    content -- deterministic, no LLM involved. It uses the same identifier
+    detection the query facts and the chunker use (extract_identifier_tokens)
+    with VectorStore.search_by_identifier, to verify what the answer itself
+    claims instead of what a question asks.
 
     Args:
         generated_answer: What query_knowledge_base() actually returned.
@@ -428,34 +428,38 @@ DIAGNOSTIC_POOL_SIZE = 50
 
 
 def _citation_ranks(
-    question_text: str, citations: list[dict], strategy
+    question_text: str, citations: list[dict], profile: str
 ) -> dict[str, int | None]:
     """Find each citation's 1-based document rank in a wide candidate pool.
 
     Confirmed valuable live (see docs/decisions.md's q0030 investigation):
     a binary retrieval_hit/miss alone meant re-deriving this by hand, one
     question at a time, to tell "ranked 9th, a tuning problem" apart from
-    "not in the corpus/pool at all, a different problem." Reuses the real
-    production retrieval path (:func:`query.retrieval.retrieve_chunks`)
-    at a wider ``top_k`` than production uses, purely for this diagnostic
-    -- not a separate, hand-rolled ranking.
+    "not in the corpus/pool at all, a different problem." Runs the real
+    retrieval service at a wider ``top_k`` than production uses (and over all
+    documents), purely for this diagnostic -- not a separate, hand-rolled ranking.
 
     Args:
         question_text: The golden question's text.
         citations: The golden question's ``citations`` list.
-        strategy: The same ``RetrievalStrategy`` instance ``evaluate_one()``
-            used for the real (production-top_k) retrieval call.
+        profile: The retrieval profile ``evaluate_one()`` used for the real call.
 
     Returns:
         ``{source_file: rank}`` for each cited source_file, 1-based by
         first distinct-document occurrence, or ``None`` if it doesn't
         appear even within ``DIAGNOSTIC_POOL_SIZE`` documents.
     """
-    from query.retrieval import retrieve_chunks
+    from config import settings
+    from query.composition import build_retrieval_service
+    from query.outcome import Answerable
+    from query.service import RetrievalRequest
+    from store import VectorStore
 
-    wide_pool = retrieve_chunks(
-        question_text, strategy=strategy, top_k=DIAGNOSTIC_POOL_SIZE
+    result = build_retrieval_service(settings).retrieve(
+        RetrievalRequest(question_text, profile=profile, top_k=DIAGNOSTIC_POOL_SIZE),
+        VectorStore(),
     )
+    wide_pool = result.outcome.chunks if isinstance(result.outcome, Answerable) else ()
     doc_rank: dict[str, int] = {}
     for chunk in wide_pool:
         doc_rank.setdefault(chunk.metadata.source_file, len(doc_rank) + 1)
@@ -506,46 +510,25 @@ def _evaluate_one_with_retry(
     raise AssertionError("unreachable")
 
 
-def _answer_and_retrieved(question: str, strategy, strategy_name: str):
-    """The answer and the chunks it was written from, on the engine ``QUERY_ENGINE`` names.
+def _answer_and_retrieved(question: str, profile: str):
+    """The answer and the chunks it was written from.
 
-    ``v2``: one call to the query service, which decides (with the router on: whether the
-    question is answered exactly, refused, or read, and inside which documents), retrieves
-    and answers; the chunks come from its explanation. ``legacy``: the original path, which
-    retrieves once for the grading and again inside ``query_knowledge_base``.
+    One call to the query service, which decides (with the router on: whether the question
+    is answered exactly, refused, or read, and inside which documents), retrieves and
+    answers; the chunks come from its explanation.
 
     Args:
         question: The question text.
-        strategy: The retrieval strategy object (legacy path).
-        strategy_name: ``vector`` or ``hybrid`` (the profile to read with on ``v2``).
+        profile: ``vector`` or ``hybrid`` (the profile to read with).
 
     Returns:
         ``(answer, chunks)``; no chunks when the question was answered exactly or refused.
     """
     from config import settings
-    from query.retrieval import apply_routing, query_knowledge_base, retrieve_chunks
+    from query.composition import build_query_service
 
-    if settings.QUERY_ENGINE.lower() == "v2":
-        from query.composition import build_query_service
-
-        result = build_query_service(settings).answer(question, profile=strategy_name)
-        return result.text, list(result.explain.chunks)
-
-    from query.router import get_query_router
-
-    # With the router on, decide once: the answer and the retrieved documents
-    # must come from the same decision (a count answered from metadata has no
-    # retrieved chunks, so the retrieval/citation columns do not apply to it).
-    routing = None
-    retrieval_store = None
-    if settings.QUERY_ROUTER:
-        routing = get_query_router().route(question)
-        retrieval_store = apply_routing(routing, None)
-    if routing is not None and routing.answer is not None:
-        retrieved = []
-    else:
-        retrieved = retrieve_chunks(question, strategy=strategy, store=retrieval_store)
-    return query_knowledge_base(question, strategy=strategy, routing=routing), retrieved
+    result = build_query_service(settings).answer(question, profile=profile)
+    return result.text, list(result.explain.chunks)
 
 
 def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) -> dict:
@@ -554,7 +537,7 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
 
     Args:
         question: A verified questions.json entry.
-        strategy_name: "vector" or "hybrid" -- which RetrievalStrategy to use.
+        strategy_name: "vector" or "hybrid" -- which retrieval profile to use.
         personas: Loaded personas.json, keyed by id (see load_personas()).
 
     Returns:
@@ -565,17 +548,8 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
         persona configures in ``grading_strategies``.
     """
     from query.decline_detection import looks_like_a_decline
-    from query.retrieval import HybridRetrievalStrategy, VectorRetrievalStrategy
 
-    strategy = (
-        HybridRetrievalStrategy()
-        if strategy_name == "hybrid"
-        else VectorRetrievalStrategy()
-    )
-
-    answer, retrieved = _answer_and_retrieved(
-        question["question"], strategy, strategy_name
-    )
+    answer, retrieved = _answer_and_retrieved(question["question"], strategy_name)
     retrieved_source_files = {c.metadata.source_file for c in retrieved}
 
     result: dict = {
@@ -605,7 +579,7 @@ def evaluate_one(question: dict, strategy_name: str, personas: dict[str, dict]) 
     # re-investigation to tell "ranking problem" apart from "recall gap."
     if any(not g["retrieval_hit"] for g in result["grades"].values()):
         result["citation_ranks"] = _citation_ranks(
-            question["question"], question.get("citations", []), strategy
+            question["question"], question.get("citations", []), strategy_name
         )
     return result
 

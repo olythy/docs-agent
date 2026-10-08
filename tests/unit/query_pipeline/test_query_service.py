@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from metadata.plan import Filter, FilterOp, Operation, QueryPlan
-from models import ChunkMetadata, DocumentSelection, RetrievalTrace, RetrievedChunk
+from models import ChunkMetadata, DocumentSelection, RetrievedChunk
 from query.answering import GroundedAnswer
 from query.decision import AnswerExactly, ReadDocuments, Refuse, Scope
 from query.facts import QueryFacts, QueryFactsReader
@@ -44,9 +44,7 @@ class FakeRetrieval:
 
     def retrieve(self, request, store):
         self.calls.append((request, store))
-        return RetrievalResult(
-            self.outcome, (), RetrievalTrace(), request.scope or Scope()
-        )
+        return RetrievalResult(self.outcome, (), request.scope or Scope())
 
 
 class FakeExact:
@@ -67,7 +65,7 @@ class FakeGrounded:
         return self.reply
 
 
-def service(make, outcome=None, exact=True, grounded=None):
+def service(make, outcome=None, grounded=None):
     decider = FixedDecider(make)
     retrieval = FakeRetrieval(outcome or Answerable((CHUNK,)))
     fake_exact = FakeExact()
@@ -76,9 +74,10 @@ def service(make, outcome=None, exact=True, grounded=None):
         QueryFactsReader(),
         decider,
         retrieval,
-        fake_exact if exact else None,
+        fake_exact,
         fake_grounded,
         RefusalRenderer(),
+        default_profile="hybrid",
     )
     return qs, decider, retrieval, fake_exact, fake_grounded
 
@@ -110,12 +109,6 @@ class TestExact:
         assert exact.calls == [("How many?", PLAN)]
         assert not (retrieval.calls or grounded.calls)
         assert isinstance(answer.explain.decision, AnswerExactly)
-
-    def test_an_exact_decision_without_an_answerer_is_an_error_not_a_guess(self):
-        qs, *_ = service(lambda f: AnswerExactly(f, PLAN), exact=False)
-
-        with pytest.raises(RuntimeError, match="ExactAnswerer"):
-            qs.answer("q", store=STORE)
 
 
 class TestRead:
@@ -190,6 +183,29 @@ def test_the_decider_gets_the_facts_of_the_question():
 
     (facts,) = decider.seen
     assert isinstance(facts, QueryFacts) and facts.identifiers == ("4.P.20.409/2023/4",)
+
+
+class TestACallerFixedScope:
+    def test_no_decision_is_taken_and_the_scope_is_read_with_the_default_profile(self):
+        scope = Scope(note="one file")
+        qs, decider, retrieval, exact, _ = service(read())
+
+        answer = qs.answer("q", scope=scope, store=STORE)
+
+        assert decider.seen == []  # nobody was asked
+        request = retrieval.calls[0][0]
+        assert (request.scope, request.profile) == (scope, "hybrid")
+        assert answer.text == "GROUNDED\n\none file"
+        assert isinstance(answer.explain.decision, ReadDocuments)
+        assert answer.explain.decision.plan is None
+        assert not exact.calls
+
+    def test_a_given_profile_still_wins(self):
+        qs, _, retrieval, *_ = service(read())
+
+        qs.answer("q", scope=Scope(), profile="vector", store=STORE)
+
+        assert retrieval.calls[0][0].profile == "vector"
 
 
 class TestExplainChunks:

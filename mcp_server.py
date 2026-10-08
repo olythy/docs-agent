@@ -6,7 +6,7 @@ inside a normal chat — see README.md's "MCP Server" section for how to
 register it.
 
 Deliberately exposes ``search_knowledge_base`` (wraps
-``query.retrieval.retrieve_chunks()``), not ``query.retrieval.
+``query.knowledge_base.search_knowledge_base()``), not ``query.knowledge_base.
 query_knowledge_base()``: the latter makes its own ``LLM_DRIVER`` API call
 to generate an answer, which defeats the point of using this from an MCP
 host — the host's own model can write the grounded answer directly from
@@ -36,9 +36,9 @@ from mcp.server.mcpserver.exceptions import ToolError
 from ingestion.ingest import add_directory as _add_directory
 from ingestion.ingest import add_document as _add_document
 from models import RetrievedChunk
-from query.retrieval import retrieve_chunks
+from query.knowledge_base import search_knowledge_base as _search
 
-# ingestion.ingest/query.retrieval log their progress via `logging`, which
+# ingestion.ingest/query log their progress via `logging`, which
 # defaults to stderr — safe on the MCP stdio transport, where stdout must
 # stay reserved for the JSON-RPC protocol (a stray print() here corrupted a
 # real client's message parsing mid-call, confirmed empirically). Configured
@@ -73,7 +73,7 @@ def _to_search_result(chunk: RetrievedChunk) -> dict:
     public, JSON-serialized response shape, not an internal chunk.
 
     Args:
-        chunk: A chunk as returned by :func:`query.retrieval.retrieve_chunks`.
+        chunk: A chunk as returned by :func:`query.knowledge_base.search_knowledge_base`.
 
     Returns:
         A dict with ``content``, ``source_file``, ``page_number``.
@@ -101,14 +101,7 @@ def search_knowledge_base(question: str, source_file: str | None = None) -> list
         result means the knowledge base has nothing reliable on this, not
         that the search itself failed.
     """
-    if source_file:
-        return [
-            _to_search_result(chunk)
-            for chunk in retrieve_chunks(
-                question, metadata_filter={"source_file": source_file}
-            )
-        ]
-    return [_to_search_result(chunk) for chunk in retrieve_chunks(question)]
+    return [_to_search_result(chunk) for chunk in _search(question, source_file)]
 
 
 @mcp.tool()

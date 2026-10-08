@@ -193,3 +193,19 @@ def test_a_retrieval_service_restricts_a_real_store_to_the_scope(
 
     assert everywhere == ["a.pdf", "b.pdf"]
     assert inside == ["b.pdf"]
+
+
+def test_the_scope_of_a_source_file_restricts_every_search_to_that_file(two_documents):
+    from query.decision import scope_of_source_file
+
+    selection = scope_of_source_file("b.pdf").selection
+    assert selection is not None
+    vec = two_documents.embed_text("booking invoice")
+
+    only_b = VectorStore(selection=selection).search(vec, top_k=5, min_score=0.0)
+    unknown = VectorStore(selection=scope_of_source_file("zzz.pdf").selection).search(
+        vec, top_k=5, min_score=0.0
+    )
+
+    assert _files(only_b) == ["b.pdf"]
+    assert unknown == []  # a file that was never ingested selects nothing

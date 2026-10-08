@@ -9,10 +9,11 @@ import json
 
 import pytest
 
-import query.retrieval as retrieval_module
+import query.composition as composition_module
 from config import settings
 from drivers.embedding import get_embedding_driver
-from query.retrieval import NO_RESULTS_MESSAGE, query_knowledge_base
+from query.knowledge_base import query_knowledge_base
+from query.outcome import NO_RESULTS_MESSAGE
 from store import VectorStore, _to_pgvector_literal
 
 pytestmark = [
@@ -159,10 +160,10 @@ class _StubAnswerDriver:
     """Avoids a real LLM API call — records what it was asked, returns a canned reply."""
 
     def __init__(self):
-        self.received_chunks = None
+        self.user_message = None
 
-    def answer(self, question, context_chunks):
-        self.received_chunks = context_chunks
+    def generate(self, system_prompt, user_message, max_tokens=1024):
+        self.user_message = user_message
         return "STUBBED ANSWER"
 
 
@@ -171,25 +172,43 @@ def test_query_knowledge_base_end_to_end_with_stubbed_llm(db_conn, monkeypatch):
     _insert_chunk(db_conn, "The sky is blue.", driver.embed_text("The sky is blue."))
 
     stub = _StubAnswerDriver()
-    monkeypatch.setattr(retrieval_module, "get_answer_driver", lambda: stub)
+    monkeypatch.setattr(composition_module, "get_answer_driver", lambda: stub)
 
-    answer = query_knowledge_base("What color is the sky?", min_score=0.0)
+    answer = query_knowledge_base(
+        "What color is the sky?", min_score=0.0, source_file="t.pdf"
+    )
 
     assert answer == "STUBBED ANSWER"
-    assert stub.received_chunks is not None
-    assert len(stub.received_chunks) >= 1
+    assert stub.user_message is not None
+    assert "The sky is blue." in stub.user_message
+
+
+def test_query_knowledge_base_reads_only_the_named_file(db_conn, monkeypatch):
+    driver = get_embedding_driver()
+    for name, text in (("one.pdf", "The sky is blue."), ("two.pdf", "The sky is red.")):
+        _insert_chunk(db_conn, text, driver.embed_text(text), source_file=name)
+    stub = _StubAnswerDriver()
+    monkeypatch.setattr(composition_module, "get_answer_driver", lambda: stub)
+
+    query_knowledge_base("What color is the sky?", min_score=0.0, source_file="two.pdf")
+
+    assert stub.user_message is not None
+    assert "The sky is red." in stub.user_message
+    assert "The sky is blue." not in stub.user_message
 
 
 def test_query_knowledge_base_returns_fallback_when_nothing_matches(
     db_conn, monkeypatch
 ):
+    driver = get_embedding_driver()
+    _insert_chunk(db_conn, "The sky is blue.", driver.embed_text("The sky is blue."))
     stub = _StubAnswerDriver()
-    monkeypatch.setattr(retrieval_module, "get_answer_driver", lambda: stub)
+    monkeypatch.setattr(composition_module, "get_answer_driver", lambda: stub)
 
-    answer = query_knowledge_base("Anything?", min_score=0.99)
+    answer = query_knowledge_base("Anything?", min_score=0.99, source_file="t.pdf")
 
     assert answer == NO_RESULTS_MESSAGE
-    assert stub.received_chunks is None  # answer() was never called
+    assert stub.user_message is None  # the model was never asked
 
 
 def test_search_with_metadata_filter_against_real_pgvector(db_conn):

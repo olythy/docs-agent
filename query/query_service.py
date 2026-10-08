@@ -22,7 +22,14 @@ from typing import Protocol
 from metadata.plan import QueryPlan
 from models import RetrievedChunk
 from query.answering import GroundedAnswer
-from query.decision import AnswerExactly, Decider, Decision, ReadDocuments, Refuse
+from query.decision import (
+    AnswerExactly,
+    Decider,
+    Decision,
+    ReadDocuments,
+    Refuse,
+    Scope,
+)
 from query.facts import QueryFactsReader
 from query.outcome import Answerable, Declined, RefusalRenderer
 from query.service import RetrievalRequest, RetrievalResult
@@ -99,10 +106,11 @@ class QueryService:
         facts_reader: Reads the identifiers and years of the question.
         decider: Decides how the question is answered.
         retrieval: Reads the best chunks of the documents in scope.
-        exact: Answers from the metadata alone (``None`` when no planner decides, since
-            then no question is answered exactly).
+        exact: Answers from the metadata alone.
         grounded: Writes an answer from the chunks read.
         refusals: Words a refusal.
+        default_profile: The profile to read with when the caller fixes the scope itself
+            (no decider is asked, so none chooses a profile).
     """
 
     def __init__(
@@ -110,9 +118,10 @@ class QueryService:
         facts_reader: QueryFactsReader,
         decider: Decider,
         retrieval: Retrieves,
-        exact: AnswersExactly | None,
+        exact: AnswersExactly,
         grounded: AnswersFromChunks,
         refusals: RefusalRenderer,
+        default_profile: str,
     ) -> None:
         self._facts_reader = facts_reader
         self._decider = decider
@@ -120,6 +129,7 @@ class QueryService:
         self._exact = exact
         self._grounded = grounded
         self._refusals = refusals
+        self._default_profile = default_profile
 
     def answer(
         self,
@@ -128,6 +138,7 @@ class QueryService:
         top_k: int | None = None,
         min_score: float | None = None,
         profile: str | None = None,
+        scope: Scope | None = None,
         store: VectorStore | None = None,
     ) -> Answer:
         """Answer ``question``.
@@ -138,6 +149,8 @@ class QueryService:
             min_score: Overrides ``RETRIEVAL_MIN_SCORE``.
             profile: Reads with this profile instead of the one the decision chose (for
                 comparing profiles; it changes nothing about the decision itself).
+            scope: A scope the caller fixes (e.g. one file): nothing is decided, the
+                documents inside it are read.
             store: The chunk store (default: the configured one).
 
         Raises:
@@ -145,7 +158,12 @@ class QueryService:
                 before ``load-catalog``), or the embedding dimension does not match the store.
             metadata.plan.PlanError: If an exact plan no longer fits the catalog.
         """
-        decision = self._decider.decide(self._facts_reader.read(question))
+        facts = self._facts_reader.read(question)
+        decision: Decision = (
+            ReadDocuments(facts, None, self._default_profile, scope)
+            if scope is not None
+            else self._decider.decide(facts)
+        )
         match decision:
             case Refuse(declined=declined):
                 return Answer(

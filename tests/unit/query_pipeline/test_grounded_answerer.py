@@ -1,4 +1,4 @@
-"""Writing an answer from the chunks read: the prompt is the original's, the policy is explicit."""
+"""Writing an answer from the chunks read: the policy is explicit, the model's refusal is recognised."""
 
 import pytest
 
@@ -33,43 +33,42 @@ class FakeDriver(AnswerDriver):
 
 
 CHUNKS = (chunk("first"), chunk("second", source="b.pdf", page=3))
-POLICIES = [AnswerPolicy(p, d) for p in (False, True) for d in (False, True)]
+POLICIES = [AnswerPolicy(expose_document_date=d) for d in (False, True)]
 
 
 @pytest.mark.parametrize("policy", POLICIES)
-def test_the_prompt_is_the_original_prompt_for_the_same_policy(
-    policy, monkeypatch, settings_override
-):
-    monkeypatch.setattr(
-        llm_module,
-        "settings",
-        settings_override(
-            ANSWER_PARTIAL_COVERAGE=policy.partial_coverage,
-            EXPOSE_DOCUMENT_DATE=policy.expose_document_date,
-        ),
-    )
+def test_the_prompt_is_the_drivers_prompt_for_the_same_policy(policy):
     driver = FakeDriver()
 
     GroundedAnswerer(driver, policy, max_tokens=77).answer("Q?", CHUNKS)
 
-    expected = _build_prompt("Q?", list(CHUNKS))
+    expected = _build_prompt(
+        "Q?", list(CHUNKS), expose_document_date=policy.expose_document_date
+    )
     assert driver.calls == [(*expected, 77)]
 
 
 def test_the_policy_given_wins_over_the_settings(monkeypatch, settings_override):
     monkeypatch.setattr(
-        llm_module,
-        "settings",
-        settings_override(ANSWER_PARTIAL_COVERAGE=False, EXPOSE_DOCUMENT_DATE=False),
+        llm_module, "settings", settings_override(EXPOSE_DOCUMENT_DATE=False)
     )
     driver = FakeDriver()
 
-    GroundedAnswerer(driver, AnswerPolicy(True, True)).answer("Q?", CHUNKS)
+    GroundedAnswerer(driver, AnswerPolicy(expose_document_date=True)).answer(
+        "Q?", CHUNKS
+    )
 
-    system, user, _ = driver.calls[0]
-    assert "A partial answer is always better" in system
-    assert "small sample" in system  # the sample note follows the policy too
-    assert "date: 2024-01-02" in user
+    assert "date: 2024-01-02" in driver.calls[0][1]
+
+
+def test_without_the_policy_the_dates_are_not_shown():
+    driver = FakeDriver()
+
+    GroundedAnswerer(driver, AnswerPolicy(expose_document_date=False)).answer(
+        "Q?", CHUNKS
+    )
+
+    assert "date:" not in driver.calls[0][1]
 
 
 def test_the_default_answer_method_builds_the_same_prompt_and_calls_generate():
@@ -104,7 +103,7 @@ def test_anything_else_is_an_answer(reply):
     assert not answer.refused and answer.text == reply
 
 
-def test_both_refusal_clauses_still_contain_the_sentence_that_is_recognised():
-    for partial in (False, True):
-        system, _ = _build_prompt("q", [], partial_coverage=partial)
-        assert f"'{REFUSAL_SENTENCE}'" in system
+def test_the_refusal_clause_contains_the_sentence_that_is_recognised():
+    system, _ = _build_prompt("q", [])
+
+    assert f"'{REFUSAL_SENTENCE}'" in system

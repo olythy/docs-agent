@@ -342,7 +342,7 @@ parse_args = parse_ingest_args
 def cmd_query(question: str) -> int:
     """Run a single question through the RAG pipeline."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    from query.retrieval import query_knowledge_base
+    from query.knowledge_base import query_knowledge_base
 
     answer = query_knowledge_base(question)
     print("\n--- Answer ---")
