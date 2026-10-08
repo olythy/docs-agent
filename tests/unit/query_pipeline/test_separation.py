@@ -31,6 +31,7 @@ NEW = [
     "service",
     "composition",
     "decision",
+    "inflection",
 ]
 
 #: What the new modules may not import.

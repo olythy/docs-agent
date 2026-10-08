@@ -19,7 +19,11 @@ import psycopg2.errors
 
 from connection_scope import ConnectionScope
 from db import get_connection
-from metadata.identifiers import normalized_sql
+from metadata.identifiers import (
+    MIN_CONTINUATION_LENGTH,
+    compact_sql,
+    normalized_sql,
+)
 from models import (
     Document,
     DocumentType,
@@ -592,6 +596,18 @@ class DocumentStore:
             rows = [row[0] for row in cur.fetchall()]
         return rows if len(rows) <= limit else None
 
+    #: Every stored identifier value, normalised: the values of the approved keys of type
+    #: ``identifier`` that belong to the document's own type. ``{stored}`` is filled in
+    #: with the normalising expression.
+    _IDENTIFIER_VALUES_SQL = """
+        SELECT m.document_id, {stored} AS normalized
+        FROM document_meta m
+        JOIN documents d ON d.id = m.document_id
+        JOIN meta_keys k ON k.doc_type = d.document_type AND k.key = m.key
+        WHERE k.value_type = 'identifier' AND k.status = 'approved'
+          AND m.value_text IS NOT NULL
+    """
+
     def documents_with_identifiers(
         self, wanted: Sequence[str]
     ) -> list[tuple[int, int]]:
@@ -612,19 +628,12 @@ class DocumentStore:
         """
         if not wanted:
             return []
-        stored = normalized_sql("m.value_text")
         sql = f"""
             SELECT DISTINCT w.position, m.document_id
             FROM unnest(%s::text[]) WITH ORDINALITY AS w(wish, position)
-            JOIN (
-                SELECT m.document_id, {stored} AS normalized
-                FROM document_meta m
-                JOIN documents d ON d.id = m.document_id
-                JOIN meta_keys k ON k.doc_type = d.document_type AND k.key = m.key
-                WHERE k.value_type = 'identifier' AND k.status = 'approved'
-                  AND m.value_text IS NOT NULL
-            ) m ON m.normalized = w.wish
-                OR (starts_with(m.normalized, w.wish)
+            JOIN ({self._values_sql()}) m ON m.normalized = w.wish
+                OR (length(w.wish) >= {MIN_CONTINUATION_LENGTH}
+                    AND starts_with(m.normalized, w.wish)
                     AND substr(m.normalized, length(w.wish) + 1, 1) !~ '[0-9]')
             WHERE w.wish <> ''
             ORDER BY w.position, m.document_id;
@@ -632,6 +641,44 @@ class DocumentStore:
         with self._scope.connection() as conn, conn.cursor() as cur:
             cur.execute(sql, (list(wanted),))
             return [(row[0], row[1]) for row in cur.fetchall()]
+
+    def documents_matching_identifier_patterns(
+        self, patterns: Sequence[str], ignoring_separators: bool = False
+    ) -> list[tuple[int, int]]:
+        """The documents whose normalised identifier matches a regular expression.
+
+        The same identifier values as :meth:`documents_with_identifiers`, matched by
+        patterns the caller builds (:func:`metadata.identifiers.partial_pattern`), so the
+        rule stays in ``metadata`` and this method only runs it.
+
+        Args:
+            patterns: PostgreSQL regular expressions, applied to the normalised value (or,
+                with ``ignoring_separators``, to its compact form: letters and digits only).
+            ignoring_separators: Match against the compact form of the stored value.
+
+        Returns:
+            ``(position, document_id)`` pairs, once each, as in
+            :meth:`documents_with_identifiers`.
+        """
+        if not patterns:
+            return []
+        subject = compact_sql("m.normalized") if ignoring_separators else "m.normalized"
+        sql = f"""
+            SELECT DISTINCT w.position, m.document_id
+            FROM unnest(%s::text[]) WITH ORDINALITY AS w(pattern, position)
+            JOIN ({self._values_sql()}) m ON {subject} ~ w.pattern
+            ORDER BY w.position, m.document_id;
+        """
+        with self._scope.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (list(patterns),))
+            return [(row[0], row[1]) for row in cur.fetchall()]
+
+    @classmethod
+    def _values_sql(cls) -> str:
+        """The identifier-values sub-select with the normalising expression filled in."""
+        return cls._IDENTIFIER_VALUES_SQL.replace(
+            "{stored}", normalized_sql("m.value_text")
+        )
 
     def execute_query(
         self, sql: str, params: tuple, timeout_ms: int = 10_000

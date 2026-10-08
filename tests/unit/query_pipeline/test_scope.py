@@ -1,12 +1,17 @@
 """Which documents the retrieval may look at: the rules for combining an identifier and the filters."""
 
+import re
 from collections.abc import Iterable, Sequence
 
 import pytest
 
 from metadata.executor import Membership, PlanResult
 from metadata.identifier_resolver import IdentifierResolver
-from metadata.identifiers import identifier_matches
+from metadata.identifiers import (
+    compact_identifier,
+    identifier_matches,
+    normalize_identifier,
+)
 from metadata.plan import Filter, FilterOp, Operation, QueryPlan
 from models import DocumentSelection
 from query.decision import Scope, ScopeResolver
@@ -18,8 +23,8 @@ DOCS = {
     1: ["4.P.20.409/2023/4"],
     2: ["27.P.20.339/2021/37", "27.P.20.339/2021/37-ítélet"],
     3: ["8.P.21.329/2024/12-III", "8.P.XI.21.329/2024/12."],
-    4: ["HU001"],
-    5: ["HU001-A"],  # a second document with a number that continues it
+    4: ["HU-2024-001"],
+    5: ["HU-2024-001-A"],  # a second document with a number that continues it
 }
 
 
@@ -28,6 +33,7 @@ class FakeSource:
 
     def __init__(self, documents):
         self.documents = documents
+        self.asked_patterns: list[list[str]] = []
 
     def documents_with_identifiers(self, wanted: Sequence[str]):
         return [
@@ -36,6 +42,21 @@ class FakeSource:
             for doc_id, values in sorted(self.documents.items())
             if any(identifier_matches(v, w) for v in values)
         ]
+
+    def documents_matching_identifier_patterns(
+        self, patterns: Sequence[str], ignoring_separators: bool = False
+    ):
+        self.asked_patterns.append(list(patterns))
+        subject = compact_identifier if ignoring_separators else normalize_identifier
+        out = []
+        for position, pattern in enumerate(patterns, start=1):
+            # PostgreSQL's POSIX class, as Python's re spells it; the real equality of the
+            # two spellings is held by the database test, not by this fake.
+            compiled = re.compile(pattern.replace("[^[:alnum:]]", r"[\W_]"))
+            for doc_id, values in sorted(self.documents.items()):
+                if any(compiled.search(subject(v)) for v in values):
+                    out.append((position, doc_id))
+        return out
 
 
 class FakePlans:
@@ -203,10 +224,10 @@ class TestAnIdentifierThatResolvesToNothing:
 
 
 def test_the_resolution_is_kept_for_the_explain_record():
-    scope = resolver(FakePlans()).resolve(lookup(restricted=False), ["HU001"])
+    scope = resolver(FakePlans()).resolve(lookup(restricted=False), ["HU-2024-001"])
 
     assert isinstance(scope, Scope)
-    assert scope.identifiers.ambiguous == ("HU001",)  # two documents share it
+    assert scope.identifiers.ambiguous == ("HU-2024-001",)  # two documents share it
     assert scope.selection and scope.selection.params == ([4, 5],)
 
 

@@ -25,7 +25,11 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from metadata.date_ranges import DateRange, DateRangeResolver, DateSpecError
-from metadata.identifiers import normalize_identifier, normalized_sql
+from metadata.identifiers import (
+    MIN_CONTINUATION_LENGTH,
+    normalize_identifier,
+    normalized_sql,
+)
 from metadata.plan import Filter, FilterOp, Operation, PlanError, QueryPlan
 from models import DocumentSelection, KeyStatus, MetaKey, ValueType
 
@@ -395,17 +399,23 @@ class PlanCompiler:
             values = [wanted(v) for v in flt.value]
         else:
             values = [wanted(flt.value)]
-        # equal, or the stored identifier continues the wanted one with a non-digit
-        one = (
-            f"({stored} = %s OR ({stored} LIKE %s ESCAPE '\\' "
-            f"AND substr({stored}, %s + 1, 1) !~ '[0-9]'))"
+        # equal, or (for a wish long enough) the stored identifier continues it with a non-digit
+        equal = f"{stored} = %s"
+        continued = (
+            f"({stored} LIKE %s ESCAPE '\\' AND substr({stored}, %s + 1, 1) !~ '[0-9]')"
         )
+        conditions: list[str] = []
         params: list[Any] = []
         for value in values:
-            params += [value, f"{escaped(value)}%", len(value)]
+            if len(value) >= MIN_CONTINUATION_LENGTH:
+                conditions.append(f"({equal} OR {continued})")
+                params += [value, f"{escaped(value)}%", len(value)]
+            else:
+                conditions.append(f"({equal})")
+                params.append(value)
         words = f"is {flt.value!r}" if flt.op is FilterOp.EQ else f"in {flt.value!r}"
         return (
-            "(" + " OR ".join([one] * len(values)) + ")",
+            "(" + " OR ".join(conditions) + ")",
             tuple(params),
             f"{words} (as an identifier: case, spaces and a suffix are ignored)",
         )

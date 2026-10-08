@@ -511,13 +511,36 @@ class TestIdentifierKey:
             assert step in sql
 
     def test_in_is_an_or_of_the_same_condition(self, compiler):
-        compiled = self._compile(compiler, "in", ["A1/2", "B3/4"])
+        compiled = self._compile(
+            compiler, "in", ["10.P.20.277/2019/77", "8.P.21.329/2024/12"]
+        )
 
         assert (
             compiled.sql.count(" OR ") >= 3
         )  # one per identifier, plus the two inside
-        assert compiled.params[2:5] == ("a1/2", "a1/2%", 4)
-        assert compiled.params[5:8] == ("b3/4", "b3/4%", 4)
+        assert compiled.params[2:5] == (
+            "10.p.20.277/2019/77",
+            "10.p.20.277/2019/77%",
+            19,
+        )
+        assert compiled.params[5:8] == ("8.p.21.329/2024/12", "8.p.21.329/2024/12%", 18)
+
+    def test_a_short_wish_is_only_matched_when_equal(self, compiler):
+        """As a prefix '4.P' or 'HU001' would match every number that starts that way."""
+        compiled = self._compile(compiler, "eq", "HU001")
+
+        assert compiled.params == ("court_decision", "document_identifier", "hu001")
+        assert "LIKE" not in compiled.sql
+
+    def test_a_short_one_beside_a_long_one_in_a_list(self, compiler):
+        compiled = self._compile(compiler, "in", ["HU001", "10.P.20.277/2019/77"])
+
+        assert compiled.params[2] == "hu001"  # equality only
+        assert compiled.params[3:6] == (
+            "10.p.20.277/2019/77",
+            "10.p.20.277/2019/77%",
+            19,
+        )
 
     def test_contains_is_a_substring_of_the_normalised_form(self, compiler):
         compiled = self._compile(compiler, "contains", "P.20.409")
@@ -526,9 +549,9 @@ class TestIdentifierKey:
         assert compiled.params[-1] == "%p.20.409%"
 
     def test_like_characters_in_the_wish_are_escaped(self, compiler):
-        compiled = self._compile(compiler, "eq", "a_b%c")
+        compiled = self._compile(compiler, "eq", "a_b%c-12345")
 
-        assert compiled.params[3] == "a\\_b\\%c%"
+        assert compiled.params[3] == "a\\_b\\%c-12345%"
 
     def test_the_value_is_never_part_of_the_sql(self, compiler):
         evil = "x'; DROP TABLE documents; --"

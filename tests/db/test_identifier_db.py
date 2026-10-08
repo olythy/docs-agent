@@ -264,14 +264,19 @@ class TestDocumentsWithIdentifiers:
         self, db_conn
     ):
         store = DocumentStore()
-        _doc(store, 1, "t", "k", "AB-1")
+        _doc(store, 1, "t", "k", "AB-2024-001")
         store.add_value(  # a second written form of the same number, under the same key
             MetaValue(
-                _h(1), "k", 1, MetaSource.LLM, value_text="AB-1-ítélet", ordinal=1
+                _h(1),
+                "k",
+                1,
+                MetaSource.LLM,
+                value_text="AB-2024-001-ítélet",
+                ordinal=1,
             )
         )
 
-        rows = store.documents_with_identifiers(["ab-1"])
+        rows = store.documents_with_identifiers(["ab-2024-001"])
 
         document_id = store.execute_query("SELECT id FROM documents", ())[0][0]
         assert rows == [(1, document_id)]  # once, although two values match
@@ -364,3 +369,255 @@ class TestDocumentsWithIdentifiers:
         # ".../40" is its own document
         assert result.documents["4.P.20.409/2023/40"] == (id_of("doc_2.docx"),)
         assert result.unresolved == ("no/such/1",)
+
+
+# ---- the partial lookup: a wished identifier as a PART of a stored one ------------------
+
+PART_STORED = [
+    "10.P.20.277/2019/77",
+    "14.P.20.277/2019/77",  # the same series and number at another office
+    "10.P.20.277/2019/777",  # a longer number
+    "4.P.20.487/2020/221-ítélet",
+    "PREFIX-2024/00123",
+    "10.P.20.277/2018/77",  # another year
+    "2023-01-15-7",  # something with a date in it
+    "HU-BUD-2024-17",
+    "ÍTÉLET.20.100/2021/5",  # a non-ASCII letter right before a separator
+    "x 20.277/2019/77",  # a space before the part
+]
+
+PART_WISHED = [
+    "P.20.277/2019/77",
+    "20.277/2019/77",
+    "10. P. 20.277/2019/77.",
+    "0.277/2019/77",  # starts inside a number
+    "20.277/2019/7",  # ends inside a number
+    "P.20.487/2020/221",
+    "2024/00123",
+    "BUD-2024-17",
+    "20.100/2021/5",
+    "4.P",  # too weak
+    "2023-01",  # a date
+    "123456",  # a bare short number
+    "nothing like these",
+]
+
+
+@pytest.fixture
+def parts(db_conn):
+    store = DocumentStore()
+    store.ensure_type(DT)
+    store.upsert_key(
+        MetaKey(
+            DT,
+            "document_identifier",
+            ValueType.IDENTIFIER,
+            "d",
+            status=KeyStatus.APPROVED,
+        )
+    )
+    for n, value in enumerate(PART_STORED):
+        store.upsert_document(Document(_h(n), f"part_{n}.docx", summary="s"))
+        store.set_document_type(_h(n), DT)
+        store.add_value(
+            MetaValue(_h(n), "document_identifier", 1, MetaSource.LLM, value_text=value)
+        )
+    return store
+
+
+class TestPartialLookup:
+    @pytest.mark.parametrize("wished", PART_WISHED)
+    def test_the_sql_decides_exactly_as_the_python_rule_does(self, parts, wished):
+        from metadata.identifiers import (
+            identifier_contains,
+            is_specific_enough,
+            partial_pattern,
+        )
+
+        expected = {
+            f"part_{n}.docx"
+            for n, v in enumerate(PART_STORED)
+            if identifier_contains(v, wished)
+        }
+        if not is_specific_enough(wished):
+            assert expected == set()  # the Python rule says no, and no pattern is made
+            with pytest.raises(ValueError, match="too weak"):
+                partial_pattern(wished)
+            return
+
+        rows = parts.documents_matching_identifier_patterns([partial_pattern(wished)])
+        by_id = dict(parts.execute_query("SELECT id, source_file FROM documents", ()))
+        assert {by_id[document_id] for _, document_id in rows} == expected
+
+    def test_the_cases_that_matter_are_really_in_play(self, parts):
+        from metadata.identifiers import partial_pattern
+
+        def files(wished):
+            rows = parts.documents_matching_identifier_patterns(
+                [partial_pattern(wished)]
+            )
+            by_id = dict(
+                parts.execute_query("SELECT id, source_file FROM documents", ())
+            )
+            return {by_id[i] for _, i in rows}
+
+        assert files("P.20.277/2019/77") == {"part_0.docx", "part_1.docx"}
+        # not part_9: "x 20.277/..." has an x straight before the number, no separator
+        assert files("20.277/2019/77") == {"part_0.docx", "part_1.docx"}
+        assert files("0.277/2019/77") == set()  # not inside a number
+        assert files("20.277/2019/7") == set()  # nor ending inside one
+        assert files("2024/00123") == {"part_4.docx"}
+        assert files("20.100/2021/5") == {
+            "part_8.docx"
+        }  # a non-ASCII letter before the separator
+
+    def test_positions_follow_the_order_of_the_patterns(self, parts):
+        from metadata.identifiers import partial_pattern
+
+        rows = parts.documents_matching_identifier_patterns(
+            [partial_pattern("2024/00123"), partial_pattern("P.20.487/2020/221")]
+        )
+
+        assert [p for p, _ in rows] == [1, 2]
+
+    def test_no_patterns_find_nothing(self, parts):
+        assert parts.documents_matching_identifier_patterns([]) == []
+
+    def test_a_resolver_over_the_real_store_tells_exact_from_partial(self, parts):
+        from metadata.identifier_resolver import IdentifierResolver
+
+        result = IdentifierResolver(parts).resolve(
+            ["10.P.20.277/2019/77", "P.20.487/2020/221", "99.P.99.999/2099/1"]
+        )
+
+        by_id = dict(parts.execute_query("SELECT id, source_file FROM documents", ()))
+        assert {by_id[i] for i in result.documents["10.P.20.277/2019/77"]} == {
+            "part_0.docx"
+        }
+        assert {by_id[i] for i in result.documents["P.20.487/2020/221"]} == {
+            "part_3.docx"
+        }
+        assert result.partial == ("P.20.487/2020/221",)  # found only as a part
+        assert result.unresolved == ("99.P.99.999/2099/1",)
+
+
+COMPACT_WISHED = [
+    "P.20103.2022.19",
+    "P.20.103/2022/19",
+    "20277/2019/77",
+    "10 P 20 277 2019 77",
+    "2024.00123",
+    "P.20277.2019.77",
+    "P.20277.2019.7",  # ends inside a number
+    "0.277.2019.77",  # starts inside a number
+    "4.P",  # too weak
+    "123456",  # a short bare number
+    "nothing like these",
+]
+
+
+class TestCompactLookup:
+    @pytest.fixture
+    def compact_store(self, db_conn):
+        store = DocumentStore()
+        store.ensure_type(DT)
+        store.upsert_key(
+            MetaKey(
+                DT,
+                "document_identifier",
+                ValueType.IDENTIFIER,
+                "d",
+                status=KeyStatus.APPROVED,
+            )
+        )
+        stored = [
+            "4.P.20.103/2022/19-ítélet",
+            "10.P.20.277/2019/77",
+            "10.P.20.277/2019/777",
+            "10.P.20.277/2018/77",
+            "PREFIX-2024/00123",
+            "14.P.20.277/2019/77",
+        ]
+        for n, value in enumerate(stored):
+            store.upsert_document(Document(_h(n), f"c_{n}.docx", summary="s"))
+            store.set_document_type(_h(n), DT)
+            store.add_value(
+                MetaValue(
+                    _h(n), "document_identifier", 1, MetaSource.LLM, value_text=value
+                )
+            )
+        return store, stored
+
+    @pytest.mark.parametrize("wished", COMPACT_WISHED)
+    def test_the_sql_decides_exactly_as_the_python_rule_does(
+        self, compact_store, wished
+    ):
+        from metadata.identifiers import (
+            compact_pattern,
+            identifier_compact_contains,
+            is_specific_enough,
+        )
+
+        store, stored = compact_store
+        expected = {
+            f"c_{n}.docx"
+            for n, v in enumerate(stored)
+            if identifier_compact_contains(v, wished)
+        }
+        if not is_specific_enough(wished):
+            assert expected == set()
+            with pytest.raises(ValueError, match="too weak"):
+                compact_pattern(wished)
+            return
+
+        rows = store.documents_matching_identifier_patterns(
+            [compact_pattern(wished)], ignoring_separators=True
+        )
+        by_id = dict(store.execute_query("SELECT id, source_file FROM documents", ()))
+        assert {by_id[i] for _, i in rows} == expected
+
+    def test_the_cases_that_matter_are_really_in_play(self, compact_store):
+        from metadata.identifiers import compact_pattern
+
+        store, _ = compact_store
+        by_id = dict(store.execute_query("SELECT id, source_file FROM documents", ()))
+
+        def files(wished):
+            rows = store.documents_matching_identifier_patterns(
+                [compact_pattern(wished)], ignoring_separators=True
+            )
+            return {by_id[i] for _, i in rows}
+
+        assert files("P.20103.2022.19") == {"c_0.docx"}  # dots for slashes
+        assert files("P.20277.2019.77") == {
+            "c_1.docx",
+            "c_5.docx",
+        }  # the series left out
+        assert files("P.20277.2019.7") == set()  # not inside "...77" or "...777"
+
+    def test_the_default_still_matches_the_normalised_value(self, compact_store):
+        """Without the flag a separator-less pattern finds nothing in the normalised value."""
+        from metadata.identifiers import compact_pattern
+
+        store, _ = compact_store
+
+        assert (
+            store.documents_matching_identifier_patterns(
+                [compact_pattern("P.20103.2022.19")]
+            )
+            == []
+        )
+
+    def test_a_resolver_over_the_real_store_reports_it_as_compact(self, compact_store):
+        from metadata.identifier_resolver import IdentifierResolver
+
+        store, _ = compact_store
+
+        result = IdentifierResolver(store).resolve(
+            ["P.20103.2022.19", "10.P.20.277/2019/77"]
+        )
+
+        assert result.compact == ("P.20103.2022.19",)
+        assert result.approximate == (
+            "P.20103.2022.19",
+        )  # the other was found as written

@@ -13,6 +13,7 @@ Key exports:
 
 from dataclasses import dataclass
 
+from query.inflection import strip_case_ending
 from query.time_filter import extract_years
 from store import extract_identifier_tokens
 
@@ -23,7 +24,8 @@ class QueryFacts:
 
     Attributes:
         question: The question as asked.
-        identifiers: Identifier-like tokens in it, in the order they appear.
+        identifiers: Identifier-like tokens in it, in the order they appear, without a Hungarian
+            case ending glued on ("4.P.20.409/2023/4-es" -> "4.P.20.409/2023/4").
         years: The distinct years it refers to, ascending (a range is expanded; years
             inside an identifier do not count).
     """
@@ -42,8 +44,11 @@ class QueryFactsReader:
         Args:
             question: The user's question.
         """
+        identifiers = dict.fromkeys(
+            strip_case_ending(token) for token in extract_identifier_tokens(question)
+        )
         return QueryFacts(
             question=question,
-            identifiers=tuple(extract_identifier_tokens(question)),
+            identifiers=tuple(identifiers),
             years=tuple(extract_years(question)),
         )

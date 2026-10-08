@@ -394,8 +394,15 @@ copied from the first 100 characters of the text, which holds the header's numbe
 the case number a decision states further down).
 
 **To build, measured, never as part of the parity slices:**
-- `IdentifierResolver`: the identifiers of the question (`QueryFacts.identifiers`) against
-  every key of type `identifier`; per identifier a **set** of document ids (zero, one or
+- `IdentifierResolver` (built): in up to three steps, each only for what the earlier ones did
+  not find: **as written** (equal after normalisation, or continued by a suffix; a short
+  wish only when equal), **as a part** of a stored identifier (the leading series, office or
+  court left out: `P.20.277/2019/77` for `10.P.20.277/2019/77`), and **with the separators
+  ignored** (`P.20103.2022.19` for `4.P.20.103/2022/19`). The last two need a wish that says
+  enough (not `4.P`, not a date, not a short bare number) and are reported as `partial` and
+  `compact`. The Hungarian case ending (`…/4-es`) is taken off in the language layer
+  (`query/inflection.py`). The identifiers of the question (`QueryFacts.identifiers`) are
+  looked for against every key of type `identifier`; per identifier a **set** of document ids (zero, one or
   several: nothing is picked between documents that share a number; ranking decides by
   content). The scope is the union; between kinds of fact the combination is AND, within one
   kind OR (several identifiers, several periods; a set of periods is one `in` filter on the
