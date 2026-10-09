@@ -856,5 +856,507 @@
       "aggregate_outcome": "dismissed",
       "note": ""
     }
+  ],
+  "corpus_sample_description": "70 decisions drawn at random from the whole corpus (25 of the BK court, 20 of other first-instance courts, 25 of the appeal courts), none among the labels above, and labelled BLIND with the extended vocabularies (15 subjects; outcomes including judgment_upheld / judgment_changed / judgment_annulled for appeal decisions). A null label means it could not be told. The subject labels 'other' of the three sets above are from the old, narrow vocabulary: there 'other' means 'not a property topic'.",
+  "corpus_sample_labels": [
+    {
+      "case_number": "17.Pf.20.070/2021/5/II",
+      "stratum": "appeal",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "judgment_changed",
+      "note": ""
+    },
+    {
+      "case_number": "9.Pf.20.222/2023/3",
+      "stratum": "appeal",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "judgment_upheld",
+      "note": ""
+    },
+    {
+      "case_number": "2.Pf.20.135/2023/4",
+      "stratum": "appeal",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": null,
+      "note": "outcome not labelled (could not be told from what was read)"
+    },
+    {
+      "case_number": "II.Pkf.20.289/2023/2",
+      "stratum": "appeal",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "judgment_upheld",
+      "note": ""
+    },
+    {
+      "case_number": "10.Gf.40.291/2022/6-II",
+      "stratum": "appeal",
+      "case_subject": null,
+      "aggregate_outcome": "judgment_upheld",
+      "note": "subject not labelled (could not be told from what was read)"
+    },
+    {
+      "case_number": "III.Gf.30.059/2023/6",
+      "stratum": "appeal",
+      "case_subject": "payment_claim",
+      "aggregate_outcome": "judgment_changed",
+      "note": ""
+    },
+    {
+      "case_number": "2.Pf.20.098/2023/3",
+      "stratum": "appeal",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "judgment_upheld",
+      "note": ""
+    },
+    {
+      "case_number": "15.Gf.40.046/2023/10/II",
+      "stratum": "appeal",
+      "case_subject": "company_law",
+      "aggregate_outcome": "judgment_changed",
+      "note": ""
+    },
+    {
+      "case_number": "9.Pf.20.251/2024/5",
+      "stratum": "appeal",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "judgment_upheld",
+      "note": ""
+    },
+    {
+      "case_number": "17.Pf.20.088/2024/6",
+      "stratum": "appeal",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "judgment_upheld",
+      "note": ""
+    },
+    {
+      "case_number": "4.Pf.20.047/2024/5/II",
+      "stratum": "appeal",
+      "case_subject": "contract_validity",
+      "aggregate_outcome": "judgment_changed",
+      "note": ""
+    },
+    {
+      "case_number": "2.Pf.20.059/2022/3",
+      "stratum": "appeal",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "judgment_upheld",
+      "note": ""
+    },
+    {
+      "case_number": "14.Gf.40.379/2022/4/II",
+      "stratum": "appeal",
+      "case_subject": null,
+      "aggregate_outcome": null,
+      "note": "subject not labelled (could not be told from what was read); outcome not labelled (could not be told from what was read)"
+    },
+    {
+      "case_number": "17.Pf.20.139/2021/13",
+      "stratum": "appeal",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "judgment_changed",
+      "note": ""
+    },
+    {
+      "case_number": "15.Gf.40.274/2022/3/II",
+      "stratum": "appeal",
+      "case_subject": "company_law",
+      "aggregate_outcome": "judgment_upheld",
+      "ambiguous_outcome": true,
+      "note": "upheld with a clarification and a lower costs order: upheld or changed is a judgement call"
+    },
+    {
+      "case_number": "II.Pf.20.009/2024/4/II",
+      "stratum": "appeal",
+      "case_subject": null,
+      "aggregate_outcome": "judgment_upheld",
+      "note": "subject not labelled (could not be told from what was read)"
+    },
+    {
+      "case_number": "3.Pf.20.265/2021/8/II",
+      "stratum": "appeal",
+      "case_subject": "contract_validity",
+      "aggregate_outcome": "judgment_upheld",
+      "note": ""
+    },
+    {
+      "case_number": "II.Pf.20.241/2022/6/II",
+      "stratum": "appeal",
+      "case_subject": "damages",
+      "aggregate_outcome": "judgment_changed",
+      "note": ""
+    },
+    {
+      "case_number": "15.Gf.40.121/2021/7/II",
+      "stratum": "appeal",
+      "case_subject": "contract_validity",
+      "aggregate_outcome": "judgment_upheld",
+      "ambiguous_outcome": true,
+      "note": "upheld in its main part with the costs and fee lowered: upheld or changed is a judgement call"
+    },
+    {
+      "case_number": "14.Gf.40.067/2023/6",
+      "stratum": "appeal",
+      "case_subject": "other",
+      "aggregate_outcome": "judgment_upheld",
+      "ambiguous_subject": true,
+      "note": "enforcement of a pledge: fits no family well"
+    },
+    {
+      "case_number": "10.Gf.40.320/2022/7-II",
+      "stratum": "appeal",
+      "case_subject": "fx_loan_contract",
+      "aggregate_outcome": "judgment_upheld",
+      "note": ""
+    },
+    {
+      "case_number": "2.Pf.20.104/2024/7/I",
+      "stratum": "appeal",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "judgment_upheld",
+      "note": ""
+    },
+    {
+      "case_number": "4.Pf.20.262/2022/7/II",
+      "stratum": "appeal",
+      "case_subject": "contract_validity",
+      "aggregate_outcome": "judgment_upheld",
+      "note": ""
+    },
+    {
+      "case_number": "1.Pf.20.058/2022/7/II",
+      "stratum": "appeal",
+      "case_subject": "damages",
+      "aggregate_outcome": "judgment_upheld",
+      "note": ""
+    },
+    {
+      "case_number": "10.Gf.40.071/2023/11",
+      "stratum": "appeal",
+      "case_subject": "other",
+      "aggregate_outcome": null,
+      "note": "outcome not labelled (could not be told from what was read)"
+    },
+    {
+      "case_number": "2.G.40.304/2023/9",
+      "stratum": "bk",
+      "case_subject": "payment_claim",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "29.G.40.682/2017/34-II",
+      "stratum": "bk",
+      "case_subject": "fx_loan_contract",
+      "aggregate_outcome": "partial_or_interim",
+      "note": ""
+    },
+    {
+      "case_number": "28.G.40.426/2021/85-I",
+      "stratum": "bk",
+      "case_subject": "company_law",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "27.K.700.206/2022/2",
+      "stratum": "bk",
+      "case_subject": "expropriation",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "104.K.700.621/2023/17",
+      "stratum": "bk",
+      "case_subject": "other_admin_review",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "7.K.700.260/2022/2",
+      "stratum": "bk",
+      "case_subject": "expropriation",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "22.P.20.325/2019/48-ítélet",
+      "stratum": "bk",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "106.K.701.226/2022/10",
+      "stratum": "bk",
+      "case_subject": "other_admin_review",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "104.K.700.892/2022/5",
+      "stratum": "bk",
+      "case_subject": "other_admin_review",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "22.P.20.352/2018/110-ítélet",
+      "stratum": "bk",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "partly_granted",
+      "note": ""
+    },
+    {
+      "case_number": "13.G.40.510/2018/35",
+      "stratum": "bk",
+      "case_subject": "contract_validity",
+      "aggregate_outcome": "partial_or_interim",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.140/2020/29-ítéle",
+      "stratum": "bk",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "dismissed",
+      "ambiguous_subject": true,
+      "note": "heading names both a personality-rights and a damages claim"
+    },
+    {
+      "case_number": "13.G.40.145/2022/77",
+      "stratum": "bk",
+      "case_subject": "payment_claim",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.409/2023/4-ítélet",
+      "stratum": "bk",
+      "case_subject": "contract_validity",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "104.K.703.321/2020/24",
+      "stratum": "bk",
+      "case_subject": "expropriation",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "11.P.20.205/2022/15/ítélet",
+      "stratum": "bk",
+      "case_subject": "payment_claim",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "28.G.40.187/2020/77-I",
+      "stratum": "bk",
+      "case_subject": "company_law",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "12.K.700.947/2024/4",
+      "stratum": "bk",
+      "case_subject": "expropriation",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.296/2019/144-ítélet",
+      "stratum": "bk",
+      "case_subject": "contract_validity",
+      "aggregate_outcome": "partly_granted",
+      "note": ""
+    },
+    {
+      "case_number": "102.K.702.124/2022/53",
+      "stratum": "bk",
+      "case_subject": "other_admin_review",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "25.G.40.417/2020/19-I",
+      "stratum": "bk",
+      "case_subject": "contract_validity",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "21.P.20.175/2019/42-I",
+      "stratum": "bk",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "16.P.20.842/2017/110/ítélet",
+      "stratum": "bk",
+      "case_subject": "damages",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "13.G.40.227/2022/55",
+      "stratum": "bk",
+      "case_subject": "fx_loan_contract",
+      "aggregate_outcome": "partial_or_interim",
+      "note": ""
+    },
+    {
+      "case_number": "21.P.20.266/2021/51-Ít",
+      "stratum": "bk",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "101.K.701.019/2021/8",
+      "stratum": "other_first",
+      "case_subject": "expropriation",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "9.P.22.716/2023/6-I",
+      "stratum": "other_first",
+      "case_subject": "company_law",
+      "aggregate_outcome": "granted",
+      "ambiguous_subject": true,
+      "note": "a condominium-type assembly resolution, which is not a company decision as the vocabulary defines it"
+    },
+    {
+      "case_number": "3.P.20.310/2023/13/I",
+      "stratum": "other_first",
+      "case_subject": "payment_claim",
+      "aggregate_outcome": "partly_granted",
+      "blind_aggregate_outcome": "granted",
+      "note": "revised after the comparison: the ruling ends 'Ezt meghaladóan a bíróság a keresetet elutasítja'"
+    },
+    {
+      "case_number": "6.P.22.226/2022/45/1",
+      "stratum": "other_first",
+      "case_subject": "company_law",
+      "aggregate_outcome": "partly_granted",
+      "ambiguous_subject": true,
+      "note": "a condominium-type assembly resolution (common heating account)"
+    },
+    {
+      "case_number": "27.P.21.265/2020/92-II",
+      "stratum": "other_first",
+      "case_subject": "payment_claim",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "27.P.20.083/2020/40-II",
+      "stratum": "other_first",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "partly_granted",
+      "note": ""
+    },
+    {
+      "case_number": "7.P.21.145/2023/24-I.",
+      "stratum": "other_first",
+      "case_subject": "damages",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.684/2021/19.",
+      "stratum": "other_first",
+      "case_subject": "other",
+      "aggregate_outcome": null,
+      "note": "outcome not labelled (could not be told from what was read)"
+    },
+    {
+      "case_number": "27.P.21.647/2020/35-II",
+      "stratum": "other_first",
+      "case_subject": "fx_loan_contract",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "17.Pk.20.529/2023/12",
+      "stratum": "other_first",
+      "case_subject": "personality_rights",
+      "aggregate_outcome": "granted",
+      "unresolved_outcome": true,
+      "note": "granted or partly granted could not be told from the part of the ruling read"
+    },
+    {
+      "case_number": "6.P.20.800/2018/52-II",
+      "stratum": "other_first",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "ambiguous_subject": true,
+      "note": "a warranty (kellékszavatossági) claim: fits no family well"
+    },
+    {
+      "case_number": "19.P.23.268/2019/41.",
+      "stratum": "other_first",
+      "case_subject": "payment_claim",
+      "aggregate_outcome": "partly_granted",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.547/2018/34.",
+      "stratum": "other_first",
+      "case_subject": null,
+      "aggregate_outcome": "granted",
+      "note": "subject not labelled (could not be told from what was read)"
+    },
+    {
+      "case_number": "II.Pf.20.092/2020/11",
+      "stratum": "other_first",
+      "case_subject": null,
+      "aggregate_outcome": null,
+      "note": "subject not labelled (could not be told from what was read); outcome not labelled (could not be told from what was read)"
+    },
+    {
+      "case_number": "22.G.20.337/2021/25-I",
+      "stratum": "other_first",
+      "case_subject": "company_law",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "6.P.20.237/2022/31-II",
+      "stratum": "other_first",
+      "case_subject": "fx_loan_contract",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "102.K.702.610/2020/21",
+      "stratum": "other_first",
+      "case_subject": "expropriation",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "18.K.701.181/2022/23",
+      "stratum": "other_first",
+      "case_subject": "land_registry_admin",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "3.K.701.509/2021/11",
+      "stratum": "other_first",
+      "case_subject": "land_registry_admin",
+      "aggregate_outcome": null,
+      "note": "outcome not labelled (could not be told from what was read)"
+    },
+    {
+      "case_number": "102.K.701.018/2023/16",
+      "stratum": "other_first",
+      "case_subject": "other_admin_review",
+      "aggregate_outcome": "granted",
+      "note": ""
+    }
   ]
 }

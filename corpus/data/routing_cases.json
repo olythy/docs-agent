@@ -18,8 +18,8 @@
     },
     {
       "golden_id": "q0031",
-      "expected": "survey",
-      "note": "kinds and outcomes of reviews across a court and a year, picked by topic"
+      "expected": "exact",
+      "note": "topics and outcomes are both covered by keys since the subject vocabulary grew (case_subject, aggregate_outcome): answered exactly"
     },
     {
       "golden_id": "q0010",
@@ -108,8 +108,8 @@
     },
     {
       "golden_id": "q0039",
-      "expected": "survey",
-      "note": "disputes and outcomes in two years for two kinds of case"
+      "expected": "exact",
+      "note": "topics and outcomes are both covered by keys since the subject vocabulary grew (case_subject, aggregate_outcome): answered exactly"
     },
     {
       "golden_id": "q0040",
