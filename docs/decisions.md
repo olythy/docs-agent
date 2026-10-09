@@ -2,6 +2,16 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-09 — Rejected: telling the planner to turn a covered "survey" into an exact count
+
+**Tried.** In the planner prompt's `survey` rule: when the keys already cover both the topic of the cases (a stored value naming it) and what the question asks about (the outcome key), answer with a `count` grouped by the outcome key, filtered to the topic values; "other" is never a topic. Measured with `routing-eval --repeat 3` (the real planner, no retrieval, no answer), with q0010 still expected as `survey`.
+
+**Result: worse and ineffective.** q0010 stayed `survey` 3 of 3 (the change did not do what it was meant to). The other survey cases fell from 28/30 to 23/30: q0013 (two topics no key value names: will invalidity and a company decision) was planned as an exact `list` 3 of 3, which would list every dismissed decision of the corpus as if it were the answer; q0031 could not be planned 2 of 3 (a null document type with filters). The lookup, exact and unsupported cases stayed at 100%.
+
+**Why it fails.** The decision "does a stored value name this question's topic?" is a judgement about the question's content against the catalog, and the planner makes it inside a prompt that already carries ten other rules; when it is wrong the answer is a confident, wrong, exact figure, the failure the whole exact path exists to prevent. The prompt change was reverted (nothing was committed).
+
+**What to do instead (not built).** Keep the planner's `survey` and add a separate, narrow step behind it: given the question and the type's categorical keys (descriptions, stored values), one focused LLM call names the key and values that name the topic and the outcome key to group by, or says none; code then validates the answer (keys approved, values stored, never "other") and builds the count plan, or falls back to the plain "not supported yet". The risky judgement gets its own prompt and its own checks, and a wrong or empty answer ends in the refusal, not in a wrong figure.
+
 ## 2026-10-09 — The first measurement on documents nothing was tuned on: 1 silent error in 40, 2 visible gaps
 
 **Design.** After the extraction settings were fixed (temperature 0, descriptions frozen), 40 documents that were not among the 82 labelled before were drawn at random, by what the extractor had answered: 12 of its 15 remaining `marital_property_division` and 28 of its 490 remaining `other`. I labelled them BLIND, reading the ruling (`fresh_sample_labels` in `corpus/data/aggregate_ground_truth.json`), then compared. (The three relevant documents found outside the 82 had been checked before and were left out of the draw.)
