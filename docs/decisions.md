@@ -2,6 +2,20 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-10 — Fewer undecidable documents: unverified pairs can be retried, and a quote may leave text out with an ellipsis
+
+**The gap.** After the whole corpus was extracted, 52 outcome and 25 subject values were `unverified` (a value was extracted but its quote did not check out, so nothing is stored and a count reports the document as undecidable). For q0010 that was 12 documents of 597.
+
+**Two causes, two fixes.**
+1. *Variation.* `unverified` counted as "done", so a pair was never tried again, but the model's answer is not strictly the same from one call to the next, even at temperature 0. `extract-meta --retry-unverified` (store method `forget_unverified(doc_type)`) makes those pairs pending again. A second attempt verified about half (95 pairs: 47 verified), a third and a fourth almost none; what is left is stubborn.
+2. *A quote the verifier could not accept.* A ruling's deciding sentences are far apart, and the extractor is told to quote at most 200 characters, so the model joined sentences with `...`, `[...]` or `…`. The whole quote then is not in the text and a correct value was thrown away. `EvidenceVerifier` now treats an ellipsis as what it says (text left out): each fragment must appear verbatim and in order (a fragment may not be matched twice), fragments shorter than 12 characters prove nothing and are not counted, and at least one longer fragment must match; the value must still be an allowed one. A quote without an ellipsis is checked as a whole, as before.
+
+**Result.** Unverified pairs, whole corpus: `aggregate_outcome` 52 → 12, `case_subject` 25 → 3, `case_subject_raw` 5 → 1. The q0010 filter has 1 undecidable document (was 12). On the 185 hand-labelled documents there is no gap left, and the values that were gaps are mostly right: outcome 172 of 185 match (93%), subject 102 of 112 match (91%); on the random 70-sample outcome 61 of 63 and subject 56 of 65. Hand labels are not gold (about 1 in 10 of mine needed correcting when I re-read), so the figures understate the extractor a little.
+
+**What it costs in trust.** The ellipsis rule is looser than whole-quote matching: a quote can now be assembled from two true fragments that say less together than the model claims. The value must still be allowed and each fragment must be in the text; the reliability notes were re-measured after the change (the numbers above), not carried over.
+
+**Verified by** store tests (only `unverified` pairs of the type are forgotten, and nothing else), CLI option tests, 17 verifier tests (the three ellipsis spellings, order, reuse, an invented fragment, too-short fragments, loose matching, the value check, `contains`), and mutations of all of it (two survivors: one equivalent, one a missing test, added).
+
 ## 2026-10-10 — The measured reliability of a key is said beside every answer that uses it
 
 **The gap.** An answer said only that its values were "extracted by a model and checked against a quotation"; the measured error rates (6% wrong subject, an outcome that matched 57 of 64 blind labels) were in this log, where no reader of an answer looks. A figure whose reliability is known should carry it.

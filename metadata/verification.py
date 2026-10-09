@@ -8,6 +8,12 @@ catalog allows). That guarantees the value *exists* in the document. It does not
 prove the extractor picked the *right* one when a document states several, which
 is why ambiguous keys store every candidate with a role instead.
 
+A quote may mark what it leaves out with an ellipsis (``...``, ``[...]``, ``…``): a ruling
+whose deciding sentences are far apart cannot be quoted in 200 characters otherwise. Then
+each fragment must appear verbatim and in order; a fragment shorter than
+``MIN_FRAGMENT`` characters proves nothing and is not counted, and at least one longer
+fragment must match. A quote without an ellipsis is checked as a whole, as before.
+
 Key exports:
     EvidenceVerifier   -- Runs the checks.
     VerificationResult -- What was and was not confirmed.
@@ -36,6 +42,34 @@ def _alnum(text: str) -> str:
     return re.sub(
         r"[^a-z0-9]", "", "".join(c for c in folded if not unicodedata.combining(c))
     )
+
+
+#: An ellipsis in a quote: three dots or the character, optionally in brackets.
+_ELLIPSIS = re.compile(
+    r"\s*(?:\[\s*(?:\.{2,}|…)\s*\]|\(\s*(?:\.{2,}|…)\s*\)|\.{3,}|…)\s*"
+)
+
+#: A fragment between ellipses must be at least this long (in characters, squashed) to count.
+MIN_FRAGMENT = 12
+
+
+def _fragments(quote: str) -> list[str]:
+    """The pieces of a quote between its ellipses (the whole quote if it has none)."""
+    return [piece for piece in _ELLIPSIS.split(quote) if piece.strip()]
+
+
+def _in_order(fragments: list[str], haystack: str, fold) -> bool:
+    """Whether every long-enough fragment is in ``haystack``, each after the previous one."""
+    position, matched = 0, False
+    for fragment in fragments:
+        folded = fold(fragment)
+        if len(folded) < MIN_FRAGMENT:
+            continue
+        found = haystack.find(folded, position)
+        if found < 0:
+            return False
+        position, matched = found + len(folded), True
+    return matched
 
 
 def numbers_in(text: str) -> set[Decimal]:
@@ -92,7 +126,8 @@ class EvidenceVerifier:
         """
         if not evidence or not evidence.strip():
             return False
-        return _squash(evidence) in self._squashed or _alnum(evidence) in self._alnum
+        exact, loose = self._found(evidence)
+        return exact or loose
 
     def verify(
         self, key: MetaKey, value: str | None, evidence: str | None
@@ -109,9 +144,18 @@ class EvidenceVerifier:
         """
         if not value or not evidence:
             return VerificationResult(False, False, False)
-        exact = _squash(evidence) in self._squashed
-        loose = exact or _alnum(evidence) in self._alnum
+        exact, loose = self._found(evidence)
         return VerificationResult(exact, loose, self._derivable(key, value, evidence))
+
+    def _found(self, evidence: str) -> tuple[bool, bool]:
+        """``(exact, loose)``: whether the quote is in the text, as a whole or by its fragments."""
+        fragments = _fragments(evidence)
+        if len(fragments) > 1 or _ELLIPSIS.search(evidence):
+            exact = _in_order(fragments, self._squashed, _squash)
+            loose = exact or _in_order(fragments, self._alnum, _alnum)
+            return exact, loose
+        exact = _squash(evidence) in self._squashed
+        return exact, exact or _alnum(evidence) in self._alnum
 
     def _derivable(self, key: MetaKey, value: str, evidence: str) -> bool:
         if key.allowed_values is not None and value not in key.allowed_values:

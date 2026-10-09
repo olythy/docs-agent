@@ -181,6 +181,33 @@ class DocumentStore:
             conn.commit()
         return removed
 
+    def forget_unverified(self, doc_type: str) -> int:
+        """Forget the ``unverified`` status of every (document, key) pair of a type.
+
+        A pair is ``unverified`` when a value was extracted but its quote did not check
+        out. The extractor treats any status as "done", so such a pair is never tried
+        again; the model's answer is not strictly the same from one call to the next, so
+        a second attempt can verify. Forgetting the status makes the pair pending again.
+        Nothing else changes (an unverified pair has no stored value).
+
+        Args:
+            doc_type: Only the documents of this type.
+
+        Returns:
+            How many pairs were forgotten.
+        """
+        sql = """
+            DELETE FROM document_meta_status s
+            USING documents d
+            WHERE s.document_id = d.id AND d.document_type = %s AND s.state = 'unverified';
+        """
+        with self._scope.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (doc_type,))
+                forgotten = cur.rowcount
+            conn.commit()
+        return forgotten
+
     # ------------------------------------------------------ classification
 
     def unclassified_documents(

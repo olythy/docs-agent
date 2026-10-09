@@ -107,3 +107,100 @@ def test_a_missing_value_or_quote_confirms_nothing():
     assert not verifier.verify(_key(ValueType.TEXT), None, "x").verified
     assert not verifier.verify(_key(ValueType.TEXT), "x", None).verified
     assert not verifier.verify(_key(ValueType.TEXT), "x", "").verified
+
+
+# ------------------------------------------------------------ quotes with an ellipsis
+
+RULING = (
+    "A bíróság megállapítja, hogy a felperes tulajdonjogot szerzett az ingatlanon. "
+    "Az ítélet jogerőre emelkedését követően a bíróság megkeresi a földhivatalt. "
+    "A bíróság ezt meghaladóan a felperes keresetét elutasítja. "
+    "Kötelezi a bíróság a felperest, hogy 15 napon belül fizessen meg 500.000 forint perköltséget."
+)
+OUTCOME = MetaKey(
+    "court_decision",
+    "outcome",
+    ValueType.TEXT,
+    "d",
+    allowed_values=("granted", "partly_granted", "dismissed"),
+    status=KeyStatus.APPROVED,
+)
+
+
+def _verify(quote, value="partly_granted"):
+    return EvidenceVerifier(RULING).verify(OUTCOME, value, quote)
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "A bíróság megállapítja, hogy a felperes tulajdonjogot szerzett ... A bíróság ezt meghaladóan a felperes keresetét elutasítja.",
+        "A bíróság megállapítja, hogy a felperes tulajdonjogot szerzett [...] A bíróság ezt meghaladóan a felperes keresetét elutasítja.",
+        "A bíróság megállapítja, hogy a felperes tulajdonjogot szerzett … A bíróság ezt meghaladóan a felperes keresetét elutasítja.",
+        "A bíróság megállapítja, hogy a felperes tulajdonjogot szerzett (...) A bíróság ezt meghaladóan a felperes keresetét elutasítja.",
+        "...A bíróság ezt meghaladóan a felperes keresetét elutasítja...",
+    ],
+)
+def test_a_quote_whose_fragments_are_verbatim_and_in_order_verifies(quote):
+    assert _verify(quote).verified
+
+
+def test_the_fragments_must_come_in_the_order_of_the_text():
+    swapped = "A bíróság ezt meghaladóan a felperes keresetét elutasítja. ... A bíróság megállapítja, hogy a felperes tulajdonjogot szerzett"
+
+    assert not _verify(swapped).verified
+
+
+def test_one_invented_fragment_fails_the_whole_quote():
+    invented = "A bíróság megállapítja, hogy a felperes tulajdonjogot szerzett ... A bíróság a keresetet teljes egészében elutasítja és a felperest bírságra ítéli."
+
+    assert not _verify(invented).verified
+
+
+def test_a_fragment_may_not_be_reused_to_match_twice():
+    twice = "A bíróság ezt meghaladóan a felperes keresetét elutasítja. ... A bíróság ezt meghaladóan a felperes keresetét elutasítja."
+
+    assert not _verify(twice).verified
+
+
+def test_fragments_too_short_to_prove_anything_do_not_count():
+    # every piece is shorter than MIN_FRAGMENT: nothing is left to check
+    assert not _verify("A bíróság ... elutasítja ... Ft").verified
+
+
+def test_short_pieces_between_long_ones_are_ignored_not_required():
+    quote = "A bíróság megállapítja, hogy a felperes tulajdonjogot szerzett ... xyz ... A bíróság ezt meghaladóan a felperes keresetét elutasítja."
+
+    assert _verify(quote).verified
+
+
+def test_a_quote_without_an_ellipsis_is_still_checked_as_a_whole():
+    stitched = "A bíróság megállapítja, hogy a felperes tulajdonjogot szerzett. A bíróság ezt meghaladóan a felperes keresetét elutasítja."
+
+    assert not _verify(stitched).verified  # the sentences are not adjacent in the text
+
+
+def test_the_value_must_still_be_an_allowed_one_when_the_fragments_verify():
+    quote = "A bíróság megállapítja, hogy a felperes tulajdonjogot szerzett ... A bíróság ezt meghaladóan a felperes keresetét elutasítja."
+
+    assert not _verify(quote, value="mostly_granted").verified
+
+
+def test_contains_accepts_a_quote_with_an_ellipsis_in_the_same_way():
+    verifier = EvidenceVerifier(RULING)
+
+    assert verifier.contains(
+        "A bíróság megállapítja, hogy a felperes ... a földhivatalt."
+    )
+    assert not verifier.contains(
+        "A bíróság megállapítja, hogy a felperes ... nem létező mondat itt."
+    )
+
+
+def test_fragments_that_differ_only_in_punctuation_and_accents_verify_loosely_not_exactly():
+    quote = "A biróság megállapitja hogy a felperes tulajdonjogot szerzett az ingatlanon ... A biróság ezt meghaladóan a felperes keresetét elutasitja"
+
+    result = _verify(quote)
+
+    assert result.quote_loose and not result.quote_exact
+    assert result.verified

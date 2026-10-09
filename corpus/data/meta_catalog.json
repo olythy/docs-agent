@@ -65,7 +65,7 @@
             "other_admin_review",
             "other"
           ],
-          "reliability": "Classified by a model; checked by hand on 65 random documents (2026-10-10): 55 matched, about 6% were wrong, about 8% were arguable, 1 could not be verified."
+          "reliability": "Classified by a model; checked by hand on 65 random documents (2026-10-10): 56 matched, 4 (about 6%) were wrong and 5 (about 8%) were arguable. Where a heading names a general claim but the text shows a narrower or different one (a foreign-currency loan under 'contract invalidity'), it can be wrong."
         },
         {
           "key": "aggregate_outcome",
@@ -83,7 +83,7 @@
             "judgment_annulled",
             "other"
           ],
-          "reliability": "Read from the ruling by a model; checked by hand on 64 random documents (2026-10-10): 57 matched; the rest could not be verified (3), were arguable (2), unresolved (1), or a labelling error (1). The line between granted and partly_granted is the weakest."
+          "reliability": "Read from the ruling by a model; checked by hand on 63 random documents (2026-10-10): 61 matched, the 2 others were arguable (upheld or changed); on 122 other hand-checked decisions about 1 in 11 differed, mostly at the line between granted and partly_granted."
         }
       ]
     }

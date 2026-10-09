@@ -3,8 +3,10 @@
 from collections.abc import Sequence
 from pathlib import Path
 
+import pytest
+
 from metadata.identifiers import identifier_matches
-from scripts.meta_cli import _documents_named_in
+from scripts.meta_cli import _documents_named_in, _parse
 
 
 class StubStore:
@@ -59,3 +61,18 @@ def test_a_file_that_names_no_document_extracts_nothing(tmp_path: Path, capsys):
 def test_a_missing_file_extracts_nothing(tmp_path: Path, capsys):
     assert _documents_named_in(STORE, tmp_path / "nope.txt") is None  # type: ignore[arg-type]
     assert "No such file" in capsys.readouterr().out
+
+
+def test_extract_meta_can_be_asked_to_retry_the_unverified():
+    options = _parse(["--retry-unverified"], "x", with_limit=True, with_retry=True)
+
+    assert options.retry_unverified is True
+
+
+def test_without_the_flag_nothing_is_retried():
+    assert _parse([], "x", with_limit=True, with_retry=True).retry_unverified is False
+
+
+def test_a_command_without_the_option_does_not_accept_the_flag():
+    with pytest.raises(SystemExit):
+        _parse(["--retry-unverified"], "x", with_limit=True)

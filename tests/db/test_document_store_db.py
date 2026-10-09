@@ -444,6 +444,43 @@ def test_documents_needing_extraction_can_be_restricted_to_chosen_documents(db_c
     assert named([id_b + 1000]) == []
 
 
+def test_forgetting_the_unverified_makes_only_those_pairs_pending_again(db_conn):
+    store = DocumentStore()
+    store.upsert_document(Document(HASH_A, "a.docx"))
+    store.upsert_document(Document(HASH_B, "b.docx"))
+    _typed(store, HASH_A, HASH_B)
+    keys = [_key("court"), _key("kind")]
+    store.set_status(MetaStatus(HASH_A, "court", MetaState.UNVERIFIED, key_version=1))
+    store.set_status(MetaStatus(HASH_A, "kind", MetaState.PRESENT, key_version=1))
+    store.set_status(
+        MetaStatus(HASH_B, "court", MetaState.CONFIRMED_ABSENT, key_version=1)
+    )
+    store.set_status(MetaStatus(HASH_B, "kind", MetaState.PRESENT, key_version=1))
+    assert (
+        store.documents_needing(keys, "court_decision") == []
+    )  # everything counts as done
+
+    forgotten = store.forget_unverified("court_decision")
+
+    assert forgotten == 1
+    assert [d.source_file for d in store.documents_needing(keys, "court_decision")] == [
+        "a.docx"
+    ]
+    assert store.get_statuses(HASH_A)["kind"].state is MetaState.PRESENT  # untouched
+    assert store.get_statuses(HASH_B)["court"].state is MetaState.CONFIRMED_ABSENT
+
+
+def test_forgetting_the_unverified_of_one_type_leaves_another_type_alone(db_conn):
+    store = DocumentStore()
+    store.upsert_document(Document(HASH_A, "a.docx"))
+    store.ensure_type("invoice")
+    store.set_document_type(HASH_A, "invoice")
+    store.set_status(MetaStatus(HASH_A, "total", MetaState.UNVERIFIED, key_version=1))
+
+    assert store.forget_unverified("court_decision") == 0
+    assert store.get_statuses(HASH_A)["total"].state is MetaState.UNVERIFIED
+
+
 def test_documents_needing_extraction_follow_the_status_and_the_key_version(db_conn):
     store = DocumentStore()
     store.upsert_document(Document(HASH_A, "a.docx"))

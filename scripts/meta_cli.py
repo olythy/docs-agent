@@ -24,7 +24,7 @@ Commands:
                       recognisably stale); a key that already matches is left alone.
                       Example: corpus/data/meta_catalog.json.
 
-    extract-meta [--doc-type T] [--limit N [--seed S]] [--identifiers-file F] [--workers W]
+    extract-meta [--doc-type T] [--limit N [--seed S]] [--identifiers-file F] [--retry-unverified] [--workers W]
                       Extract every pending approved key of up to N documents of each
                       document type (or of type T only); a type's keys are asked only of
                       its own documents, and documents with no type are skipped (default:
@@ -42,6 +42,10 @@ Commands:
                       With --identifiers-file F (one document identifier per line) only
                       those documents are extracted: a way to try a new key on a
                       hand-picked set, e.g. one that has a hand-labelled ground truth.
+                      With --retry-unverified every (document, key) pair whose quote did
+                      not check out last time is tried again first (such a pair counts as
+                      done otherwise; the model's answer varies a little from call to
+                      call, so some verify on a second attempt).
     keys [--doc-type T]
                       List the catalog's keys with their status. A key the extractor
                       proposed stays 'proposed' (unusable in queries) until approved.
@@ -157,6 +161,7 @@ def _parse(
     with_limit: bool,
     with_workers: bool = False,
     with_identifiers: bool = False,
+    with_retry: bool = False,
 ) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="meta_cli.py", description=description)
     parser.add_argument(
@@ -180,6 +185,12 @@ def _parse(
             type=Path,
             default=None,
             help="only the documents named by the identifiers in this file (one per line)",
+        )
+    if with_retry:
+        parser.add_argument(
+            "--retry-unverified",
+            action="store_true",
+            help="first make the pairs whose quote did not verify pending again",
         )
     if with_workers:
         parser.add_argument(
@@ -239,6 +250,7 @@ def cmd_extract_meta(args: list[str]) -> int:
         with_limit=True,
         with_workers=True,
         with_identifiers=True,
+        with_retry=True,
     )
     if options.workers < 1:
         print("--workers must be at least 1.")
@@ -275,6 +287,11 @@ def cmd_extract_meta(args: list[str]) -> int:
             print(f"No catalog for document type {doc_type!r}. Run load-catalog first.")
             return 1
         print(f"\n== {doc_type}")
+        if options.retry_unverified:
+            forgotten = store.forget_unverified(doc_type)
+            print(
+                f"{forgotten} unverified (document, key) pair(s) will be tried again."
+            )
         report = runner.run(
             doc_type,
             limit=options.limit,
