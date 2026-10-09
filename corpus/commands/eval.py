@@ -529,11 +529,31 @@ def _answer_and_retrieved(question: str, profile: str | None):
     Returns:
         ``(answer, chunks)``; no chunks when the question was answered exactly or refused.
     """
+    result = _answer(question, profile)
+    return result.text, list(result.explain.chunks)
+
+
+def _answer(question: str, profile: str | None):
+    """The query service's whole :class:`query.service.Answer` (text, citations, chunks)."""
     from config import settings
     from query.composition import build_query_service
 
-    result = build_query_service(settings).answer(question, profile=profile)
-    return result.text, list(result.explain.chunks)
+    return build_query_service(settings).answer(question, profile=profile)
+
+
+def _citation_support(result) -> dict:
+    """The chunk-level citation check of one answer, as a plain dict."""
+    from corpus.citation_support import check_citation_support, llm_judge
+
+    chunk_text = {c.id: c.content for c in result.explain.chunks}
+    return check_citation_support(
+        result.text,
+        result.citations,
+        chunk_text,
+        result.unknown_labels,
+        llm_judge,
+        refused=result.explain.model_refused or result.explain.declined is not None,
+    ).to_dict()
 
 
 def evaluate_one(
@@ -556,7 +576,8 @@ def evaluate_one(
     """
     from query.decline_detection import looks_like_a_decline
 
-    answer, retrieved = _answer_and_retrieved(question["question"], profile)
+    full = _answer(question["question"], profile)
+    answer, retrieved = full.text, list(full.explain.chunks)
     retrieved_source_files = {c.metadata.source_file for c in retrieved}
 
     result: dict = {
@@ -574,6 +595,7 @@ def evaluate_one(
         result["is_decline"] = looks_like_a_decline(answer)
         return result
 
+    result["citation_support"] = _citation_support(full)
     persona = personas[question["persona_id"]]
     grading_strategy_names = persona.get("grading_strategies", ["exact_match"])
     result["grades"] = {
@@ -616,7 +638,7 @@ def print_report(results: list[dict]) -> None:
 
     header = (
         f"{'persona':<22}{'strategy':<17}{'n':>4}  {'retrieval':>10}  "
-        f"{'answer':>8}  {'citation':>9}  {'decline':>8}"
+        f"{'answer':>8}  {'citation':>9}  {'decline':>8}  {'cite_prec':>10}  {'wrong':>6}"
     )
     print(header)
     print("-" * len(header))
@@ -626,7 +648,7 @@ def print_report(results: list[dict]) -> None:
         decline = _rate(adversarial_bucket, "is_decline")
         print(
             f"{'adversarial':<22}{'-':<17}{len(adversarial_bucket):>4}  {'-':>10}  "
-            f"{'-':>8}  {'-':>9}  {fmt(decline):>8}"
+            f"{'-':>8}  {'-':>9}  {fmt(decline):>8}  {'-':>10}  {'-':>6}"
         )
 
     graded = [r for r in results if "grades" in r]
@@ -643,17 +665,39 @@ def print_report(results: list[dict]) -> None:
         answer = _rate(bucket, "answer_correct")
         citation = _rate(bucket, "citation_correct")
 
+        precision, wrong = _citation_precision(
+            [r for r in graded if r["persona_id"] == persona_id]
+        )
         flag = ""
         if answer is not None and answer < 0.95:
             flag = "  <-- below 95% target"
 
         print(
             f"{persona_id:<22}{strategy_name:<17}{len(bucket):>4}  {fmt(retrieval):>10}  "
-            f"{fmt(answer):>8}  {fmt(citation):>9}  {'-':>8}{flag}"
+            f"{fmt(answer):>8}  {fmt(citation):>9}  {'-':>8}  {fmt(precision):>10}  "
+            f"{'-' if wrong is None else wrong:>6}{flag}"
         )
 
     _print_report_legend()
     _print_retrieval_miss_diagnostics(graded)
+
+
+def _citation_precision(results: list[dict]) -> tuple[float | None, int | None]:
+    """Share of judged (sentence, chunk) pairs that were supported, and the wrong-citation count.
+
+    Args:
+        results: Evaluation records of one persona.
+
+    Returns:
+        ``(precision, wrong)``; both ``None`` when no record has a citation check.
+        Precision is ``None`` when nothing was judged (no pair).
+    """
+    checks = [r["citation_support"] for r in results if "citation_support" in r]
+    if not checks:
+        return None, None
+    judged = sum(c["supported"] + c["unsupported"] for c in checks)
+    precision = None if judged == 0 else sum(c["supported"] for c in checks) / judged
+    return precision, sum(c["wrong"] for c in checks)
 
 
 def print_verbose_cases(results: list[dict]) -> None:
@@ -681,6 +725,18 @@ def print_verbose_cases(results: list[dict]) -> None:
                 f"  graded        : adversarial, declined correctly = {r['is_decline']}"
             )
             continue
+        support = r.get("citation_support")
+        if support is not None:
+            print(
+                f"  citations     : {support['supported']} supported, "
+                f"{support['unsupported']} unsupported, {support['unjudged']} unjudged, "
+                f"{len(support['unknown_labels'])} unknown label(s)"
+                f"{', UNCITED' if support['uncited'] else ''}"
+            )
+            for claim in support["unsupported_claims"]:
+                print(
+                    f"      not supported by [{claim['label']}]: {claim['sentence'][:200]}"
+                )
         for name, grade in r["grades"].items():
             print(
                 f"  graded [{name}]: retrieval={grade['retrieval_hit']} "
@@ -703,6 +759,11 @@ How to read this table:
   answer      did the generated answer convey the expected facts?
   citation    does the answer cite the right source?
   decline     adversarial only: did the system honestly refuse instead of inventing?
+  cite_prec   of the (sentence, cited chunk) pairs, the share whose chunk really states
+              the sentence (a separate model call judges every pair); this is the strict
+              reading of "points exactly at the section that supports the claim".
+  wrong       wrong citations: pairs whose chunk does not support the sentence, plus
+              labels that named no excerpt. The goal is zero.
   <-- below 95% target: answer accuracy under the project's per-persona goal.
 
 Grading strategies (a persona can have two; each gets its own row):

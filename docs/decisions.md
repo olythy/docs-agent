@@ -2,6 +2,16 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-11 — A chunk-level citation check in the eval: the document-level 100% hid that 6 of 14 pairs were not supported
+
+**What was added.** `corpus/citation_support.py`: the answer is cut into sentences, each sentence is paired with every label it cites, and one separate model call (never the one that wrote the answer) says for each (sentence, cited chunk) pair whether that chunk itself states the sentence. The eval reports `cite_prec` (supported share of judged pairs) and `wrong` (unsupported pairs plus labels that named no excerpt) per persona, and `--verbose` lists the unsupported sentences. An answer that states something and cites nothing is flagged `uncited`; a refusal is not.
+
+**Measured** (one run each, 5 questions): `fact_finder` 3 questions, `cite_prec` 86%, 2 wrong; `practical_procedural` 2 questions, `cite_prec` 57%, 6 wrong. The old document-level "citation" column said 100% for both. The cause is over-citation: the model puts `[1][2][3][4]` after a sentence that only one excerpt states, and the judge confirms the others do not state it. Tightening the prompt (cite only the excerpts that contain the fact, do not put every label after every sentence) changed nothing visible: gemini-2.5-flash still lists all four.
+
+**So the "zero wrong citations" target is not met**, and now it is measurable. What is not yet done: a runtime step that keeps only the labels a sentence is supported by (one more model call per read answer; judge errors both ways), or having the model quote the supporting passage and verifying the quote in the cited chunk by code, as the metadata layer does for its values (deterministic, but a heavier answer format).
+
+**A caution on the judge.** A runtime step that uses this same judge would make the eval's `cite_prec` 100% by construction. The measurement would then have to come from a different judge or from hand review of a sample (the brief asks for about 50 questions read by hand), not from the judge that prunes.
+
 ## 2026-10-11 — The citation is made by the system, not typed by the model: `[n]` labels resolved to chunks
 
 **What the 95% target meant in practice.** Gergely's brief asks for >95% correct answers per profile, zero wrong citations and a correct "I don't know", each answer citing the exact document AND section. Re-running the three single-document personas after the week's changes: answers 100%, refusals 100%, but `fact_finder` **citations 33% (67% on a second run)**. The cause was not retrieval: the system prompt told the model to "cite the source file and page number", the model typed the file name and mistyped it once (an accent that is not in the file name, "no real, resolvable document"), and the "page" it printed (`2. oldal`) is `page_number`, which for a `.docx` is only a header-based section index, not a page. `page_number` stays in the stored metadata but is no longer shown to the model or the reader.

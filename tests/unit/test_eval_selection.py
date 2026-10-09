@@ -212,3 +212,32 @@ class TestCitationRanks:
         request, _ = requests[0]
         assert (request.profile, request.top_k) == ("best_chunks", DIAGNOSTIC_POOL_SIZE)
         assert request.scope is None  # over all documents
+
+
+class TestCitationPrecision:
+    def test_it_is_the_share_of_judged_pairs_that_were_supported_and_counts_the_wrong_ones(
+        self,
+    ):
+        from corpus.commands.eval import _citation_precision
+
+        results = [
+            {"citation_support": {"supported": 3, "unsupported": 1, "wrong": 1}},
+            {
+                "citation_support": {"supported": 1, "unsupported": 1, "wrong": 3}
+            },  # 2 are unknown labels
+            {},  # a record without a check is ignored
+        ]
+
+        assert _citation_precision(results) == (4 / 6, 4)
+
+    def test_nothing_judged_has_no_precision_but_still_counts_wrong(self):
+        from corpus.commands.eval import _citation_precision
+
+        assert _citation_precision(
+            [{"citation_support": {"supported": 0, "unsupported": 0, "wrong": 2}}]
+        ) == (None, 2)
+
+    def test_no_check_at_all_gives_nothing(self):
+        from corpus.commands.eval import _citation_precision
+
+        assert _citation_precision([{}]) == (None, None)
