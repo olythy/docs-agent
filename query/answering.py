@@ -188,6 +188,7 @@ def render_result(plan: QueryPlan, result: PlanResult) -> str:
         )
     if plan.caveat:
         lines.append(f"Read with care: {plan.caveat}")
+    lines += [f"Reliability of {key}: {note}" for key, note in result.reliability]
     return "\n".join(lines)
 
 
@@ -302,9 +303,15 @@ class ResultPhraser:
             )
             return facts
         caveat = f"\n[Read with care: {plan.caveat}]" if plan.caveat else ""
+        reliability = "".join(
+            f"\n[Reliability of {key}: {note}]" for key, note in result.reliability
+        )
         by_year = _by_year_lines(plan, result)
         table = "\n\n" + "\n".join(by_year) if by_year else ""
-        return f"{reply}{table}\n\n[Executed filter: {result.explanation}]{caveat}"
+        return (
+            f"{reply}{table}\n\n[Executed filter: {result.explanation}]"
+            f"{caveat}{reliability}"
+        )
 
 
 class ExactAnswerer:

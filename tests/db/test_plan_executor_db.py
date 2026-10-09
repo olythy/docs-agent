@@ -429,6 +429,48 @@ def test_a_count_by_year_without_a_grouping_key_gives_only_the_year_totals(world
     assert result.by_period == () and result.groups == ()
 
 
+def test_the_reliability_notes_of_the_keys_a_plan_uses_come_with_the_result(world):
+    from dataclasses import replace
+
+    keys = {k.key: k for k in world.list_keys(DT)}
+    world.upsert_key(replace(keys["document_kind"], reliability="kind: 9 of 10 right"))
+    world.upsert_key(replace(keys["issuing_body"], reliability="court: all checked"))
+    world.upsert_key(replace(keys["legal_costs"], reliability="costs: unchecked"))
+
+    result = _run(
+        world,
+        operation="count",
+        group_by="document_kind",
+        filters=[{"key": "issuing_body", "op": "eq", "value": "Egri Törvényszék"}],
+    )
+
+    # the keys used, in the order used (filters, then the grouping); a key not used is absent
+    assert result.reliability == (
+        ("issuing_body", "court: all checked"),
+        ("document_kind", "kind: 9 of 10 right"),
+    )
+
+
+def test_a_key_used_twice_gets_its_note_once(world):
+    from dataclasses import replace
+
+    kind = next(k for k in world.list_keys(DT) if k.key == "document_kind")
+    world.upsert_key(replace(kind, reliability="kind: 9 of 10 right"))
+
+    result = _run(
+        world,
+        operation="count",
+        group_by="document_kind",
+        filters=[{"key": "document_kind", "op": "eq", "value": "judgment"}],
+    )
+
+    assert result.reliability == (("document_kind", "kind: 9 of 10 right"),)
+
+
+def test_a_plan_over_keys_without_a_note_has_no_reliability(world):
+    assert _run(world, operation="count", group_by="document_kind").reliability == ()
+
+
 def test_number_and_text_filters(world):
     costly = _run(
         world,

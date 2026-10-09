@@ -331,8 +331,8 @@ class DocumentStore:
         sql = """
             INSERT INTO meta_keys
                 (doc_type, key, value_type, description, example,
-                 allowed_values, multi_valued, status, version)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 allowed_values, multi_valued, status, version, reliability)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (doc_type, key) DO UPDATE SET
                 value_type = EXCLUDED.value_type,
                 description = EXCLUDED.description,
@@ -340,7 +340,8 @@ class DocumentStore:
                 allowed_values = EXCLUDED.allowed_values,
                 multi_valued = EXCLUDED.multi_valued,
                 status = EXCLUDED.status,
-                version = EXCLUDED.version;
+                version = EXCLUDED.version,
+                reliability = EXCLUDED.reliability;
         """
         allowed = None if key.allowed_values is None else list(key.allowed_values)
         params = (
@@ -353,6 +354,7 @@ class DocumentStore:
             key.multi_valued,
             key.status.value,
             key.version,
+            key.reliability,
         )
         with self._scope.connection() as conn:
             try:
@@ -391,7 +393,7 @@ class DocumentStore:
         """
         sql = """
             SELECT doc_type, key, value_type, description, example,
-                   allowed_values, multi_valued, status, version
+                   allowed_values, multi_valued, status, version, reliability
             FROM meta_keys
             WHERE doc_type = %s AND (%s::text IS NULL OR status = %s)
             ORDER BY key;
@@ -411,6 +413,7 @@ class DocumentStore:
                 multi_valued=r[6],
                 status=KeyStatus(r[7]),
                 version=r[8],
+                reliability=r[9],
             )
             for r in rows
         ]

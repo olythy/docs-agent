@@ -107,7 +107,8 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── 0004_create_structured_metadata_tables.py
 │   ├── 0005_add_document_types_and_document_ids.py   # expand: documents.id, document types, document_id links
 │   ├── 0006_drop_content_hash_links_and_enforce_document_ids.py   # contract: id is the only link, NOT NULL, cascades
-│   └── 0007_allow_identifier_value_type.py   # the `identifier` value type
+│   ├── 0007_allow_identifier_value_type.py   # the `identifier` value type
+│   └── 0008_add_key_reliability.py   # meta_keys.reliability: the measured reliability note of a key
 ├── scripts/
 │   ├── dev_cli.py            # Development & infrastructure CLI: docker, setup, doctor, lint (uv run python scripts/dev_cli.py)
 │   ├── db_cli.py             # Database CLI: migrations, flush, make-migration (uv run python scripts/db_cli.py)
@@ -494,7 +495,7 @@ Documents have a numeric `id`; every other table refers to it (migrations 0005 a
 | `documents` | One row per ingested document: `id` (primary key), `content_hash` (unique natural key, identifies duplicates), `source_file`, `summary`, `document_type` (references `document_types`), `ingested_at` |
 | `document_chunks` | The chunked text and its vector: `id`, `content`, `metadata` (JSONB: file name, page, chunk index, date, identifiers, hub score ...), `embedding` (`vector(384)`), `content_tsv` (generated full-text vector -- see "Retrieval" above), `document_id` (NOT NULL), `created_at` |
 | `document_types` | The kinds of document: `type`, `name`, `description`, `status` (`proposed` / `approved` / `retired`; only approved types are usable in queries) |
-| `meta_keys` | The key catalog, per type: `key`, `value_type` (`text`, `number`, `date`, `bool`, `identifier`), `description`, `example`, `allowed_values`, `multi_valued`, `status`, `version` (bumped when a definition changes, so older values are recognisably stale) |
+| `meta_keys` | The key catalog, per type: `key`, `value_type` (`text`, `number`, `date`, `bool`, `identifier`), `description`, `example`, `allowed_values`, `multi_valued`, `status`, `version` (bumped when a definition changes, so older values are recognisably stale), `reliability` (optional note on how far the key's values can be trusted, said beside any answer that uses the key; not part of the definition, so changing it bumps nothing) |
 | `document_meta` | The extracted values: one typed column per value type, `ordinal` for multi-valued keys, the verbatim `evidence` quote, `source` (`deterministic` / `llm` / `sidecar`), `key_version`; unique per `(document_id, key, ordinal)` |
 | `document_meta_status` | Per `(document_id, key)`: `present`, `confirmed_absent`, `unverified` or `not_attempted`, at which key version -- so a count can say "+K unknown" instead of silently dropping documents |
 

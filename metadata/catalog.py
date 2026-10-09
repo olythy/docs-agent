@@ -134,9 +134,22 @@ def _keys_of(doc_type: str, raw_keys: list, path: Path) -> list[MetaKey]:
                 allowed_values=None if allowed is None else tuple(allowed),
                 multi_valued=bool(raw.get("multi_valued", False)),
                 status=status,
+                reliability=_reliability(raw, name, path),
             )
         )
     return keys
+
+
+def _reliability(raw: dict, key: str, path: Path) -> str | None:
+    """The optional ``reliability`` note of a key entry: a non-empty string, or absent."""
+    note = raw.get("reliability")
+    if note is None:
+        return None
+    if not isinstance(note, str) or not note.strip():
+        raise CatalogError(
+            f"{path}: key {key!r}: reliability must be a non-empty string"
+        )
+    return note.strip()
 
 
 def _enum[E: StrEnum](
@@ -164,6 +177,8 @@ class ImportResult:
         types_updated: Types whose name, description or status changed.
         retyped: Keys whose type changed between ``text`` and ``identifier`` and
             nothing else: the stored values stay valid, so the version is kept.
+        annotated: Keys whose only change was the reliability note: it is not part of
+            the definition, so the version is kept and nothing is extracted again.
     """
 
     added: int
@@ -172,6 +187,7 @@ class ImportResult:
     types_added: int = 0
     types_updated: int = 0
     retyped: int = 0
+    annotated: int = 0
 
 
 class KeyCatalog:
@@ -210,6 +226,7 @@ class KeyCatalog:
             types_added,
             types_updated,
             keys.retyped,
+            keys.annotated,
         )
 
     def import_seed(self, keys: list[MetaKey]) -> ImportResult:
@@ -220,7 +237,7 @@ class KeyCatalog:
         so values produced under the old definition are recognisably stale. A key
         that already matches is left alone, which makes re-importing a no-op.
         """
-        added = revised = unchanged = retyped = 0
+        added = revised = unchanged = retyped = annotated = 0
         for doc_type in dict.fromkeys(key.doc_type for key in keys):
             self._store.ensure_type(doc_type)
         for key in keys:
@@ -231,7 +248,12 @@ class KeyCatalog:
                 self._store.upsert_key(key)
                 added += 1
             elif _same_definition(existing, key):
-                unchanged += 1
+                if existing.reliability == key.reliability:
+                    unchanged += 1
+                else:
+                    # the note is about the key, not part of its meaning: keep the version
+                    self._store.upsert_key(_with_version(key, existing.version))
+                    annotated += 1
             elif _only_retyped(existing, key):
                 # text <-> identifier: the values are stored and extracted the same
                 # way, so they stay valid. Keep the version, change the type.
@@ -240,7 +262,9 @@ class KeyCatalog:
             else:
                 self._store.upsert_key(_with_version(key, existing.version + 1))
                 revised += 1
-        return ImportResult(added, revised, unchanged, retyped=retyped)
+        return ImportResult(
+            added, revised, unchanged, retyped=retyped, annotated=annotated
+        )
 
 
 def _same_definition(a: MetaKey, b: MetaKey) -> bool:
@@ -269,14 +293,5 @@ def _only_retyped(a: MetaKey, b: MetaKey) -> bool:
 
 
 def _with_version(key: MetaKey, version: int) -> MetaKey:
-    return MetaKey(
-        doc_type=key.doc_type,
-        key=key.key,
-        value_type=key.value_type,
-        description=key.description,
-        example=key.example,
-        allowed_values=key.allowed_values,
-        multi_valued=key.multi_valued,
-        status=key.status,
-        version=version,
-    )
+    """``key`` with another version (every other field, the reliability note too, kept)."""
+    return replace(key, version=version)

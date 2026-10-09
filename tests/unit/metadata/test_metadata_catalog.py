@@ -65,6 +65,28 @@ def test_a_valid_catalog_loads_its_types_and_keys_as_approved(tmp_path):
     assert catalog.keys[1].allowed_values == ("HUF", "EUR")
 
 
+def test_a_reliability_note_is_read_trimmed_and_optional(tmp_path):
+    data = json.loads(json.dumps(GOOD))
+    data["types"][0]["keys"][1]["reliability"] = "  Checked by hand: 9 of 10 right.  "
+
+    catalog = load_catalog_seed(_write(tmp_path, data))
+
+    assert [k.reliability for k in catalog.keys] == [
+        None,
+        "Checked by hand: 9 of 10 right.",
+        None,
+    ]
+
+
+@pytest.mark.parametrize("note", ["", "   ", 3, ["a"]])
+def test_a_reliability_note_that_is_not_a_non_empty_string_is_rejected(tmp_path, note):
+    data = json.loads(json.dumps(GOOD))
+    data["types"][0]["keys"][0]["reliability"] = note
+
+    with pytest.raises(ValueError, match="reliability must be a non-empty string"):
+        load_catalog_seed(_write(tmp_path, data))
+
+
 def test_the_shipped_court_decision_catalog_is_valid():
     catalog = load_catalog_seed(Path("corpus/data/meta_catalog.json"))
 

@@ -127,7 +127,8 @@ def cmd_load_catalog(args: list[str]) -> int:
         f"catalog loaded ({', '.join(t.type for t in catalog.types)}): "
         f"types {result.types_added} added, {result.types_updated} updated; "
         f"keys {result.added} added, {result.revised} revised, "
-        f"{result.retyped} retyped (values kept), {result.unchanged} unchanged."
+        f"{result.retyped} retyped (values kept), {result.annotated} annotated "
+        f"(reliability note only), {result.unchanged} unchanged."
     )
     return 0
 

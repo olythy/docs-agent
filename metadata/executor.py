@@ -49,6 +49,9 @@ class PlanResult:
         unstated: Documents that do not state a value a filter asked for (looked for and
             confirmed absent, e.g. a decision with no date): they are not in the result and
             not among ``unknown``, but may belong to it.
+        reliability: ``(key, note)`` for each key the plan used (a filter, the grouping, the
+            year, the sum) that has a measured-reliability note in the catalog, in the order
+            the plan uses them.
         yearly: For a count broken down by year: ``(year, count)`` pairs, the matching
             documents that have a value for the date key.
         by_period: For a count broken down by year and a grouping key: ``(year, group
@@ -77,6 +80,7 @@ class PlanResult:
     unknown: int
     documents: tuple[tuple[Any, ...], ...] = ()
     unstated: int = 0
+    reliability: tuple[tuple[str, str], ...] = ()
     yearly: tuple[tuple[int, int], ...] = ()
     by_period: tuple[tuple[int, Any, int], ...] = ()
     groups: tuple[tuple[Any, int], ...] = ()
@@ -100,6 +104,21 @@ class Membership:
 
     explanation: str
     inside: frozenset[int]
+
+
+def _reliability_notes(
+    plan: QueryPlan, keys: Sequence[MetaKey]
+) -> tuple[tuple[str, str], ...]:
+    """The reliability notes of the keys ``plan`` uses, each key once, in the order used."""
+    by_name = {k.key: k for k in keys}
+    used = [f.key for f in plan.filters]
+    used += [k for k in (plan.group_by, plan.by_year, plan.sum_key) if k is not None]
+    notes: list[tuple[str, str]] = []
+    for name in dict.fromkeys(used):
+        key = by_name.get(name)
+        if key is not None and key.reliability:
+            notes.append((name, key.reliability))
+    return tuple(notes)
 
 
 class PlanExecutor:
@@ -149,6 +168,7 @@ class PlanExecutor:
             else []
         )
         query = self._compiler.compile(plan, keys)
+        reliability = _reliability_notes(plan, keys)
         unknown = 0
         if query.unknown_sql is not None:
             unknown = self._store.execute_query(
@@ -184,6 +204,7 @@ class PlanExecutor:
                 count=rows[0][0],
                 unknown=unknown,
                 unstated=unstated,
+                reliability=reliability,
                 **years,
             )
         if op is Operation.COUNT:
@@ -209,6 +230,7 @@ class PlanExecutor:
                 count=total_documents,
                 unknown=unknown,
                 unstated=unstated,
+                reliability=reliability,
                 groups=groups,
                 **years,
                 ungrouped=ungrouped,
@@ -222,6 +244,7 @@ class PlanExecutor:
                 count=rows[0][0],
                 unknown=unknown,
                 unstated=unstated,
+                reliability=reliability,
                 selection=query.selection,
             )
         if op is Operation.SUM:
@@ -232,12 +255,13 @@ class PlanExecutor:
                 count=None,
                 unknown=unknown,
                 unstated=unstated,
+                reliability=reliability,
                 total=total,
                 sum_documents=contributing,
             )
         assert query.count_sql is not None
         count = self._store.execute_query(query.count_sql, query.count_params)[0][0]
         return PlanResult(
-            op, query.explanation, count=count, unknown=unknown, unstated=unstated,
+            op, query.explanation, count=count, unknown=unknown, unstated=unstated, reliability=reliability,
             documents=tuple(tuple(r) for r in rows), truncated=len(rows) < count,
         )  # fmt: skip

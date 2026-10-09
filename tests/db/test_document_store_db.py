@@ -290,6 +290,66 @@ def test_importing_a_catalog_adds_then_leaves_an_unchanged_one_alone(db_conn):
     assert {k.version for k in DocumentStore().list_keys("invoice")} == {1}
 
 
+def _total(note=None, description="Gross total."):
+    return MetaKey(
+        "invoice",
+        "total",
+        ValueType.NUMBER,
+        description,
+        status=KeyStatus.APPROVED,
+        reliability=note,
+    )
+
+
+def test_a_reliability_note_is_stored_and_read_back(db_conn):
+    from metadata.catalog import KeyCatalog
+
+    KeyCatalog(DocumentStore()).import_seed([_total("9 of 10 right")])
+
+    [key] = DocumentStore().list_keys("invoice")
+    assert key.reliability == "9 of 10 right"
+
+
+def test_changing_only_the_note_updates_it_and_keeps_the_version(db_conn):
+    """The note says how far the values can be trusted; it is not what they mean."""
+    from metadata.catalog import KeyCatalog
+
+    catalog = KeyCatalog(DocumentStore())
+    catalog.import_seed([_total("9 of 10 right")])
+
+    result = catalog.import_seed([_total("19 of 20 right")])
+
+    assert (result.annotated, result.revised, result.unchanged) == (1, 0, 0)
+    [key] = DocumentStore().list_keys("invoice")
+    assert (key.reliability, key.version) == ("19 of 20 right", 1)
+
+
+def test_removing_the_note_is_also_only_an_annotation(db_conn):
+    from metadata.catalog import KeyCatalog
+
+    catalog = KeyCatalog(DocumentStore())
+    catalog.import_seed([_total("9 of 10 right")])
+
+    result = catalog.import_seed([_total(None)])
+
+    assert result.annotated == 1
+    [key] = DocumentStore().list_keys("invoice")
+    assert (key.reliability, key.version) == (None, 1)
+
+
+def test_a_changed_definition_bumps_the_version_and_keeps_the_new_note(db_conn):
+    from metadata.catalog import KeyCatalog
+
+    catalog = KeyCatalog(DocumentStore())
+    catalog.import_seed([_total("old note")])
+
+    result = catalog.import_seed([_total("new note", description="Net total.")])
+
+    assert (result.revised, result.annotated) == (1, 0)
+    [key] = DocumentStore().list_keys("invoice")
+    assert (key.reliability, key.version) == ("new note", 2)
+
+
 def test_changing_a_keys_description_bumps_its_version(db_conn):
     """So values extracted under the old definition can be recognised as stale."""
     from metadata.catalog import KeyCatalog

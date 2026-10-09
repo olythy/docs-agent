@@ -37,6 +37,7 @@ Top-k chunk retrieval is good at *lookup* ("who represents the second defendant 
 | `multi_valued` | whether several rows per document are expected |
 | `status` | `proposed` (not usable in queries), `approved`, `retired` |
 | `version` | bumped when the description changes |
+| `reliability` | optional free text: what was measured about how far the values can be trusted (said beside every answer that uses the key); not part of the definition, so the catalog import updates it without bumping `version` |
 
 `document_meta` -- the values.
 

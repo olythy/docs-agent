@@ -64,7 +64,8 @@
             "land_registry_admin",
             "other_admin_review",
             "other"
-          ]
+          ],
+          "reliability": "Classified by a model; checked by hand on 65 random documents (2026-10-10): 55 matched, about 6% were wrong, about 8% were arguable, 1 could not be verified."
         },
         {
           "key": "aggregate_outcome",
@@ -81,7 +82,8 @@
             "judgment_changed",
             "judgment_annulled",
             "other"
-          ]
+          ],
+          "reliability": "Read from the ruling by a model; checked by hand on 64 random documents (2026-10-10): 57 matched; the rest could not be verified (3), were arguable (2), unresolved (1), or a labelling error (1). The line between granted and partly_granted is the weakest."
         }
       ]
     }

@@ -101,3 +101,9 @@ def test_values_and_statuses_are_unique_per_document_not_per_hash(db_conn):
         "document_meta": ["document_id", "key", "ordinal"],
         "document_meta_status": ["document_id", "key"],
     }
+
+
+def test_meta_keys_has_an_optional_reliability_column(db_conn):
+    columns = _columns(db_conn, "meta_keys")
+
+    assert columns["reliability"] == "YES"  # nullable: a key needs no note

@@ -327,6 +327,9 @@ class MetaKey:
         multi_valued: Whether several rows per document are expected.
         status: ``PROPOSED`` keys are not usable in queries.
         version: Bumped when the description changes, so stale values can be found.
+        reliability: What has been measured about how far the key's values can be
+            trusted (free text, said beside any answer that uses the key). Not part of
+            the key's definition: changing it does not bump ``version``.
     """
 
     doc_type: str
@@ -338,6 +341,7 @@ class MetaKey:
     multi_valued: bool = False
     status: KeyStatus = KeyStatus.PROPOSED
     version: int = 1
+    reliability: str | None = None
 
 
 @dataclass(frozen=True)

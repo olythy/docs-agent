@@ -287,3 +287,27 @@ def test_the_model_is_told_not_to_repeat_a_year_table_that_the_code_adds():
 
     assert "do not repeat it" in asked[0]
     assert "do not repeat it" not in asked[1]  # no table, nothing to warn about
+
+
+def test_the_reliability_of_the_keys_used_is_in_the_facts_and_after_the_phrased_answer():
+    plan = QueryPlan(DT, Operation.COUNT)
+    result = _count_result(
+        count=7,
+        reliability=(("subject", "9 of 10 right"), ("outcome", "8 of 10 right")),
+    )
+
+    assert "Reliability of subject: 9 of 10 right" in render_result(plan, result)
+    out = ResultPhraser(Llm("7 határozat.")).phrase("hány?", plan, result)
+    assert out.endswith(
+        "[Reliability of subject: 9 of 10 right]\n[Reliability of outcome: 8 of 10 right]"
+    )
+
+
+def test_without_a_note_no_reliability_line_is_written():
+    plan = QueryPlan(DT, Operation.COUNT)
+    result = _count_result(count=7)
+
+    assert "Reliability" not in render_result(plan, result)
+    assert "Reliability" not in ResultPhraser(Llm("7 határozat.")).phrase(
+        "hány?", plan, result
+    )
