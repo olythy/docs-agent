@@ -211,5 +211,366 @@
       "note": "auction sale ordered; 'ezt meghaladóan a keresetet elutasítja' and the counterclaim is dismissed. Revised after the first extraction run; the first label was made from the summary only."
     }
   ],
-  "revisions": "3 labels were revised on 2026-10-09 after comparing with the first extraction run, each on the strength of a quoted sentence of the ruling; the other 29 were not touched. The first agreement (before the revision) was subject 30/32, outcome 28/32, both 27/32."
+  "revisions": "3 labels were revised on 2026-10-09 after comparing with the first extraction run, each on the strength of a quoted sentence of the ruling; the other 29 were not touched. The first agreement (before the revision) was subject 30/32, outcome 28/32, both 27/32.",
+  "sample_labels_description": "50 further decisions of the same BK 2020-2024 set, labelled BLIND (before the extraction was looked at): stratum A = 20 random ones whose first chunks mention a property-law term but that are not among the 32 above, stratum B = 30 random others. Seven outcome labels were revised after the comparison (blind_aggregate_outcome keeps the first label); one stays unresolved.",
+  "sample_labels": [
+    {
+      "case_number": "104.K.702.656/2020/44",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "13.G.40.171/2022/53",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "18.K.700.967/2022/47/ÍTÉLET",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "decision annulled"
+    },
+    {
+      "case_number": "20.P.20.112/2021/28/ítélet",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "20.P.20.198/2022/15-ítélet",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "20.P.20.314/2023/12-ítélet",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "20.P.20.419/2019/57-ítélet",
+      "stratum": "A",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "partly_granted",
+      "note": "heading names an inheritance-creditor claim and a marital-property division; subject is ambiguous; unresolved: the extractor says granted, the blind label said partly_granted",
+      "unresolved": true
+    },
+    {
+      "case_number": "20.P.20.486/2022/14-ítélet",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "contract nullity"
+    },
+    {
+      "case_number": "20.P.20.672/2022/30-ítélet",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": "claim and counterclaim both dismissed"
+    },
+    {
+      "case_number": "21.P.20.044/2022/129-I",
+      "stratum": "A",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "22.P.20.252/2021/21-ítélet",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "contract ineffective against the plaintiffs"
+    },
+    {
+      "case_number": "24.K.701.320/2022/12",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "24.K.701.968/2023/9",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "decision annulled"
+    },
+    {
+      "case_number": "26.P.21.474/2016/111/ítélet",
+      "stratum": "A",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "partly_granted",
+      "note": ""
+    },
+    {
+      "case_number": "27.P.20.031/2019/49",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": "only costs and the deletion of a lis pendens note were visible; dismissal inferred"
+    },
+    {
+      "case_number": "27.P.20.189/2019/94",
+      "stratum": "A",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "dismissed",
+      "note": "cohabitation property"
+    },
+    {
+      "case_number": "27.P.20.269/2018/111",
+      "stratum": "A",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "partly_granted",
+      "note": "revised after comparing with the extraction: ruling and reasoning: the claim beyond the 1/2 share was unfounded",
+      "blind_aggregate_outcome": "granted"
+    },
+    {
+      "case_number": "4.P.20.192/2019/67",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.502/2020/65-ítélet",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "contract nullity; the plaintiffs also ordered to pay"
+    },
+    {
+      "case_number": "5.K.701.456/2021/33/ítélet",
+      "stratum": "A",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "102.K.700.796/2020/55-ítélet",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "decision annulled"
+    },
+    {
+      "case_number": "102.K.703.154/2020/52-ítélet",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "103.K.701.262/2023/16-ítélet",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "visible only through the costs"
+    },
+    {
+      "case_number": "104.K.701.843/2022/39",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "visible only through the costs"
+    },
+    {
+      "case_number": "12.K.700.982/2023/11",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "13.G.40.385/2021/23",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "partial_or_interim",
+      "note": "revised after comparing with the extraction: the document is an interim judgment (közbenső ítélet)",
+      "blind_aggregate_outcome": "granted"
+    },
+    {
+      "case_number": "14.G.40.239/2022/40.",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "partly_granted",
+      "note": ""
+    },
+    {
+      "case_number": "15.G.40.110/2020/29-I",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "16.P.20.011/2022/60.",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "partly_granted",
+      "note": "revised after comparing with the extraction: 'Ezt meghaladóan a keresetet elutasítja'",
+      "blind_aggregate_outcome": "granted"
+    },
+    {
+      "case_number": "17.K.700.345/2022/14",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "18.K.701.958/2021/10",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "decision annulled"
+    },
+    {
+      "case_number": "2.K.702.070/2021/12.ít.",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "revised after comparing with the extraction: the challenged part of the decision was annulled",
+      "blind_aggregate_outcome": "partly_granted"
+    },
+    {
+      "case_number": "20.P.20.236/2023/8-ítélet",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "21.P.20.211/2018/37-I",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "partly_granted",
+      "note": ""
+    },
+    {
+      "case_number": "21.P.20.542/2021/42",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "partly_granted",
+      "note": ""
+    },
+    {
+      "case_number": "22.P.20.299/2019/47-ítélet",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "22.P.20.345/2018/110-ítélet",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "partly_granted",
+      "note": "revised after comparing with the extraction: 'Egyebekben a felperes keresetét elutasítja'",
+      "blind_aggregate_outcome": "granted"
+    },
+    {
+      "case_number": "22.P.20.546/2019/47-ítélet",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "24.K.701.039/2022/5",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "visible only through the costs"
+    },
+    {
+      "case_number": "24.K.702.212/2022/5",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "visible only through the costs"
+    },
+    {
+      "case_number": "3.G.40.466/2019/29-I",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "partial_or_interim",
+      "note": "revised after comparing with the extraction: the document is an interim judgment (közbenső ítélet)",
+      "blind_aggregate_outcome": "granted"
+    },
+    {
+      "case_number": "3.K.700.217/2022/2",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "visible only through the costs"
+    },
+    {
+      "case_number": "4.P.20.216/2021/60-ítélet",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.339/2022/12-ítélet",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.534/2020/109-ítélet",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "partly_granted",
+      "note": "will invalidity; compulsory share granted in part"
+    },
+    {
+      "case_number": "4.P.20.592/2021/23",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "5.K.701.205/2022/5",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "visible only through the costs"
+    },
+    {
+      "case_number": "6.G.40.460/2020/13-I",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "partly_granted",
+      "note": "revised after comparing with the extraction: the plaintiff's claim beyond the awarded sum was dismissed",
+      "blind_aggregate_outcome": "granted"
+    },
+    {
+      "case_number": "7.K.700.760/2022/2",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "decision annulled; visible only through the costs"
+    },
+    {
+      "case_number": "7.Pf.20.456/2020/7-II",
+      "stratum": "B",
+      "case_subject": "other",
+      "aggregate_outcome": "dismissed",
+      "note": "second instance: first-instance judgment changed, claim dismissed"
+    }
+  ]
 }
