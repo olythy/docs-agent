@@ -9,12 +9,15 @@ Key exports:
     CompositeObserver   -- Forwards to several observers, in order.
     ProgressLogObserver -- One progress line per step.
     AuditLogObserver    -- The structured JSONL events (gate checked, rerank applied).
+    AnswerAuditObserver -- The structured event for every answer the model wrote.
 """
 
 import logging
 from collections.abc import Sequence
 
 from logger import EventLogger, LogAction
+from models import RetrievedChunk
+from query.answering import GroundedAnswer
 from query.context import CHUNK_SLOTS, RetrievalContext
 from query.runner import StepObserver
 from query.step import Halt, RetrievalStep, StepName, StepResult
@@ -119,3 +122,38 @@ class AuditLogObserver:
                     "top_score": notes["rerank_top_score"],
                 },
             )
+
+
+class AnswerAuditObserver:
+    """Writes the ``answer_generated`` event for every answer the model wrote.
+
+    Args:
+        events: The event log to write to.
+        llm_driver: The name of the answer driver (``LLM_DRIVER``).
+        llm_model: The name of the answer model (``LLM_MODEL``).
+    """
+
+    def __init__(self, events: EventLogger, llm_driver: str, llm_model: str) -> None:
+        self._events = events
+        self._llm_driver = llm_driver
+        self._llm_model = llm_model
+
+    def on_answer(
+        self,
+        question: str,
+        chunks: tuple[RetrievedChunk, ...],
+        answer: GroundedAnswer,
+        seconds: float,
+    ) -> None:
+        """Write the event of one answer."""
+        self._events.log(
+            LogAction.ANSWER_GENERATED,
+            {
+                "question": question,
+                "llm_driver": self._llm_driver,
+                "llm_model": self._llm_model,
+                "chunk_count": len(chunks),
+                "latency_seconds": round(seconds, 3),
+                "refused": answer.refused,
+            },
+        )

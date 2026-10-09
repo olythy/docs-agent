@@ -27,7 +27,7 @@ from query.decision import (
 )
 from query.facts import QueryFactsReader
 from query.listwise_rerank import listwise_rerank
-from query.observers import AuditLogObserver, ProgressLogObserver
+from query.observers import AnswerAuditObserver, AuditLogObserver, ProgressLogObserver
 from query.outcome import RefusalRenderer
 from query.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
 from query.query_service import QueryService
@@ -116,6 +116,11 @@ def build_query_service(settings: Settings) -> QueryService:
         GroundedAnswerer(
             llm,
             AnswerPolicy(expose_document_date=settings.EXPOSE_DOCUMENT_DATE),
+            observers=(
+                AnswerAuditObserver(
+                    get_logger(), settings.LLM_DRIVER, settings.LLM_MODEL
+                ),
+            ),
         ),
         RefusalRenderer(),
         default_profile=DEFAULT_PROFILE,

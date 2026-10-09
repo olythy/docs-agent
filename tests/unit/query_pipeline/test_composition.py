@@ -201,6 +201,45 @@ class TestQueryService:
         assert answer.text == "THE ANSWER"
         assert driver.calls[0][1].endswith(f"Question: {QUESTION}")
 
+    def test_the_answer_is_written_to_the_audit_log(self, wired, monkeypatch):
+        env = wired(LLM_DRIVER="vertex", LLM_MODEL="gemini-x")
+        monkeypatch.setattr(
+            composition_module, "get_answer_driver", lambda: FakeAnswerDriver()
+        )
+
+        build_query_service(env.settings).answer(
+            QUESTION,
+            scope=Scope(),
+            store=FakeStore(),  # type: ignore[arg-type]
+        )
+
+        events = [json.loads(line) for line in env.log.read_text().splitlines()]
+        (answered,) = [e for e in events if e["action"] == "answer_generated"]
+        assert answered["data"]["question"] == QUESTION
+        assert (answered["data"]["llm_driver"], answered["data"]["llm_model"]) == (
+            "vertex",
+            "gemini-x",
+        )
+        assert answered["data"]["chunk_count"] == 3  # what the retrieval kept
+        assert answered["data"]["refused"] is False
+
+    def test_a_refusal_before_the_model_writes_no_answer_event(
+        self, wired, monkeypatch
+    ):
+        env = wired(RETRIEVAL_MIN_SCORE=0.99)
+        monkeypatch.setattr(
+            composition_module, "get_answer_driver", lambda: FakeAnswerDriver()
+        )
+
+        build_query_service(env.settings).answer(
+            QUESTION,
+            scope=Scope(),
+            store=FakeStore(),  # type: ignore[arg-type]
+        )
+
+        actions = [json.loads(l)["action"] for l in env.log.read_text().splitlines()]
+        assert "answer_generated" not in actions
+
     def test_nothing_relevant_is_the_refusal_and_no_model_is_asked(
         self, wired, monkeypatch
     ):

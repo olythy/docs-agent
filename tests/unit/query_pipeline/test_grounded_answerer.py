@@ -107,3 +107,63 @@ def test_the_refusal_clause_contains_the_sentence_that_is_recognised():
     system, _ = _build_prompt("q", [])
 
     assert f"'{REFUSAL_SENTENCE}'" in system
+
+
+class RecordingObserver:
+    def __init__(self):
+        self.calls = []
+
+    def on_answer(self, question, chunks, answer, seconds):
+        self.calls.append((question, chunks, answer, seconds))
+
+
+class SlowDriver(FakeDriver):
+    """A model that takes ``seconds`` on a clock the test controls."""
+
+    def __init__(self, clock_state, seconds, reply="An answer."):
+        super().__init__(reply)
+        self.clock_state, self.seconds = clock_state, seconds
+
+    def generate(self, system_prompt, user_message, max_tokens=1024):
+        self.clock_state["now"] += self.seconds
+        return super().generate(system_prompt, user_message, max_tokens)
+
+
+class TestObservers:
+    def test_every_observer_is_told_in_order_with_the_time_the_model_took(self):
+        state = {"now": 100.0}
+        order = []
+        first, second, recording = (
+            RecordingObserver(),
+            RecordingObserver(),
+            RecordingObserver(),
+        )
+        first.on_answer = lambda *a: order.append("first")  # type: ignore[method-assign]
+        second.on_answer = lambda *a: order.append("second")  # type: ignore[method-assign]
+
+        answerer = GroundedAnswerer(
+            SlowDriver(state, 2.5),
+            POLICIES[0],
+            observers=(first, second, recording),
+            clock=lambda: state["now"],
+        )
+        answer = answerer.answer("Q?", CHUNKS)
+
+        assert order == ["first", "second"]
+        assert recording.calls == [("Q?", CHUNKS, answer, 2.5)]
+
+    def test_the_observer_sees_whether_the_model_refused(self):
+        state = {"now": 0.0}
+        recording = RecordingObserver()
+
+        GroundedAnswerer(
+            SlowDriver(state, 0.0, REFUSAL_SENTENCE),
+            POLICIES[0],
+            observers=(recording,),
+            clock=lambda: state["now"],
+        ).answer("Q?", CHUNKS)
+
+        assert recording.calls[0][2].refused is True
+
+    def test_without_observers_nothing_is_needed(self):
+        assert GroundedAnswerer(FakeDriver(), POLICIES[0]).answer("Q?", CHUNKS).text

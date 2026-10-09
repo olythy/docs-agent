@@ -15,6 +15,7 @@ Three classes with one job each, which the decision (``query.decision``) only ch
 Key exports:
     AnswerPolicy     -- How the model is asked to answer (whether dates are shown).
     GroundedAnswer   -- The text, and whether it is the model's own refusal.
+    AnswerObserver   -- Told after every answer the model wrote.
     GroundedAnswerer -- Writes an answer from the chunks read.
     ExactAnswerer -- Executes an exact plan and words the result.
     ResultPhraser -- Phrases an exact result, and checks the figures.
@@ -23,6 +24,8 @@ Key exports:
 
 import logging
 import re
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -61,6 +64,21 @@ class GroundedAnswer:
     refused: bool
 
 
+class AnswerObserver(Protocol):
+    """Told after the model wrote an answer (the answering counterpart of a step observer)."""
+
+    def on_answer(
+        self,
+        question: str,
+        chunks: tuple[RetrievedChunk, ...],
+        answer: "GroundedAnswer",
+        seconds: float,
+    ) -> None:
+        """Called with the question, the chunks it was written from, the answer and how
+        long the model took."""
+        ...
+
+
 class GroundedAnswerer:
     """Writes an answer from the chunks read.
 
@@ -68,14 +86,24 @@ class GroundedAnswerer:
         driver: The language model.
         policy: How it is asked to answer.
         max_tokens: Maximum tokens to generate.
+        observers: Told after every answer (the audit log); the answerer itself knows
+            nothing about log files.
+        clock: Returns seconds, to time the model call (injected for tests).
     """
 
     def __init__(
-        self, driver: AnswerDriver, policy: AnswerPolicy, max_tokens: int = 1024
+        self,
+        driver: AnswerDriver,
+        policy: AnswerPolicy,
+        max_tokens: int = 1024,
+        observers: Sequence[AnswerObserver] = (),
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._driver = driver
         self._policy = policy
         self._max_tokens = max_tokens
+        self._observers = tuple(observers)
+        self._clock = clock
 
     def answer(
         self, question: str, chunks: tuple[RetrievedChunk, ...]
@@ -86,9 +114,14 @@ class GroundedAnswerer:
             list(chunks),
             expose_document_date=self._policy.expose_document_date,
         )
+        started = self._clock()
         text = self._driver.generate(system_prompt, user_message, self._max_tokens)
+        seconds = self._clock() - started
         refused = text.strip().strip("'\"").lower().startswith(REFUSAL_SENTENCE.lower())
-        return GroundedAnswer(text, refused)
+        answer = GroundedAnswer(text, refused)
+        for observer in self._observers:
+            observer.on_answer(question, chunks, answer, seconds)
+        return answer
 
 
 class PlanRunner(Protocol):

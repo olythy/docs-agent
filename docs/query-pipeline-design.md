@@ -111,9 +111,9 @@ inside the scope). The retrieval decides neither; it receives both.
 | `selection_steps.py` | the final cut with the year quota and the spread over named documents |
 | `profiles.py` | `StepSpec`, `ProfileSpec`, `PROFILES`, `DEFAULT_PROFILE`, `Condition`, `ProfileResolver`, `PipelineFactory` |
 | `runner.py` | `RetrievalPipeline`, `StepObserver`, `TraceRecorder`, `StageRecord` |
-| `observers.py` | `AuditLogObserver`, `ProgressLogObserver`, `CompositeObserver` |
+| `observers.py` | `AuditLogObserver`, `ProgressLogObserver`, `CompositeObserver`, `AnswerAuditObserver` |
 | `service.py` | `RetrievalRequest`, `RetrievalResult`, `RetrievalService` |
-| `answering.py` | `GroundedAnswerer`, `AnswerPolicy`, `ExactAnswerer`, `ResultPhraser`, `render_result` |
+| `answering.py` | `GroundedAnswerer`, `AnswerPolicy`, `AnswerObserver`, `ExactAnswerer`, `ResultPhraser`, `render_result` |
 | `query_service.py` | `QueryService`, `Answer`, `Explain` |
 | `knowledge_base.py` | `query_knowledge_base` (the agent's entry), `search_knowledge_base` (passages only, for the MCP) |
 | `composition.py` | `build_retrieval_service`, `build_planning`, `build_query_service` |
@@ -218,7 +218,11 @@ recorded between them and the second one can refuse.
 - Observers are told after every step: `TraceRecorder` keeps a `StageRecord` per step
   (what went in, what came out, side results, notes, seconds, the refusal),
   `AuditLogObserver` writes the gate and rerank events, `ProgressLogObserver` the
-  progress lines. Steps never log.
+  progress lines. Steps never log. The answering side has the same shape:
+  `GroundedAnswerer` tells its `AnswerObserver`s after every answer (the question, the
+  chunks, the answer, the seconds the model took) and `AnswerAuditObserver` writes the
+  `answer_generated` event (question, driver, model, chunk count, latency, whether the
+  model refused); the answerer itself knows nothing about log files.
 - Retries stay in the drivers (`retry_policy`). A step-level retry would multiply
   attempts and stretch stalls.
 
@@ -286,7 +290,6 @@ reranker model, and refuses to call two snapshots comparable when they differ.
   same decision that now refuses. To decide: how many documents it may read (cost and
   time); the yardstick is `independent_fact` and the number of different relevant
   documents, with `exact_match` as a completeness check once the path is exhaustive.
-- The `ANSWER_GENERATED` audit event is not written on this path.
 - Which document type a question is about is taken from the planner's reading of the
   approved types' descriptions; inferring it per document (a stored type, a classifier)
   is not designed.

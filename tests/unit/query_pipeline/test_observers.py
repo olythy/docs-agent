@@ -5,10 +5,16 @@ import logging
 
 from logger import EventLogger
 from models import ChunkMetadata, RetrievedChunk
+from query.answering import GroundedAnswer
 from query.context import RetrievalContext
 from query.facts import QueryFacts
 from query.gate_steps import RelevanceGateStep
-from query.observers import AuditLogObserver, CompositeObserver, ProgressLogObserver
+from query.observers import (
+    AnswerAuditObserver,
+    AuditLogObserver,
+    CompositeObserver,
+    ProgressLogObserver,
+)
 from query.step import Continue, RetrievalStep
 
 
@@ -116,3 +122,36 @@ class TestComposite:
         )
 
         assert seen == ["a", "b"]
+
+
+class TestAnswerAudit:
+    def test_one_event_per_answer_with_what_the_old_path_wrote(self, tmp_path):
+        path = tmp_path / "log.jsonl"
+        observer = AnswerAuditObserver(EventLogger(path), "vertex", "gemini-x")
+
+        observer.on_answer(
+            "Mi volt?",
+            (chunk(1, 0.5), chunk(2, 0.4)),
+            GroundedAnswer("An answer.", refused=False),
+            2.34567,
+        )
+
+        (event,) = events(path)
+        assert event["action"] == "answer_generated"
+        assert event["data"] == {
+            "question": "Mi volt?",
+            "llm_driver": "vertex",
+            "llm_model": "gemini-x",
+            "chunk_count": 2,
+            "latency_seconds": 2.346,
+            "refused": False,
+        }
+
+    def test_the_models_own_refusal_is_marked(self, tmp_path):
+        path = tmp_path / "log.jsonl"
+
+        AnswerAuditObserver(EventLogger(path), "d", "m").on_answer(
+            "q", (), GroundedAnswer("I could not find ...", refused=True), 0.1
+        )
+
+        assert events(path)[0]["data"]["refused"] is True
