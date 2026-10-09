@@ -115,6 +115,7 @@ class RetrievalService:
             facts=facts,
             metadata_filter=request.metadata_filter,
             spread_documents=scope.names_several_documents,
+            single_document=scope.names_one_document,
             query_vector=(
                 tuple(request.query_vector)
                 if request.query_vector is not None

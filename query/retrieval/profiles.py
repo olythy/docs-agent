@@ -39,7 +39,7 @@ from query.retrieval.steps.ranking import (
     RerankStep,
     RrfFusionStep,
 )
-from query.retrieval.steps.selection import TopKWithGuaranteesStep
+from query.retrieval.steps.selection import OpeningChunkStep, TopKWithGuaranteesStep
 from store import VectorStore
 
 
@@ -97,6 +97,7 @@ PROFILES: dict[str, ProfileSpec] = {
             StepSpec(StepName.RERANK_SCORE_GATE, Condition.CROSS_ENCODER),
             StepSpec(StepName.LISTWISE_RERANK, Condition.LISTWISE),
             StepSpec(StepName.TOP_K_SELECTION),
+            StepSpec(StepName.OPENING_CHUNK),
         ),
         measured=(
             "the default since hybrid search was adopted (docs/decisions.md); pinned "
@@ -236,6 +237,7 @@ _BUILDERS: dict[StepName, Callable[[StepDeps], RetrievalStep]] = {
     StepName.TOP_K_SELECTION: lambda d: TopKWithGuaranteesStep(
         d.params.top_k, d.params.diversify, d.params.period_filter
     ),
+    StepName.OPENING_CHUNK: lambda d: OpeningChunkStep(d.store),
 }
 
 

@@ -64,6 +64,11 @@ class Scope:
     )
 
     @property
+    def names_one_document(self) -> bool:
+        """The question names exactly one document."""
+        return len(self.identifiers.document_ids) == 1
+
+    @property
     def names_several_documents(self) -> bool:
         """The question names more than one document (so each must be represented)."""
         return len(self.identifiers.document_ids) > 1

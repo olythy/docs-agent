@@ -196,3 +196,44 @@ class TestSpreadingOverNamedDocuments:
         )
 
         assert watcher.spread == {False}
+
+
+class TestOneNamedDocumentGetsItsOpening:
+    """The scope tells the retrieval that the question names exactly one document."""
+
+    class Watcher:
+        def __init__(self):
+            self.single = set()
+
+        def on_step(self, step, before, result, seconds):
+            self.single.add(before.single_document)
+
+    def run(self, settings_override, documents):
+        from metadata.identifier_resolver import ResolvedIdentifiers
+
+        watcher = self.Watcher()
+        scope = Scope(
+            selection=only("a.docx", "b.docx").selection,
+            identifiers=ResolvedIdentifiers({f"X/{d}": (d,) for d in documents}),
+        )
+        result = service(settings_override, observers=(watcher,)).retrieve(
+            RetrievalRequest("what about costs?", profile=DEFAULT_PROFILE, scope=scope),
+            FakeStore(),  # type: ignore[arg-type]
+        )
+        return watcher.single, result
+
+    def test_one_named_document_is_passed_on(self, settings_override):
+        assert self.run(settings_override, [1])[0] == {True}
+
+    def test_several_named_documents_are_not_one(self, settings_override):
+        assert self.run(settings_override, [1, 2])[0] == {False}
+
+    def test_no_scope_is_not_one(self, settings_override):
+        watcher = self.Watcher()
+
+        service(settings_override, observers=(watcher,)).retrieve(
+            RetrievalRequest("what about costs?", profile=DEFAULT_PROFILE),
+            FakeStore(),  # type: ignore[arg-type]
+        )
+
+        assert watcher.single == {False}

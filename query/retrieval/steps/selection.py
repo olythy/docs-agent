@@ -2,11 +2,13 @@
 
 Key exports:
     TopKWithGuaranteesStep  -- The final cut of the ``best_chunks`` profile (with the year quota).
+    OpeningChunkStep        -- Adds the first chunk of the one document a question names.
 """
 
 from models import RetrievedChunk
 from query.retrieval.context import RetrievalContext, Slot
 from query.retrieval.step import Continue, RetrievalStep, StepName, StepResult
+from store import VectorStore
 
 
 def _round_robin_by_document(
@@ -99,3 +101,36 @@ class TopKWithGuaranteesStep(RetrievalStep):
         rest = [c for c in chunks if c.id not in picked]
         final = selected + rest[: max(0, top_k - len(selected))]
         return Continue(context.with_slots(selected=tuple(final)))
+
+
+class OpeningChunkStep(RetrievalStep):
+    """Adds the document's first chunk when the question names one document and lacks it.
+
+    The opening of a court decision holds the parties, the subject of the case and the
+    ruling, which is what a question about one named case usually asks. The search ranks
+    passages by their similarity to the question, and a long reasoning section can outrank
+    the opening, so the answer would have to rest on the generated summary alone. With one
+    document in scope the opening is added as the last-ranked chunk (the context grows by
+    one); every other question is untouched.
+
+    Args:
+        store: The chunk store, already restricted to the document in scope.
+    """
+
+    name = StepName.OPENING_CHUNK
+    requires = frozenset({Slot.SELECTED})
+    provides = frozenset({Slot.SELECTED})
+
+    def __init__(self, store: VectorStore) -> None:
+        self._store = store
+
+    def run(self, context: RetrievalContext) -> StepResult:
+        selected = tuple(context.selected or ())
+        if not context.single_document or not selected:
+            return Continue(context)
+        if any(c.metadata.chunk_index == 0 for c in selected):
+            return Continue(context)
+        opening = self._store.opening_chunks(limit=1)
+        if not opening:
+            return Continue(context)
+        return Continue(context.with_slots(selected=(*selected, opening[0])))

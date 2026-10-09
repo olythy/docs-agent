@@ -352,3 +352,15 @@ def test_the_scope_of_a_source_file_selects_that_file_only():
         "SELECT id FROM documents WHERE source_file = %s", ("a.docx",)
     )
     assert scope.note is None and not scope.names_several_documents
+
+
+def test_a_scope_names_one_document_only_with_exactly_one_resolved_identifier():
+    from metadata.identifier_resolver import ResolvedIdentifiers
+
+    def scope_of(*ids):
+        return Scope(identifiers=ResolvedIdentifiers({f"x{i}": (i,) for i in ids}))
+
+    assert Scope().names_one_document is False
+    assert scope_of(7).names_one_document is True
+    assert scope_of(7, 8).names_one_document is False
+    assert scope_of(7).names_several_documents is False

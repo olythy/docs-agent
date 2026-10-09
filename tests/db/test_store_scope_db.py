@@ -213,3 +213,68 @@ def test_the_scope_of_a_source_file_restricts_every_search_to_that_file(two_docu
 
     assert _files(only_b) == ["b.pdf"]
     assert unknown == []  # a file that was never ingested selects nothing
+
+
+@pytest.fixture
+def chunked_document(db_conn):
+    """One document of three chunks (indexes 0, 1, 2) and another one with its own opening."""
+    driver = get_embedding_driver()
+    for name, count in (("a", 3), ("b", 1)):
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO documents (content_hash, source_file) VALUES (%s, %s) RETURNING id;",
+                (f"hash-{name}", f"{name}.pdf"),
+            )
+            document_id = cur.fetchone()[0]
+            for index in range(count):
+                text = f"chunk {index} of {name}"
+                cur.execute(
+                    "INSERT INTO document_chunks (content, metadata, embedding, document_id) "
+                    "VALUES (%s, %s, %s, %s);",
+                    (
+                        text,
+                        json.dumps(
+                            {
+                                "source_file": f"{name}.pdf",
+                                "page_number": 1,
+                                "chunk_index": index,
+                                "content_hash": f"hash-{name}",
+                            }
+                        ),
+                        _to_pgvector_literal(driver.embed_text(text)),
+                        document_id,
+                    ),
+                )
+    db_conn.commit()
+
+
+def test_the_opening_chunk_of_a_restricted_store_is_that_documents_first_chunk(
+    chunked_document,
+):
+    [opening] = VectorStore(selection=_only("hash-a")).opening_chunks()
+
+    assert (opening.metadata.source_file, opening.metadata.chunk_index) == ("a.pdf", 0)
+    assert opening.content == "chunk 0 of a" and opening.score == 0.0
+
+
+def test_a_restricted_store_never_returns_another_documents_opening(chunked_document):
+    chunks = VectorStore(selection=_only("hash-b")).opening_chunks(limit=5)
+
+    assert _files(chunks) == ["b.pdf"]
+
+
+def test_an_unrestricted_store_returns_one_opening_per_document_up_to_the_limit(
+    chunked_document,
+):
+    store = VectorStore()
+
+    assert _files(store.opening_chunks(limit=5)) == ["a.pdf", "b.pdf"]
+    assert len(store.opening_chunks(limit=1)) == 1
+
+
+def test_a_selection_that_matches_nothing_has_no_opening(chunked_document):
+    store = VectorStore(
+        selection=DocumentSelection("SELECT d.id FROM documents d WHERE FALSE")
+    )
+
+    assert store.opening_chunks() == []

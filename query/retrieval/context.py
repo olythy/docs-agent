@@ -46,6 +46,8 @@ class RetrievalContext:
         query_vector: The embedded question (may be supplied by the caller).
         spread_documents: The question names several documents, so the final chunks must
             take turns across them (decided by the scope, not by the retrieval).
+        single_document: The question names exactly one document (decided by the scope):
+            the retrieval is then over that document alone.
         dense_pool: Candidates from the vector search (later widened and reordered).
         keyword_pool: Candidates from the full-text search.
         ranked: The candidates in the order the ranking steps leave them.
@@ -56,6 +58,7 @@ class RetrievalContext:
     metadata_filter: Mapping[str, object] | None = None
     query_vector: tuple[float, ...] | None = None
     spread_documents: bool = False
+    single_document: bool = False
     dense_pool: tuple[RetrievedChunk, ...] | None = None
     keyword_pool: tuple[RetrievedChunk, ...] | None = None
     ranked: tuple[RetrievedChunk, ...] | None = None

@@ -447,6 +447,42 @@ class VectorStore:
             list(self._selection.params),
         )
 
+    def opening_chunks(self, limit: int = 1) -> list[RetrievedChunk]:
+        """The first chunk (``chunk_index`` 0) of the documents this store sees.
+
+        The opening of a court decision holds the parties, the subject and the ruling, so a
+        question about one named document often needs it whatever the search ranked first.
+        Meant for a store restricted to one document; on a wider one it returns the openings
+        of the first ``limit`` documents.
+
+        Args:
+            limit: The most chunks to return.
+
+        Returns:
+            The opening chunks in ``id`` order, each with a placeholder ``score`` of 0.0 (this
+            is a lookup, not a search).
+        """
+        scope_sql, scope_params = self._scope_condition()
+        sql = f"""
+            SELECT id, content, metadata
+            FROM document_chunks
+            WHERE (metadata->>'chunk_index')::int = 0{scope_sql}
+            ORDER BY id
+            LIMIT %s;
+        """
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (*scope_params, limit))
+            rows = cur.fetchall()
+        return [
+            RetrievedChunk(
+                id=row[0],
+                content=row[1],
+                metadata=ChunkMetadata.from_dict(row[2]),
+                score=0.0,
+            )
+            for row in rows
+        ]
+
     def delete_chunks_by_hash(self, content_hash: str) -> int:
         """Delete all document_chunks rows matching the given SHA-256 content hash.
 

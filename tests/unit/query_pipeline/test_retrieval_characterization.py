@@ -103,6 +103,10 @@ class FakeStore:
     def assert_dimension_matches(self, expected):
         return None
 
+    def opening_chunks(self, limit=1):
+        """The chunks with ``chunk_index`` 0 of the visible documents, like the real store."""
+        return [c for c in self._visible() if c.metadata.chunk_index == 0][:limit]
+
     def _visible(self, metadata_filter=None, years=None):
         rows = [
             _chunk(r, self._hubs)
@@ -375,6 +379,7 @@ EXPECTED = {
             "rerank.ranked": [1, 3, 5, 7, 2, 4],
             "rerank_score_gate.ranked": [1, 3, 5],
             "top_k_selection.selected": [1, 3, 5],
+            "opening_chunk.selected": [1, 3, 5],
         },
         [1, 3, 5],
     ),
@@ -391,6 +396,7 @@ EXPECTED = {
             "rerank.ranked": [1, 3, 5, 7, 9, 2, 10, 4, 11, 6, 12, 8, 13, 14],
             "rerank_score_gate.ranked": [1, 3, 5],
             "top_k_selection.selected": [3, 5, 1],
+            "opening_chunk.selected": [3, 5, 1],
         },
         [3, 5, 1],
     ),
@@ -405,6 +411,7 @@ EXPECTED = {
             "rerank.ranked": [1, 3, 5, 7, 2, 4],
             "rerank_score_gate.ranked": [1, 3, 5],
             "top_k_selection.selected": [1, 3, 5],
+            "opening_chunk.selected": [1, 3, 5],
         },
         [1, 3, 5],
     ),
@@ -421,6 +428,7 @@ EXPECTED = {
             "rerank.ranked": [3, 4],
             "rerank_score_gate.ranked": [3],
             "top_k_selection.selected": [3],
+            "opening_chunk.selected": [3],
         },
         [3],
     ),
@@ -432,6 +440,7 @@ EXPECTED = {
             "rrf_fusion.ranked": [1, 3, 5, 7, 2, 4],
             "rerank.ranked": [1, 3, 5, 7, 2, 4],
             "top_k_selection.selected": [1, 3, 5, 7],
+            "opening_chunk.selected": [1, 3, 5, 7],
         },
         [1, 3, 5, 7],
     ),
@@ -444,6 +453,7 @@ EXPECTED = {
             "rerank.ranked": [1, 3, 5, 9, 10, 11, 7, 12, 2, 13, 4, 14],
             "rerank_score_gate.ranked": [1, 3, 5],
             "top_k_selection.selected": [1, 3, 5],
+            "opening_chunk.selected": [1, 3, 5],
         },
         [1, 3, 5],
     ),
@@ -456,6 +466,7 @@ EXPECTED = {
             "rerank.ranked": [1, 3, 5, 9, 10, 11, 7, 12, 2, 13, 4, 14],
             "rerank_score_gate.ranked": [1, 3, 5],
             "top_k_selection.selected": [1, 3, 5],
+            "opening_chunk.selected": [1, 3, 5],
         },
         [1, 3, 5],
     ),
@@ -468,6 +479,7 @@ EXPECTED = {
             "rerank.ranked": [1, 3, 5, 9, 10, 11, 7, 12, 2, 13, 4, 14],
             "rerank_score_gate.ranked": [1, 3, 5],
             "top_k_selection.selected": [1, 3, 5],
+            "opening_chunk.selected": [1, 3, 5],
         },
         [1, 3, 5],
     ),
@@ -480,6 +492,7 @@ EXPECTED = {
             "rerank.ranked": [1, 3, 5, 7, 9, 2, 10, 4, 11],
             "rerank_score_gate.ranked": [1, 3, 5],
             "top_k_selection.selected": [1, 3, 5],
+            "opening_chunk.selected": [1, 3, 5],
         },
         [1, 3, 5],
     ),
@@ -504,6 +517,7 @@ EXPECTED = {
             "rerank_score_gate.ranked": [1, 3, 5],
             "listwise_rerank.ranked": [5, 3, 1],
             "top_k_selection.selected": [5, 3, 1],
+            "opening_chunk.selected": [5, 3, 1],
         },
         [5, 3, 1],
     ),
@@ -516,6 +530,7 @@ EXPECTED = {
             "rerank.ranked": [3, 4],
             "rerank_score_gate.ranked": [3],
             "top_k_selection.selected": [3],
+            "opening_chunk.selected": [3],
         },
         [3],
     ),
@@ -528,6 +543,7 @@ EXPECTED = {
             "rerank.ranked": [5, 7, 6, 8],
             "rerank_score_gate.ranked": [5],
             "top_k_selection.selected": [5],
+            "opening_chunk.selected": [5],
         },
         [5],
     ),
@@ -540,6 +556,7 @@ EXPECTED = {
             "rerank.ranked": [3, 1, 5, 7, 2, 4],
             "rerank_score_gate.ranked": [3, 1, 5],
             "top_k_selection.selected": [3, 1, 5],
+            "opening_chunk.selected": [3, 1, 5],
         },
         [3, 1, 5],
     ),
@@ -552,6 +569,7 @@ EXPECTED = {
             "rerank.ranked": [1, 3, 5, 7, 2, 4],
             "rerank_score_gate.ranked": [1, 3, 5],
             "top_k_selection.selected": [1, 3],
+            "opening_chunk.selected": [1, 3],
         },
         [1, 3],
     ),
