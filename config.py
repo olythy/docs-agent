@@ -231,6 +231,15 @@ class Settings:
                               one hung call. A timed-out request is retried
                               like any other transient failure (3 tries), and
                               raises if all of them time out.
+        META_EXTRACTION_TEMPERATURE
+                              Sampling temperature of the structured-metadata
+                              extraction call (``scripts/meta_cli.py
+                              extract-meta``; default 0.0). Extraction is
+                              classification, and at the provider's default
+                              temperature the same document got different
+                              labels on different runs (12 of 82 documents
+                              changed between two runs, only 3 of them
+                              because the key description had changed).
         LLM_THINKING_BUDGET   Gemini's thinking-token budget for
                               ``LLM_DRIVER`` ``gemini``/``vertex`` (default:
                               0, i.e. thinking disabled). Confirmed live on a
@@ -479,6 +488,9 @@ class Settings:
         os.getenv("LLM_REQUEST_DELAY_SECONDS", "0.0")
     )
     LLM_THINKING_BUDGET: int = int(os.getenv("LLM_THINKING_BUDGET", "0"))
+    META_EXTRACTION_TEMPERATURE: float = float(
+        os.getenv("META_EXTRACTION_TEMPERATURE", "0.0")
+    )
     API_REQUEST_TIMEOUT_SECONDS: float = float(
         os.getenv("API_REQUEST_TIMEOUT_SECONDS", "120")
     )

@@ -86,6 +86,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from config import settings
 from document_store import DocumentStore
 from drivers.llm import get_answer_driver
 from drivers.reranker import get_reranker_driver
@@ -261,7 +262,9 @@ def cmd_extract_meta(args: list[str]) -> int:
         selector=EvidenceSelector(get_reranker_driver()),
         sources=[
             ChunkMetadataSource(_DETERMINISTIC_FIELDS),
-            LLMMetaSource(get_answer_driver()),
+            LLMMetaSource(
+                get_answer_driver(), temperature=settings.META_EXTRACTION_TEMPERATURE
+            ),
         ],
         on_progress=progress,
         workers=options.workers,

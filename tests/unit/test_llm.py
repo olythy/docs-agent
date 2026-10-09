@@ -162,6 +162,20 @@ def test_run_tool_calling_turn_returns_direct_reply_with_no_tool_calls():
     assert "tools" not in kwargs
 
 
+def test_run_tool_calling_turn_passes_a_temperature_only_when_one_is_given():
+    client = MagicMock()
+    client.chat.completions.create.return_value = _fake_response(
+        _fake_message(content="hi", tool_calls=None)
+    )
+    driver = _FakeAnswerDriver(model="some-model", client=client)
+
+    driver.run_tool_calling_turn([{"role": "user", "content": "x"}], temperature=0.0)
+    assert client.chat.completions.create.call_args.kwargs["temperature"] == 0.0
+
+    driver.run_tool_calling_turn([{"role": "user", "content": "x"}])
+    assert "temperature" not in client.chat.completions.create.call_args.kwargs
+
+
 def test_run_tool_calling_turn_passes_tools_and_returns_tool_call_requests():
     tool_call = _fake_function_tool_call("call_1", "query_knowledge_base", '{"q": 1}')
     client = MagicMock()
@@ -273,6 +287,27 @@ def test_gemini_driver_disables_thinking_by_default(monkeypatch, settings_overri
 
     call = fake_client.models.generate_content.call_args
     assert call.kwargs["config"].thinking_config.thinking_budget == 0
+
+
+def test_gemini_tool_calling_turn_passes_a_temperature_only_when_one_is_given(
+    monkeypatch, settings_override
+):
+    """Zero for a classification, the provider's default (None) otherwise."""
+    monkeypatch.setattr(
+        llm_module, "settings", settings_override(LLM_REQUEST_DELAY_SECONDS=0.0)
+    )
+    fake_client = _fake_gemini_client(text="ok")
+    monkeypatch.setattr("google.genai.Client", lambda api_key, **kwargs: fake_client)
+    driver = GeminiAnswerDriver(model="gemini-2.5-flash")
+    messages = [{"role": "user", "content": "x"}]
+
+    driver.run_tool_calling_turn(messages, temperature=0.0)
+    given = fake_client.models.generate_content.call_args.kwargs["config"]
+    driver.run_tool_calling_turn(messages)
+    omitted = fake_client.models.generate_content.call_args.kwargs["config"]
+
+    assert given.temperature == 0.0  # 0.0, which is not "unset"
+    assert omitted.temperature is None
 
 
 def test_gemini_driver_answer_returns_empty_string_when_text_is_none(

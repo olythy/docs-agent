@@ -149,7 +149,10 @@ class AnswerDriver(ABC):
 
     @abstractmethod
     def run_tool_calling_turn(
-        self, messages: list[dict], tools: list[dict] | None = None
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        temperature: float | None = None,
     ) -> AgentTurnResult:
         """Send one chat-completion request, optionally offering tool schemas.
 
@@ -157,6 +160,10 @@ class AnswerDriver(ABC):
             messages: Chat history so far, OpenAI ``role``/``content`` dict shape.
             tools: OpenAI-style ``tools=[...]`` function schemas, or
                 ``None``/empty to omit tool-calling entirely for this call.
+            temperature: Sampling temperature for this call, or ``None`` for the
+                provider's own default. A classification or extraction task wants
+                ``0``: at the default the same document gets different labels on
+                different runs.
 
         Returns:
             An :class:`AgentTurnResult` with the reply and/or requested tool calls.
@@ -228,7 +235,10 @@ class _OpenAICompatibleAnswerDriver(AnswerDriver):
         """Lazily create and cache the provider-specific OpenAI-compatible client."""
 
     def run_tool_calling_turn(
-        self, messages: list[dict], tools: list[dict] | None = None
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        temperature: float | None = None,
     ) -> AgentTurnResult:
         """Send one chat-completion request, optionally offering tool schemas.
 
@@ -248,6 +258,8 @@ class _OpenAICompatibleAnswerDriver(AnswerDriver):
         }
         if tools:
             create_kwargs["tools"] = cast("list[ChatCompletionToolParam]", tools)
+        if temperature is not None:
+            create_kwargs["temperature"] = temperature
 
         response = client.chat.completions.create(**create_kwargs)
         message = response.choices[0].message
@@ -709,7 +721,10 @@ class GeminiAnswerDriver(AnswerDriver):
             raise
 
     def run_tool_calling_turn(
-        self, messages: list[dict], tools: list[dict] | None = None
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        temperature: float | None = None,
     ) -> AgentTurnResult:
         """Send one ``generate_content`` request, optionally offering tool schemas.
 
@@ -725,8 +740,12 @@ class GeminiAnswerDriver(AnswerDriver):
         system_instruction, contents = _messages_to_gemini_contents(messages)
         gemini_tools = _tools_to_gemini(tools) if tools else None
 
+        sampling = {} if temperature is None else {"temperature": temperature}
         response = self._generate(
-            contents, tools=gemini_tools, system_instruction=system_instruction
+            contents,
+            tools=gemini_tools,
+            system_instruction=system_instruction,
+            **sampling,
         )
 
         tool_calls = []

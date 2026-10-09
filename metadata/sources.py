@@ -148,13 +148,18 @@ class LLMMetaSource(MetaSource):
 
     Args:
         llm: The answer driver used for the call.
+        temperature: Sampling temperature of the call, or ``None`` for the
+            provider's default. Extraction is classification, so a caller wants
+            ``0``; at the default the same document gets different labels on
+            different runs (12 of 82 documents changed between two runs).
     """
 
     kind = MetaSourceKind.LLM
     needs_verification = True
 
-    def __init__(self, llm: AnswerDriver) -> None:
+    def __init__(self, llm: AnswerDriver, temperature: float | None = None) -> None:
         self._llm = llm
+        self._temperature = temperature
 
     def supports(self, key: MetaKey) -> bool:
         return True
@@ -162,12 +167,15 @@ class LLMMetaSource(MetaSource):
     def extract(
         self, chunks: list[RetrievedChunk], keys: list[MetaKey]
     ) -> SourceResult:
-        reply = (
-            self._llm.run_tool_calling_turn(
-                [{"role": "user", "content": self._prompt(chunks, keys)}]
-            ).content
-            or ""
-        )
+        messages = [{"role": "user", "content": self._prompt(chunks, keys)}]
+        # The argument is only passed when set, so a driver without it keeps working.
+        if self._temperature is None:
+            turn = self._llm.run_tool_calling_turn(messages)
+        else:
+            turn = self._llm.run_tool_calling_turn(
+                messages, temperature=self._temperature
+            )
+        reply = turn.content or ""
         try:
             data = extract_json(reply, reject_duplicate_keys=True)
         except (ValueError, json.JSONDecodeError):

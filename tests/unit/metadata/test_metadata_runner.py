@@ -359,6 +359,17 @@ def test_the_extractor_reads_the_documents_own_text_not_the_embedded_summary():
 # ------------------------------------------------------------------ sources / conversion / selector
 
 
+def test_the_llm_source_asks_at_the_configured_temperature_and_only_then():
+    llm = MagicMock()
+    llm.run_tool_calling_turn.return_value.content = '{"values": []}'
+
+    LLMMetaSource(llm, temperature=0.0).extract([_chunk(0, "x")], [_key("court")])
+    assert llm.run_tool_calling_turn.call_args.kwargs == {"temperature": 0.0}
+
+    LLMMetaSource(llm).extract([_chunk(0, "x")], [_key("court")])
+    assert llm.run_tool_calling_turn.call_args.kwargs == {}
+
+
 def test_the_llm_source_parses_values_drops_unknown_keys_and_locates_the_quote():
     llm = MagicMock()
     llm.run_tool_calling_turn.return_value.content = (
