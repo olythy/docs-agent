@@ -23,8 +23,8 @@
     },
     {
       "golden_id": "q0010",
-      "expected": "survey",
-      "note": "practice over a period across many cases of a topic: nothing is named"
+      "expected": "exact",
+      "note": "a survey whose topic and outcome are both covered by keys (case_subject, aggregate_outcome): a count grouped by the outcome"
     },
     {
       "question": "Mi a különbség a 4.P.20.409/2023/4. és a 27.P.20.339/2021/37. számú ügy között?",

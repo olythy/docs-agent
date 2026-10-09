@@ -48,6 +48,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── clock.py             # Clock / SystemClock (time-zone aware) / FixedClock: the injected "today"
 │   ├── date_ranges.py       # DateRangeResolver: "last October", "next week" -> a concrete range, deterministically
 │   ├── plan.py              # QueryPlan + parse_plan: the strict shape of an LLM-produced plan
+│   ├── survey_resolver.py   # LLMSurveyResolver: a survey the keys cover (a topic value + an outcome key) becomes an exact, grouped count; every answer of the model is checked by code
 │   ├── compiler.py          # PlanCompiler: plan + catalog -> parameterised SQL (no value ever in the SQL text)
 │   ├── executor.py          # PlanExecutor: compile, run read-only, return counts with "+K unknown"
 │   ├── identifiers.py       # normalize_identifier / identifier_matches: the one rule for comparing identifiers (the SQL repeats it)

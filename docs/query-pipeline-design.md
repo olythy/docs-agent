@@ -138,8 +138,10 @@ Dependencies point one way: the entry modules use `decision`, `retrieval` and
 - `PlanningDecider`: planning failure → `Refuse(COULD_NOT_INTERPRET)`; `unsupported` →
   `Refuse(NOT_SUPPORTED)` with the planner's reason; `survey` (the practice, the kinds of
   cases or the outcomes across many documents the question does not name, picked by topic
-  or content) → `Refuse(SURVEY_NOT_YET)` until a profile that reads that many documents
-  exists, except that a survey which names an identifier is read like a lookup; an exact plan covering the whole
+  or content) → an exact grouped count when the survey resolver finds that the catalog's
+  keys cover the topic and what is asked about it (a closed-vocabulary key whose stored values
+  name the topic, and a key to group by), otherwise `Refuse(SURVEY_NOT_YET)` until a profile that
+  reads that many documents exists; a survey which names an identifier is read like a lookup; an exact plan covering the whole
   question → `AnswerExactly`; an exact plan with a residual (a condition no key covers)
   is read like a lookup (`as_routed`); a lookup → the scope, and the profile.
 - **Scope rules** (`ScopeResolver`): several identifiers give the union of their
@@ -289,7 +291,10 @@ reranker model, and refuses to call two snapshots comparable when they differ.
 
 ## 7. Open
 
-- **Questions about many documents** ("what kinds of cases did X and Y decide between
+- **Questions about many documents** (the part keys cannot cover). Since 2026-10-09 a survey whose
+  topic and outcome are covered by keys is answered by an exact count (`metadata/survey_resolver.py`,
+  `docs/decisions.md`); what stays open is the reading of the rest, below.
+- **Questions about many documents (original note)** ("what kinds of cases did X and Y decide between
   2020 and 2022"). Four chunks from about three documents cannot answer them, and the
   candidate list holds only about a third of the golden documents (numbers in
   `docs/decisions.md`, 2026-10-08). **Recognised since 2026-10-08, not answered:** the
