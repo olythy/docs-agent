@@ -33,6 +33,7 @@ from metadata.planner import (
     collect_known_values,
     load_catalogs,
 )
+from metadata.scope_check import PlanChecker
 from metadata.survey_resolver import SurveyResolver
 from query.facts import QueryFacts
 from query.outcome import Declined, DeclineReason
@@ -146,7 +147,9 @@ class PlanningDecider:
       ``Refuse(SURVEY_NOT_YET)``, until a profile that reads that many documents exists; a
       survey that names an identifier is read like a lookup;
     * an exact operation covering the whole question -> ``AnswerExactly``; one with a
-      residual (a condition no key covers) is read like a lookup;
+      residual (a condition no key covers) is read like a lookup; before that, the plan
+      checker may find that a closed-value filter is wider than the question and turn the
+      plan into one with a residual (a plan the survey resolver built is not checked again);
     * a lookup -> the scope (the named documents, or the filters' documents) and the profile.
 
     Args:
@@ -156,6 +159,8 @@ class PlanningDecider:
         profiles: Chooses the profile of a question to read.
         surveys: Turns a survey the keys cover into an exact count (``None``: every
             survey is refused, as before it existed).
+        checker: Finds exact plans whose topic filter is wider than the question
+            (``None``: no plan is checked).
 
     Raises:
         RuntimeError: From :meth:`decide` if no document type is approved yet.
@@ -168,12 +173,14 @@ class PlanningDecider:
         scopes: ScopeResolver,
         profiles: ProfileSelector,
         surveys: SurveyResolver | None = None,
+        checker: PlanChecker | None = None,
     ) -> None:
         self._planner = planner
         self._catalog = catalog
         self._scopes = scopes
         self._profiles = profiles
         self._surveys = surveys
+        self._checker = checker
 
     def decide(self, facts: QueryFacts) -> Decision:
         """Decide how ``facts.question`` is answered."""
@@ -202,6 +209,7 @@ class PlanningDecider:
                     DeclineReason.NOT_SUPPORTED, stage="planning", detail=plan.reason
                 ),
             )
+        resolved_survey = False
         if plan.operation is Operation.SURVEY:
             if facts.identifiers:
                 # A question that names a document is read, whatever the planner thought:
@@ -230,6 +238,9 @@ class PlanningDecider:
                     resolved.group_by,
                 )
                 plan = resolved
+                resolved_survey = True
+        if self._checker is not None and not resolved_survey:
+            plan = self._checker.check(facts.question, plan, catalogs)
         plan = as_routed(plan)
         if plan.operation is not Operation.LOOKUP:
             return AnswerExactly(facts, plan)

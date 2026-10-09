@@ -5,6 +5,8 @@ SQL of an exact answer and wording an answer or a refusal are other classes with
 tests, so nothing below executes a count or compares a sentence.
 """
 
+from dataclasses import replace
+
 import pytest
 from test_scope import (  # type: ignore[import-not-found]
     DOCS,
@@ -80,6 +82,18 @@ class FakeSurveys:
         return self.resolved
 
 
+class FakeChecker:
+    """A plan checker that makes the plan a read with a fixed residual (or keeps it)."""
+
+    def __init__(self, residual=None):
+        self.residual = residual
+        self.calls: list[tuple[str, QueryPlan]] = []
+
+    def check(self, question, plan, catalogs):
+        self.calls.append((question, plan))
+        return replace(plan, residual=self.residual) if self.residual else plan
+
+
 def decider(
     plan=None,
     fail=None,
@@ -87,12 +101,18 @@ def decider(
     profile="best_chunks",
     approved=True,
     surveys=None,
+    checker=None,
 ):
     planner = FakePlanner(plan, fail)
     plans = plans or FakePlans()
     scopes = ScopeResolver(plans, IdentifierResolver(FakeSource(DOCS)))
     made = PlanningDecider(
-        planner, FakeCatalog(approved), scopes, ProfileSelector(profile), surveys
+        planner,
+        FakeCatalog(approved),
+        scopes,
+        ProfileSelector(profile),
+        surveys,
+        checker,
     )
     return made, planner, plans
 
@@ -125,6 +145,60 @@ class TestExactAnswers:
         assert decision.plan is not None
         assert decision.plan.operation is Operation.LOOKUP  # the plan as it is treated
         assert decision.plan.filters == FILTER  # the filters still narrow
+
+
+class TestPlanChecking:
+    def test_a_plan_the_checker_finds_too_wide_is_read_not_counted(self):
+        plan = QueryPlan(DT, Operation.COUNT, FILTER)
+        checker = FakeChecker(residual="one kind of company decision")
+        made, _, _ = decider(plan, checker=checker)
+
+        decision = made.decide(facts("how many"))
+
+        assert isinstance(decision, ReadDocuments)
+        assert decision.plan is not None
+        assert decision.plan.operation is Operation.LOOKUP
+        assert decision.plan.filters == FILTER  # the filters still narrow the documents
+        assert checker.calls[0][0] == "how many"
+
+    def test_a_plan_the_checker_keeps_is_answered_exactly(self):
+        plan = QueryPlan(DT, Operation.COUNT, FILTER)
+        made, _, _ = decider(plan, checker=FakeChecker())
+
+        assert isinstance(made.decide(facts()), AnswerExactly)
+
+    def test_without_a_checker_nothing_changes(self):
+        made, _, _ = decider(QueryPlan(DT, Operation.COUNT, FILTER))
+
+        assert isinstance(made.decide(facts()), AnswerExactly)
+
+    def test_a_lookup_goes_through_the_checker_untouched(self):
+        """The checker decides about exact plans itself; the decider hands every plan over."""
+        checker = FakeChecker()
+        made, _, _ = decider(QueryPlan(DT, Operation.LOOKUP, FILTER), checker=checker)
+
+        assert isinstance(made.decide(facts()), ReadDocuments)
+
+    def test_a_plan_the_survey_resolver_built_is_not_checked_again(self):
+        resolved = QueryPlan(DT, Operation.COUNT, FILTER, group_by="outcome")
+        checker = FakeChecker(residual="would turn the resolved plan into a read")
+        made, _, _ = decider(
+            QueryPlan(DT, Operation.SURVEY, FILTER),
+            surveys=FakeSurveys(resolved),
+            checker=checker,
+        )
+
+        decision = made.decide(facts())
+
+        assert isinstance(decision, AnswerExactly)
+        assert checker.calls == []
+
+    def test_a_refused_survey_is_not_checked(self):
+        checker = FakeChecker()
+        made, _, _ = decider(QueryPlan(DT, Operation.SURVEY, FILTER), checker=checker)
+
+        assert isinstance(made.decide(facts()), Refuse)
+        assert checker.calls == []
 
 
 class TestRefusals:
