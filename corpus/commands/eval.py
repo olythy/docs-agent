@@ -546,7 +546,7 @@ def _citation_support(result) -> dict:
     from corpus.citation_support import check_citation_support, llm_judge
 
     chunk_text = {c.id: c.content for c in result.explain.chunks}
-    return check_citation_support(
+    record = check_citation_support(
         result.text,
         result.citations,
         chunk_text,
@@ -554,6 +554,9 @@ def _citation_support(result) -> dict:
         llm_judge,
         refused=result.explain.model_refused or result.explain.declined is not None,
     ).to_dict()
+    # labels the model cited without a quote that is in the chunk: taken out of the answer
+    record["dropped"] = list(result.unverified_labels)
+    return record
 
 
 def evaluate_one(
@@ -730,7 +733,8 @@ def print_verbose_cases(results: list[dict]) -> None:
             print(
                 f"  citations     : {support['supported']} supported, "
                 f"{support['unsupported']} unsupported, {support['unjudged']} unjudged, "
-                f"{len(support['unknown_labels'])} unknown label(s)"
+                f"{len(support['unknown_labels'])} unknown label(s), "
+                f"{len(support.get('dropped', []))} dropped (no verifiable quote)"
                 f"{', UNCITED' if support['uncited'] else ''}"
             )
             for claim in support["unsupported_claims"]:

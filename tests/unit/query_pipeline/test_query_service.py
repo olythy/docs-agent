@@ -57,8 +57,18 @@ class FakeExact:
 
 
 class FakeGrounded:
-    def __init__(self, text="GROUNDED", refused=False, citations=(), unknown=()):
-        self.reply = GroundedAnswer(text, refused, citations, unknown)
+    def __init__(
+        self,
+        text="GROUNDED",
+        refused=False,
+        citations=(),
+        unknown=(),
+        unverified=(),
+        visible=None,
+    ):
+        self.reply = GroundedAnswer(
+            text, refused, citations, unknown, unverified, visible
+        )
         self.calls = []
 
     def answer(self, question, chunks):
@@ -152,6 +162,23 @@ class TestRead:
         assert answer.citations == (citation,)
         assert answer.unknown_labels == (9,)
         assert answer.text == "Dismissed [1].\n\nSources:\n[1] a.pdf, section 3"
+
+    def test_the_visible_text_is_shown_not_the_raw_reply_and_the_dropped_labels_are_carried(
+        self,
+    ):
+        qs, *_ = service(
+            read(),
+            grounded=FakeGrounded(
+                'Claim [1][2].\n\nQUOTES:\n[1] "x"',
+                unverified=(2,),
+                visible="Claim [1].",
+            ),
+        )
+
+        answer = qs.answer("q", store=STORE)
+
+        assert answer.text == "Claim [1]."
+        assert answer.unverified_labels == (2,)
 
     def test_the_sources_come_before_the_scope_note(self):
         citation = Citation(1, 42, "a.pdf", 3)

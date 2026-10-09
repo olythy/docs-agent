@@ -322,7 +322,11 @@ _SYSTEM_PROMPT_HEAD = (
     "actually contain that fact: do not list excerpts that merely concern "
     "the same case, and do not put every label after every sentence. Use "
     "only the labels shown in the excerpts: never write a file name or a "
-    "page number. If the excerpts only partially answer "
+    "page number. After the answer, on a new line, write QUOTES: and then "
+    'one line for each label you cited, in this form: [2] "a passage of at '
+    "most 200 characters copied word for word from excerpt 2 that states the "
+    'fact". Cite a label only if you can quote such a passage from that '
+    "excerpt; do not write QUOTES: when you refuse. If the excerpts only partially answer "
     "the question, say exactly what they do and don't cover, rather "
     "than completing the picture from outside knowledge. "
 )

@@ -27,13 +27,14 @@ Key exports:
 import logging
 import re
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, replace
 from typing import Protocol
 
 from drivers.llm import REFUSAL_SENTENCE, AnswerDriver, _build_prompt, labelled_chunks
 from metadata.executor import PlanResult
 from metadata.plan import Operation, QueryPlan
+from metadata.verification import EvidenceVerifier
 from models import Citation, RetrievedChunk
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,52 @@ class AnswerPolicy:
 _LABELS = re.compile(r"\[\s*(\d{1,2}(?:\s*[,;]\s*\d{1,2})*)\s*\]")
 
 
+#: The line before the quotes of an answer, and one quote line: ``[2] "a passage"``.
+_QUOTES_MARK = re.compile(r"(?:^|\n)[ \t]*QUOTES:[ \t]*\n?")
+_QUOTE_LINE = re.compile(r'^\s*\[(\d{1,2})\]\s*["“„»«]?(.*?)["”»«]?\s*$')
+
+
+def split_quotes(text: str) -> tuple[str, dict[int, str]]:
+    """The answer proper and the passages the model quoted for the labels it cited.
+
+    Args:
+        text: The model's reply: the answer, then optionally a ``QUOTES:`` block with one
+            ``[n] "passage"`` line per cited label.
+
+    Returns:
+        ``(answer without the block, {label: passage})``. A reply without the block has no
+        quotes.
+    """
+    marks = list(_QUOTES_MARK.finditer(text))
+    if not marks:
+        return text.strip(), {}
+    mark = marks[-1]
+    quotes: dict[int, str] = {}
+    for line in text[mark.end() :].splitlines():
+        found = _QUOTE_LINE.match(line)
+        if found and found.group(2).strip():
+            quotes.setdefault(int(found.group(1)), found.group(2).strip())
+    return text[: mark.start()].rstrip(), quotes
+
+
+def strip_labels(text: str, labels: Collection[int]) -> str:
+    """``text`` without the given labels.
+
+    A bracket that loses all its labels goes, with the space before it; one that keeps some
+    is rewritten without the others (``[1, 3]`` minus 1 is ``[3]``).
+    """
+    if not labels:
+        return text
+
+    def rewrite(found: re.Match[str]) -> str:
+        numbers = [
+            n for n in re.split(r"\s*[,;]\s*", found.group(2)) if int(n) not in labels
+        ]
+        return f"{found.group(1)}[{', '.join(numbers)}]" if numbers else ""
+
+    return re.sub(r"([ \t]*)\[\s*(\d{1,2}(?:\s*[,;]\s*\d{1,2})*)\s*\]", rewrite, text)
+
+
 def cited_labels(text: str) -> list[int]:
     """The excerpt labels an answer cites, each once, in the order first used."""
     found: list[int] = []
@@ -76,16 +123,27 @@ class GroundedAnswer:
     Attributes:
         text: The reply, unchanged.
         refused: The reply is the model's own refusal sentence.
-        citations: The chunks the reply cites by label, resolved by the system (none for a
-            refusal).
+        citations: The chunks the reply cites by label whose quoted passage is really in the
+            chunk, resolved by the system (none for a refusal).
         unknown_labels: Labels the reply cites that no excerpt carried: a citation to
             nothing, counted as a wrong citation.
+        unverified_labels: Labels that named an excerpt but came with no quote, or a quote
+            that is not in it: dropped from the visible answer, not claimed as citations.
+        visible_text: The answer as shown: without the quotes block and without the labels
+            that were not verified (``None``: the reply as it is).
     """
 
     text: str
     refused: bool
     citations: tuple[Citation, ...] = ()
     unknown_labels: tuple[int, ...] = ()
+    unverified_labels: tuple[int, ...] = ()
+    visible_text: str | None = None
+
+    @property
+    def visible(self) -> str:
+        """What the person is shown."""
+        return self.text if self.visible_text is None else self.visible_text
 
 
 class AnswerObserver(Protocol):
@@ -153,33 +211,58 @@ class GroundedAnswerer:
     def _with_citations(
         answer: GroundedAnswer, chunks: tuple[RetrievedChunk, ...]
     ) -> GroundedAnswer:
-        """``answer`` with each label it cites resolved to the chunk shown under it."""
+        """``answer`` with each label it cites resolved and its quote checked in the chunk.
+
+        A label counts as a citation only if the model quoted a passage for it and the
+        passage is in the chunk shown under that label (the same check as the metadata
+        layer's evidence quotes). Anything else is taken out of the visible answer.
+        """
+        body, quotes = split_quotes(answer.text)
         shown = labelled_chunks(list(chunks))
         citations: list[Citation] = []
         unknown: list[int] = []
-        for label in cited_labels(answer.text):
-            if 1 <= label <= len(shown):
-                chunk = shown[label - 1]
+        unverified: list[int] = []
+        for label in cited_labels(body):
+            if not 1 <= label <= len(shown):
+                unknown.append(label)
+                continue
+            chunk = shown[label - 1]
+            quote = quotes.get(label)
+            if quote and EvidenceVerifier(chunk.content).contains(quote):
                 citations.append(
                     Citation(
                         label,
                         chunk.id,
                         chunk.metadata.source_file,
                         chunk.metadata.chunk_index,
+                        quote,
                     )
                 )
             else:
-                unknown.append(label)
+                unverified.append(label)
         return replace(
-            answer, citations=tuple(citations), unknown_labels=tuple(unknown)
+            answer,
+            citations=tuple(citations),
+            unknown_labels=tuple(unknown),
+            unverified_labels=tuple(unverified),
+            visible_text=strip_labels(body, {*unknown, *unverified}),
         )
+
+
+def _short(quote: str, limit: int = 160) -> str:
+    """A quote cut to ``limit`` characters (with an ellipsis) for the sources block."""
+    return quote if len(quote) <= limit else quote[: limit - 1].rstrip() + "…"
 
 
 def render_sources(citations: Sequence[Citation]) -> str:
     """The "Sources:" block listing the chunks an answer cites (empty when it cites none)."""
     if not citations:
         return ""
-    lines = [f"[{c.label}] {c.source_file}, section {c.chunk_index}" for c in citations]
+    lines = [
+        f"[{c.label}] {c.source_file}, section {c.chunk_index}"
+        + (f': "{_short(c.quote)}"' if c.quote else "")
+        for c in citations
+    ]
     return "Sources:\n" + "\n".join(lines)
 
 

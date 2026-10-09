@@ -184,12 +184,15 @@ class Citation:
         source_file: Basename of the source document.
         chunk_index: 0-based position of the chunk in its document: the stable name of the
             chunk, as long as the document and the chunker settings do not change.
+        quote: The passage of the chunk the model quoted for this label, verified by code
+            to be in the chunk (``None`` if the citation was made without one).
     """
 
     label: int
     chunk_id: int
     source_file: str
     chunk_index: int
+    quote: str | None = None
 
 
 @dataclass(frozen=True)

@@ -95,12 +95,15 @@ class Answer:
         explain: How it came about.
         citations: The chunks the answer cites, resolved by the system (read answers).
         unknown_labels: Labels the answer cites that no excerpt carried (wrong citations).
+        unverified_labels: Labels the model cited without a quote that is in the excerpt:
+            taken out of the text, not counted as citations.
     """
 
     text: str
     explain: Explain
     citations: tuple[Citation, ...] = ()
     unknown_labels: tuple[int, ...] = ()
+    unverified_labels: tuple[int, ...] = ()
 
 
 class QueryService:
@@ -208,6 +211,7 @@ class QueryService:
         outcome = result.outcome
         citations: tuple[Citation, ...] = ()
         unknown: tuple[int, ...] = ()
+        unverified: tuple[int, ...] = ()
         if isinstance(outcome, Declined):
             text, explain = (
                 self._refusals.render(outcome),
@@ -216,15 +220,17 @@ class QueryService:
         else:
             assert isinstance(outcome, Answerable)
             grounded = self._grounded.answer(question, outcome.chunks)
-            text = grounded.text
+            text = grounded.visible
             sources = render_sources(grounded.citations)
             if sources:
                 text = f"{text}\n\n{sources}"
             explain = Explain(decision, result, model_refused=grounded.refused)
             citations, unknown = grounded.citations, grounded.unknown_labels
+            unverified = grounded.unverified_labels
         return Answer(
             f"{text}\n\n{note}" if note else text,
             explain,
             citations,
             unknown,
+            unverified,
         )
