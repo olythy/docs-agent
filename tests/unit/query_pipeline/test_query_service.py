@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from metadata.plan import Filter, FilterOp, Operation, QueryPlan
-from models import ChunkMetadata, DocumentSelection, RetrievedChunk
+from models import ChunkMetadata, Citation, DocumentSelection, RetrievedChunk
 from query.answering import GroundedAnswer
 from query.decision import AnswerExactly, ReadDocuments, Refuse, Scope
 from query.facts import QueryFacts, QueryFactsReader
@@ -57,8 +57,9 @@ class FakeExact:
 
 
 class FakeGrounded:
-    def __init__(self, text="GROUNDED", refused=False):
-        self.reply, self.calls = GroundedAnswer(text, refused), []
+    def __init__(self, text="GROUNDED", refused=False, citations=(), unknown=()):
+        self.reply = GroundedAnswer(text, refused, citations, unknown)
+        self.calls = []
 
     def answer(self, question, chunks):
         self.calls.append((question, chunks))
@@ -136,6 +137,45 @@ class TestRead:
         assert grounded.calls == [("q", (CHUNK,))]
         assert answer.explain.retrieval is not None
         assert answer.explain.declined is None and not answer.explain.model_refused
+
+    def test_the_cited_chunks_are_on_the_answer_and_listed_after_the_text(self):
+        citation = Citation(1, 42, "a.pdf", 3)
+        qs, *_ = service(
+            read(),
+            grounded=FakeGrounded(
+                "Dismissed [1].", citations=(citation,), unknown=(9,)
+            ),
+        )
+
+        answer = qs.answer("q", store=STORE)
+
+        assert answer.citations == (citation,)
+        assert answer.unknown_labels == (9,)
+        assert answer.text == "Dismissed [1].\n\nSources:\n[1] a.pdf, section 3"
+
+    def test_the_sources_come_before_the_scope_note(self):
+        citation = Citation(1, 42, "a.pdf", 3)
+        qs, *_ = service(
+            read(scope=Scope(note="NOTE")),
+            grounded=FakeGrounded("T [1].", citations=(citation,)),
+        )
+
+        assert (
+            qs.answer("q", store=STORE).text
+            == "T [1].\n\nSources:\n[1] a.pdf, section 3\n\nNOTE"
+        )
+
+    def test_an_answer_that_cites_nothing_has_no_sources_block(self):
+        qs, *_ = service(read())
+
+        answer = qs.answer("q", store=STORE)
+
+        assert answer.citations == () and "Sources:" not in answer.text
+
+    def test_an_exact_or_refused_answer_carries_no_citations(self):
+        qs, *_ = service(lambda f: AnswerExactly(f, PLAN))
+
+        assert qs.answer("q", store=STORE).citations == ()
 
     def test_the_scope_note_is_appended_to_the_answer(self):
         qs, *_ = service(read(scope=Scope(note="2 documents were left out")))

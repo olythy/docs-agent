@@ -4,8 +4,8 @@ import pytest
 
 import drivers.llm as llm_module
 from drivers.llm import REFUSAL_SENTENCE, AnswerDriver, _build_prompt
-from models import ChunkMetadata, RetrievedChunk
-from query.answering import AnswerPolicy, GroundedAnswerer
+from models import ChunkMetadata, Citation, RetrievedChunk
+from query.answering import AnswerPolicy, GroundedAnswerer, cited_labels, render_sources
 
 
 def chunk(text, source="a.pdf", page=1, date="2024-01-02"):
@@ -167,3 +167,86 @@ class TestObservers:
 
     def test_without_observers_nothing_is_needed(self):
         assert GroundedAnswerer(FakeDriver(), POLICIES[0]).answer("Q?", CHUNKS).text
+
+
+# ------------------------------------------------------------------ citations
+
+
+def numbered(*ids_and_files):
+    """Chunks with distinct ids, files and chunk indexes, best first."""
+    return tuple(
+        RetrievedChunk(
+            id=i,
+            content=f"text {i}",
+            metadata=ChunkMetadata(source_file=name, page_number=None, chunk_index=idx),
+            score=0.5,
+        )
+        for i, name, idx in ids_and_files
+    )
+
+
+# best first: id 10 is the best chunk; the prompt labels worst-to-best, so label 1 is id 30
+RANKED = numbered((10, "a.docx", 4), (20, "b.docx", 7), (30, "c.docx", 0))
+
+
+def answer_with(text, chunks=RANKED):
+    return GroundedAnswerer(
+        FakeDriver(text), AnswerPolicy(expose_document_date=False)
+    ).answer("Q?", chunks)
+
+
+def test_a_label_in_the_answer_is_resolved_to_the_chunk_shown_under_it():
+    answer = answer_with("The court dismissed the claim [3].")
+
+    # label 3 is the last one shown = the best chunk (id 10), not the third by rank
+    assert answer.citations == (Citation(3, 10, "a.docx", 4),)
+    assert answer.unknown_labels == ()
+
+
+def test_several_labels_are_resolved_each_once_in_the_order_first_cited():
+    answer = answer_with("First [2]. Then [1, 3], and again [2][3].")
+
+    assert [c.label for c in answer.citations] == [2, 1, 3]
+    assert [c.chunk_id for c in answer.citations] == [20, 30, 10]
+
+
+def test_a_label_no_excerpt_carried_is_a_wrong_citation_not_a_resolved_one():
+    answer = answer_with("It says so [2] and so [7] and [0].")
+
+    assert [c.label for c in answer.citations] == [2]
+    assert answer.unknown_labels == (7, 0)
+
+
+def test_the_models_refusal_cites_nothing():
+    answer = answer_with(REFUSAL_SENTENCE + " [1]")
+
+    assert answer.refused and answer.citations == () and answer.unknown_labels == ()
+
+
+def test_an_answer_without_labels_has_no_citations():
+    answer = answer_with("The court dismissed the claim (a.docx, page 2).")
+
+    assert answer.citations == () and answer.unknown_labels == ()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("see [1]", [1]),
+        ("see [1, 2] and [3;4]", [1, 2, 3, 4]),
+        ("see [ 12 ]", [12]),
+        ("decided in [2023] by the court", []),  # a year is not a label
+        ("see [a] and [1a] and []", []),
+        ("see [1][2][1]", [1, 2]),
+        ("no brackets 1 2 3", []),
+    ],
+)
+def test_which_bracketed_numbers_count_as_labels(text, expected):
+    assert cited_labels(text) == expected
+
+
+def test_the_sources_block_names_the_cited_chunks_and_is_empty_without_citations():
+    assert render_sources(()) == ""
+    block = render_sources((Citation(2, 20, "b.docx", 7), Citation(1, 30, "c.docx", 0)))
+
+    assert block == "Sources:\n[2] b.docx, section 7\n[1] c.docx, section 0"

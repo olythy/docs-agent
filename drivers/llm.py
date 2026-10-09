@@ -317,8 +317,9 @@ _SYSTEM_PROMPT_HEAD = (
     "training knowledge, and do not fill in gaps with what you believe "
     "is probably true, even if you feel confident about it — every "
     "claim in your answer must be traceable to a specific excerpt "
-    "below. Always cite the source file and page number when "
-    "referencing information. If the excerpts only partially answer "
+    "below. Cite each claim with the label of the excerpt it comes from, "
+    "in square brackets, like [2] or [1][3]. Use only the labels shown "
+    "in the excerpts: never write a file name or a page number. If the excerpts only partially answer "
     "the question, say exactly what they do and don't cover, rather "
     "than completing the picture from outside knowledge. "
 )
@@ -336,6 +337,16 @@ _REFUSAL_CLAUSE_STRICT = (
     "exactly: 'I could not find this information in the provided "
     "documents.'"
 )
+
+
+def labelled_chunks(context_chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+    """The chunks in the order the prompt labels them: label ``i`` is element ``i - 1``.
+
+    The prompt places them worst-to-best (see :func:`_build_prompt`), so the label order
+    is the reverse of the ranking. The one place that knows it, shared by the prompt and
+    by the code that turns a label in an answer back into a chunk.
+    """
+    return list(reversed(context_chunks))
 
 
 def _build_prompt(
@@ -371,25 +382,22 @@ def _build_prompt(
     # the *last* position, immediately before "Question:", so the model
     # reads it right as it's about to answer, instead of it being the
     # first thing read and then potentially drowned out by everything
-    # that follows. Citation correctness doesn't depend on the numbering
-    # matching retrieval rank -- see corpus/commands/eval.py's
-    # _resolve_cited_source_files, which verifies citations by extracting
-    # identifiers from the answer text itself, not by these [i] labels.
+    # that follows. The numbering therefore does not match retrieval rank;
+    # :func:`labelled_chunks` is the one place that knows the order, and the
+    # answer's [i] labels are resolved back to chunks with it (see
+    # ``query.answering.GroundedAnswerer``), so a citation names exactly the
+    # chunk that was shown under that label.
     context_parts = []
-    for i, chunk in enumerate(reversed(context_chunks), start=1):
+    for i, chunk in enumerate(labelled_chunks(context_chunks), start=1):
         source = chunk.metadata.source_file or "unknown"
-        page = (
-            chunk.metadata.page_number
-            if chunk.metadata.page_number is not None
-            else "?"
-        )
         date = (
             f", date: {chunk.metadata.document_date}"
             if expose_document_date and chunk.metadata.document_date
             else ""
         )
         context_parts.append(
-            f"[{i}] Source: {source}{date}, page {page}\n{chunk.content}"
+            f"[{i}] Source: {source}{date}, section {chunk.metadata.chunk_index}\n"
+            f"{chunk.content}"
         )
     context_text = "\n\n".join(context_parts)
 

@@ -18,6 +18,7 @@ from drivers.llm import (
     _build_prompt,
     _OpenAICompatibleAnswerDriver,
     get_answer_driver,
+    labelled_chunks,
 )
 from models import ChunkMetadata, RetrievedChunk
 
@@ -43,8 +44,12 @@ def test_build_prompt_includes_numbered_sources_and_question():
     system_prompt, user_message = _build_prompt("What happened?", chunks)
 
     assert "based strictly on" in system_prompt
-    assert "Source: a.pdf, page 1" in user_message
-    assert "Source: b.pdf, page 2" in user_message
+    # the excerpts are labelled worst-to-best, so the second chunk is [1]
+    assert "[1] Source: b.pdf, section 0" in user_message
+    assert "[2] Source: a.pdf, section 0" in user_message
+    assert (
+        "page" not in user_message.split("Question:")[0]
+    )  # the "page" was a section index
     assert "first chunk" in user_message
     assert "second chunk" in user_message
     assert "Question: What happened?" in user_message
@@ -77,10 +82,39 @@ def test_build_prompt_forbids_outside_knowledge_and_requires_partial_answer_hone
     assert "partially answer" in system_prompt
 
 
+def test_build_prompt_asks_for_label_citations_and_forbids_file_names_and_pages():
+    system_prompt, _ = _build_prompt("q", [])
+
+    assert "label of the excerpt" in system_prompt
+    assert "never write a file name or a page number" in system_prompt
+    assert "cite the source file and page number" not in system_prompt.lower()
+
+
+def test_labelled_chunks_is_the_order_the_prompt_numbers_them_in():
+    chunks = [_chunk("best"), _chunk("middle"), _chunk("worst")]
+
+    labelled = labelled_chunks(chunks)
+    _, user_message = _build_prompt("q", chunks)
+
+    assert [c.content for c in labelled] == ["worst", "middle", "best"]
+    # label i is element i - 1: the prompt shows the same pairs
+    for i, chunk in enumerate(labelled, start=1):
+        assert f"[{i}] Source:" in user_message
+        assert user_message.index(f"[{i}] Source:") < user_message.index(chunk.content)
+    assert labelled_chunks([]) == []
+    assert [c.content for c in chunks] == [
+        "best",
+        "middle",
+        "worst",
+    ]  # the input is not reordered
+
+
 def test_build_prompt_handles_missing_metadata_gracefully():
     chunks = [_chunk("x")]
     _, user_message = _build_prompt("q", chunks)
-    assert "Source: unknown, page ?" in user_message
+    assert (
+        "[1] Source: unknown, section 0" in user_message
+    )  # no page: there is none to give
 
 
 class _FakeAnswerDriver(_OpenAICompatibleAnswerDriver):

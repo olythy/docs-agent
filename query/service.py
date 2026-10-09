@@ -20,8 +20,8 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from metadata.plan import QueryPlan
-from models import RetrievedChunk
-from query.answering import GroundedAnswer
+from models import Citation, RetrievedChunk
+from query.answering import GroundedAnswer, render_sources
 from query.decision import (
     AnswerExactly,
     Decider,
@@ -93,10 +93,14 @@ class Answer:
     Attributes:
         text: The answer, with any caveat of the scope appended.
         explain: How it came about.
+        citations: The chunks the answer cites, resolved by the system (read answers).
+        unknown_labels: Labels the answer cites that no excerpt carried (wrong citations).
     """
 
     text: str
     explain: Explain
+    citations: tuple[Citation, ...] = ()
+    unknown_labels: tuple[int, ...] = ()
 
 
 class QueryService:
@@ -202,6 +206,8 @@ class QueryService:
         )
         note = result.scope.note
         outcome = result.outcome
+        citations: tuple[Citation, ...] = ()
+        unknown: tuple[int, ...] = ()
         if isinstance(outcome, Declined):
             text, explain = (
                 self._refusals.render(outcome),
@@ -211,5 +217,14 @@ class QueryService:
             assert isinstance(outcome, Answerable)
             grounded = self._grounded.answer(question, outcome.chunks)
             text = grounded.text
+            sources = render_sources(grounded.citations)
+            if sources:
+                text = f"{text}\n\n{sources}"
             explain = Explain(decision, result, model_refused=grounded.refused)
-        return Answer(f"{text}\n\n{note}" if note else text, explain)
+            citations, unknown = grounded.citations, grounded.unknown_labels
+        return Answer(
+            f"{text}\n\n{note}" if note else text,
+            explain,
+            citations,
+            unknown,
+        )

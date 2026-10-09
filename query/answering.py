@@ -20,19 +20,21 @@ Key exports:
     ExactAnswerer -- Executes an exact plan and words the result.
     ResultPhraser -- Phrases an exact result, and checks the figures.
     render_result -- The exact result as plain facts.
+    cited_labels  -- The excerpt labels an answer cites.
+    render_sources -- The "Sources:" block of an answer's citations.
 """
 
 import logging
 import re
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
-from drivers.llm import REFUSAL_SENTENCE, AnswerDriver, _build_prompt
+from drivers.llm import REFUSAL_SENTENCE, AnswerDriver, _build_prompt, labelled_chunks
 from metadata.executor import PlanResult
 from metadata.plan import Operation, QueryPlan
-from models import RetrievedChunk
+from models import Citation, RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,22 @@ class AnswerPolicy:
     expose_document_date: bool
 
 
+#: A bracketed list of one- or two-digit excerpt labels: ``[2]``, ``[1, 3]``. Not a year
+#: (``[2023]``) or a footnote of any length: the labels are the numbers 1..top_k.
+_LABELS = re.compile(r"\[\s*(\d{1,2}(?:\s*[,;]\s*\d{1,2})*)\s*\]")
+
+
+def cited_labels(text: str) -> list[int]:
+    """The excerpt labels an answer cites, each once, in the order first used."""
+    found: list[int] = []
+    for group in _LABELS.findall(text):
+        for number in re.split(r"\s*[,;]\s*", group):
+            label = int(number)
+            if label not in found:
+                found.append(label)
+    return found
+
+
 @dataclass(frozen=True)
 class GroundedAnswer:
     """What the model said about the chunks.
@@ -58,10 +76,16 @@ class GroundedAnswer:
     Attributes:
         text: The reply, unchanged.
         refused: The reply is the model's own refusal sentence.
+        citations: The chunks the reply cites by label, resolved by the system (none for a
+            refusal).
+        unknown_labels: Labels the reply cites that no excerpt carried: a citation to
+            nothing, counted as a wrong citation.
     """
 
     text: str
     refused: bool
+    citations: tuple[Citation, ...] = ()
+    unknown_labels: tuple[int, ...] = ()
 
 
 class AnswerObserver(Protocol):
@@ -119,9 +143,44 @@ class GroundedAnswerer:
         seconds = self._clock() - started
         refused = text.strip().strip("'\"").lower().startswith(REFUSAL_SENTENCE.lower())
         answer = GroundedAnswer(text, refused)
+        if not refused:
+            answer = self._with_citations(answer, chunks)
         for observer in self._observers:
             observer.on_answer(question, chunks, answer, seconds)
         return answer
+
+    @staticmethod
+    def _with_citations(
+        answer: GroundedAnswer, chunks: tuple[RetrievedChunk, ...]
+    ) -> GroundedAnswer:
+        """``answer`` with each label it cites resolved to the chunk shown under it."""
+        shown = labelled_chunks(list(chunks))
+        citations: list[Citation] = []
+        unknown: list[int] = []
+        for label in cited_labels(answer.text):
+            if 1 <= label <= len(shown):
+                chunk = shown[label - 1]
+                citations.append(
+                    Citation(
+                        label,
+                        chunk.id,
+                        chunk.metadata.source_file,
+                        chunk.metadata.chunk_index,
+                    )
+                )
+            else:
+                unknown.append(label)
+        return replace(
+            answer, citations=tuple(citations), unknown_labels=tuple(unknown)
+        )
+
+
+def render_sources(citations: Sequence[Citation]) -> str:
+    """The "Sources:" block listing the chunks an answer cites (empty when it cites none)."""
+    if not citations:
+        return ""
+    lines = [f"[{c.label}] {c.source_file}, section {c.chunk_index}" for c in citations]
+    return "Sources:\n" + "\n".join(lines)
 
 
 class PlanRunner(Protocol):

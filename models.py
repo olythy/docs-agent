@@ -170,6 +170,29 @@ class Chunk:
 
 
 @dataclass(frozen=True)
+class Citation:
+    """A reference from an answer to the chunk it relies on, made by the system.
+
+    The model only names the label of an excerpt (``[2]``); the system resolves the label
+    to the chunk it showed under that label. So a citation can neither be a mistyped file
+    name nor a page that does not exist.
+
+    Attributes:
+        label: The excerpt label the answer used.
+        chunk_id: ``document_chunks.id`` of the chunk: exact now, but it changes when the
+            document is ingested again.
+        source_file: Basename of the source document.
+        chunk_index: 0-based position of the chunk in its document: the stable name of the
+            chunk, as long as the document and the chunker settings do not change.
+    """
+
+    label: int
+    chunk_id: int
+    source_file: str
+    chunk_index: int
+
+
+@dataclass(frozen=True)
 class RetrievedChunk:
     """One chunk after retrieval — what ``store.VectorStore.search``/``search_fulltext`` return.
 
