@@ -8,11 +8,10 @@ from models import ChunkMetadata, Citation, RetrievedChunk
 from query.answering import (
     AnswerPolicy,
     GroundedAnswerer,
-    cited_labels,
     render_sources,
     split_quotes,
-    strip_labels,
 )
+from query.claims import cited_labels, strip_labels
 
 
 def chunk(text, source="a.pdf", page=1, date="2024-01-02"):
@@ -301,20 +300,24 @@ def test_which_bracketed_numbers_count_as_labels(text, expected):
 @pytest.mark.parametrize(
     ("text", "body", "quotes"),
     [
-        ('Answer [1].\n\nQUOTES:\n[1] "a passage"', "Answer [1].", {1: "a passage"}),
+        ('Answer [1].\n\nQUOTES:\n[1] "a passage"', "Answer [1].", [(1, "a passage")]),
         (
             "Answer [1].\nQUOTES:\n[1] a passage without marks",
             "Answer [1].",
-            {1: "a passage without marks"},
+            [(1, "a passage without marks")],
         ),
         (
             'Answer [1].\n\nQUOTES:\n[1] "first"\n[1] "second"\n[2] “curly”',
             "Answer [1].",
-            {1: "first", 2: "curly"},
+            [
+                (1, "first"),
+                (1, "second"),
+                (2, "curly"),
+            ],  # one line per citation, in order
         ),
-        ("No block here [1].", "No block here [1].", {}),
-        ("Answer.\n\nQUOTES:\n", "Answer.", {}),
-        ('Answer.\n\nQUOTES:\nnot a quote line\n[3] ""', "Answer.", {}),
+        ("No block here [1].", "No block here [1].", []),
+        ("Answer.\n\nQUOTES:\n", "Answer.", []),
+        ('Answer.\n\nQUOTES:\nnot a quote line\n[3] ""', "Answer.", []),
     ],
 )
 def test_the_quotes_block_is_split_off_and_read(text, body, quotes):
@@ -359,7 +362,7 @@ def test_a_line_starting_with_quotes_inside_the_answer_does_not_hide_the_real_bl
 
     body, quotes = split_quotes(text)
 
-    assert quotes == {3: "said text 10 about"}
+    assert quotes == [(3, "said text 10 about")]
     assert body.endswith("in this answer [3].")  # the LAST mark ends the answer
 
 
@@ -371,3 +374,271 @@ def test_the_system_prompt_asks_for_a_word_for_word_quote_per_label_and_none_whe
     assert "QUOTES:" in system_prompt
     assert "copied word for word" in system_prompt
     assert "do not write QUOTES: when you refuse" in system_prompt
+
+
+# ---------------------------------------------------- one quote per citation, judged
+
+
+class Judge:
+    """A claim judge with scripted verdicts; remembers what it was asked."""
+
+    def __init__(self, verdicts=None):
+        self.verdicts, self.asked = verdicts, []
+
+    def supports(self, pairs):
+        self.asked.append(list(pairs))
+        if callable(self.verdicts):
+            return self.verdicts(pairs)
+        return self.verdicts
+
+
+def judged(text, judge, chunks=RANKED):
+    return GroundedAnswerer(
+        FakeDriver(text), AnswerPolicy(expose_document_date=False), judge=judge
+    ).answer("Q?", chunks)
+
+
+TWO = (
+    "The court dismissed the claim [3]. It ordered the costs [3][2].\n\nQUOTES:\n"
+    '[3] "said text 10 about"\n[3] "The court said text 10"\n[2] "said text 20 about"\n'
+)
+
+
+def test_the_judge_is_asked_about_each_sentence_and_the_passage_quoted_for_that_citation():
+    judge = Judge(lambda pairs: [True] * len(pairs))
+
+    judged(TWO, judge)
+
+    assert judge.asked == [
+        [
+            ("The court dismissed the claim.", "said text 10 about"),
+            (
+                "It ordered the costs.",
+                "The court said text 10",
+            ),  # the 2nd quote of label 3
+            ("It ordered the costs.", "said text 20 about"),
+        ]
+    ]
+
+
+def test_a_citation_the_judge_rejects_leaves_only_that_sentence_and_is_recorded():
+    # the quote of label 2 is in its chunk, but does not state the second sentence
+    judge = Judge([True, True, False])
+
+    answer = judged(TWO, judge)
+
+    assert (
+        answer.visible == "The court dismissed the claim [3]. It ordered the costs [3]."
+    )
+    assert [c.label for c in answer.citations] == [3]
+    assert answer.rejected == ((2, "It ordered the costs."),)
+    assert answer.unverified_labels == (2,)  # label 2 never held anywhere
+
+
+def test_a_label_rejected_in_one_sentence_but_kept_in_another_is_still_a_citation():
+    judge = Judge([False, True, True])
+
+    answer = judged(TWO, judge)
+
+    assert (
+        answer.visible == "The court dismissed the claim. It ordered the costs [3][2]."
+    )
+    assert [c.label for c in answer.citations] == [3, 2]
+    assert answer.unverified_labels == ()  # label 3 holds in the second sentence
+
+
+def test_a_single_quote_for_a_label_cited_twice_is_reused_for_the_second_sentence():
+    text = (
+        "First claim is made here [3]. Second claim is made here [3].\n\n"
+        'QUOTES:\n[3] "said text 10 about"\n'
+    )
+    judge = Judge(lambda pairs: [True] * len(pairs))
+
+    judged(text, judge)
+
+    assert [quote for _, quote in judge.asked[0]] == ["said text 10 about"] * 2
+
+
+def test_a_judge_that_gives_no_verdicts_keeps_the_quotes_that_are_in_their_chunks():
+    answer = judged(TWO, Judge(None))
+
+    assert [c.label for c in answer.citations] == [3, 2]
+    assert answer.rejected == () and answer.unverified_labels == ()
+
+
+def test_without_a_judge_a_quote_in_the_chunk_is_enough():
+    answer = answer_with(TWO)
+
+    assert [c.label for c in answer.citations] == [3, 2]
+
+
+def test_the_judge_is_not_asked_when_nothing_is_cited_or_no_quote_is_in_a_chunk():
+    judge = Judge(lambda pairs: [True] * len(pairs))
+
+    judged("No labels in this answer at all.", judge)
+    judged('A claim is made here [3].\n\nQUOTES:\n[3] "not in any chunk text"', judge)
+
+    assert judge.asked == [[], []]
+
+
+def test_the_citation_keeps_the_first_quote_that_held():
+    answer = judged(TWO, Judge([False, True, True]))
+
+    assert answer.citations[0] == Citation(3, 10, "a.docx", 4, "The court said text 10")
+
+
+def test_an_unknown_label_cited_twice_is_one_wrong_citation_not_two():
+    answer = answer_with("First claim here [7]. Second claim here [7].")
+
+    assert answer.unknown_labels == (7,)
+
+
+def test_the_prompt_asks_for_one_quote_line_per_citation_in_the_order_of_the_citations():
+    from drivers.llm import _build_prompt
+
+    system_prompt, _ = _build_prompt("Q?", [])
+
+    assert (
+        "one line each time you cite a label, in the order of your citations"
+        in system_prompt
+    )
+    assert "the fact of the sentence you cited it for" in system_prompt
+
+
+# ------------------------------------------------ the summary that opens every chunk
+
+
+def with_summary(chunk_id, summary, body, index=0):
+    return RetrievedChunk(
+        id=chunk_id,
+        content=f"{summary}\n\n{body}",
+        metadata=ChunkMetadata(
+            source_file="a.docx",
+            page_number=None,
+            chunk_index=index,
+            document_summary=summary,
+        ),
+        score=0.5,
+    )
+
+
+SUMMARY = "The court dismissed the plaintiff's claim about the gift."
+SUMMED = (
+    with_summary(1, SUMMARY, "The amount is 733910 forint.", 0),
+    with_summary(2, SUMMARY, "The case concerned a gift of land.", 1),
+)
+
+
+def test_a_quote_from_the_document_summary_is_not_a_citation_of_any_chunk():
+    # the summary is in every chunk's content, but it is not the chunk's own text
+    text = 'It was dismissed [1].\n\nQUOTES:\n[1] "dismissed the plaintiff\'s claim"\n'
+
+    answer = answer_with(text, SUMMED)
+
+    assert answer.citations == () and answer.unverified_labels == (1,)
+
+
+def test_a_quote_from_the_excerpt_itself_is_a_citation():
+    text = (
+        'The amount is stated here [2].\n\nQUOTES:\n[2] "The amount is 733910 forint"\n'
+    )
+
+    answer = answer_with(text, SUMMED)
+
+    assert [c.label for c in answer.citations] == [2]
+
+
+def test_the_prompt_shows_the_summary_apart_from_the_excerpt():
+    from drivers.llm import _build_prompt
+
+    _, user_message = _build_prompt("Q?", list(SUMMED))
+
+    assert f"Document summary (not to be quoted): {SUMMARY}" in user_message
+    assert "Excerpt: The amount is 733910 forint." in user_message
+    assert user_message.count(SUMMARY) == 2  # once per excerpt, labelled as context
+
+
+def packaged(
+    body,
+    summary="A summary of the case.",
+    identifiers=("4.P.20.1/2021/5",),
+    header="I. Reasoning",
+    chunk_id=1,
+    index=3,
+):
+    """A chunk exactly as the ingest stores it: summary, identifiers, header, then the text."""
+    from ingestion.chunker import _package_chunk
+
+    metadata = ChunkMetadata(
+        source_file="a.docx",
+        page_number=None,
+        chunk_index=index,
+        document_summary=summary,
+        document_identifiers=identifiers,
+        header_path=header,
+    )
+    return RetrievedChunk(
+        id=chunk_id,
+        content=_package_chunk(body, metadata).content,
+        metadata=metadata,
+        score=0.5,
+    )
+
+
+def test_a_stored_chunk_has_three_layers_before_its_own_text_and_the_body_is_only_the_text():
+    chunk = packaged("The court granted the claim in full.")
+
+    assert chunk.content.startswith("A summary of the case.")
+    assert "4.P.20.1/2021/5" in chunk.content and "I. Reasoning" in chunk.content
+    assert chunk.body == "The court granted the claim in full."
+
+
+def test_a_quote_from_the_identifiers_or_the_heading_is_not_a_citation_either():
+    chunk = packaged("The court granted the claim in full.")
+    for quote in ("4.P.20.1/2021/5", "A summary of the case."):
+        text = f'It is so [1].\n\nQUOTES:\n[1] "{quote}"\n'
+
+        answer = answer_with(text, (chunk,))
+
+        assert answer.citations == () and answer.unverified_labels == (1,)
+
+
+def test_a_quote_from_the_chunks_own_text_is_a_citation_of_a_packaged_chunk():
+    chunk = packaged("The court granted the claim in full.")
+    text = 'It is so [1].\n\nQUOTES:\n[1] "granted the claim in full"\n'
+
+    assert [c.label for c in answer_with(text, (chunk,)).citations] == [1]
+
+
+def test_the_prompt_gives_the_summary_and_the_heading_as_context_and_the_text_as_the_excerpt():
+    from drivers.llm import _build_prompt
+
+    _, user_message = _build_prompt("Q?", [packaged("The court granted the claim.")])
+
+    assert "Document summary (not to be quoted): A summary of the case." in user_message
+    assert "Section heading (not to be quoted): I. Reasoning" in user_message
+    assert "Excerpt: The court granted the claim." in user_message
+    assert (
+        "4.P.20.1/2021/5" not in user_message
+    )  # the identifiers prefix is not shown twice
+
+
+def test_a_chunk_without_any_context_is_shown_as_it_is():
+    from drivers.llm import _build_prompt
+
+    bare = RetrievedChunk(
+        id=9,
+        content="Just text.",
+        metadata=ChunkMetadata(source_file="a.docx", page_number=None, chunk_index=0),
+        score=0.5,
+    )
+
+    _, user_message = _build_prompt("Q?", [bare])
+
+    assert "[1] Source: a.docx, section 0\nJust text." in user_message
+    assert "Document summary" not in user_message and "Excerpt:" not in user_message
+
+
+def test_a_chunk_with_only_a_leading_summary_still_has_its_text_as_the_body():
+    assert SUMMED[0].body == "The amount is 733910 forint."
+    assert SUMMED[0].content.startswith(SUMMARY)

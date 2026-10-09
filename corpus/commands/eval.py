@@ -545,7 +545,7 @@ def _citation_support(result) -> dict:
     """The chunk-level citation check of one answer, as a plain dict."""
     from corpus.citation_support import check_citation_support, llm_judge
 
-    chunk_text = {c.id: c.content for c in result.explain.chunks}
+    chunk_text = {c.id: c.body for c in result.explain.chunks}
     record = check_citation_support(
         result.text,
         result.citations,

@@ -20,26 +20,18 @@ Key exports:
 """
 
 import json
-import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from llm_json import extract_json
 from models import Citation
+from query.claims import split_claims as _split_claims
 
 #: Where an answer's own text ends: the sources block and anything the service adds after it.
 _SOURCES_MARK = "\n\nSources:"
 
-#: A sentence ends at . ! ? followed by space and a capital letter or a bracket label.
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-ZÁÉÍÓÖŐÚÜŰ\[])|\n+")
-
-_LABELS = re.compile(r"\[\s*\d{1,2}(?:\s*[,;]\s*\d{1,2})*\s*\]")
-
 #: How much of a chunk the judge reads.
 _MAX_EXCERPT_CHARS = 3000
-
-#: Sentences shorter than this carry no claim worth checking ("Igen.", a lone label).
-_MIN_CLAIM_CHARS = 12
 
 Judge = Callable[[Sequence[tuple[str, str]]], list[bool] | None]
 
@@ -121,20 +113,9 @@ def split_claims(text: str) -> list[tuple[str, list[int]]]:
 
     Returns:
         ``(sentence without its labels, labels)`` in order. Sentences too short to be a
-        claim are left out.
+        claim are left out (see :func:`query.claims.split_claims`).
     """
-    from query.answering import cited_labels
-
-    body = text.split(_SOURCES_MARK, 1)[0]
-    claims: list[tuple[str, list[int]]] = []
-    for sentence in _SENTENCE_END.split(body):
-        labels = cited_labels(sentence)
-        plain = re.sub(
-            r"\s+([.,;:!?])", r"\1", re.sub(r"\s+", " ", _LABELS.sub("", sentence))
-        ).strip()
-        if len(plain) >= _MIN_CLAIM_CHARS:
-            claims.append((plain, labels))
-    return claims
+    return _split_claims(text.split(_SOURCES_MARK, 1)[0])
 
 
 def check_citation_support(

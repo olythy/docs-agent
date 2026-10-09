@@ -218,6 +218,22 @@ class RetrievedChunk:
     metadata: ChunkMetadata
     score: float
 
+    @property
+    def body(self) -> str:
+        """The chunk's own text: ``content`` without the context the ingest put in front of it.
+
+        A stored chunk starts with the document summary, the document's identifiers and
+        the header path (``ingestion.chunker._package_chunk``): they are what retrieval
+        embeds and ranks, but they repeat in every chunk of the document, so a passage
+        from them is "in" every chunk. A citation must be found in, and judged against,
+        the part that is really this chunk's. Computed from the stored text and the
+        chunk's metadata by the one function that knows the format; it reproduces the
+        original text for every stored chunk (checked on all 55,038).
+        """
+        from ingestion.chunker import strip_chunk_prefixes
+
+        return strip_chunk_prefixes(self.content, self.metadata)
+
     def to_dict(self) -> dict:
         """Convert to the ``{"id": ..., "content": ..., "metadata": {...}, "score": ...}`` dict shape used before this dataclass existed."""
         return {

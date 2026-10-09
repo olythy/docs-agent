@@ -41,3 +41,18 @@ def test_settings_parsed_ingest_extensions():
 
 def test_settings_log_file_defaults():
     assert settings.LOG_FILE.endswith(".jsonl")
+
+
+def test_the_answer_token_limit_defaults_to_room_for_the_quotes_and_can_be_set(
+    monkeypatch,
+):
+    import importlib
+
+    import config
+
+    monkeypatch.delenv("ANSWER_MAX_TOKENS", raising=False)
+    assert importlib.reload(config).Settings.ANSWER_MAX_TOKENS == 2048
+    monkeypatch.setenv("ANSWER_MAX_TOKENS", "3000")
+    assert importlib.reload(config).Settings.ANSWER_MAX_TOKENS == 3000
+    monkeypatch.delenv("ANSWER_MAX_TOKENS", raising=False)
+    importlib.reload(config)

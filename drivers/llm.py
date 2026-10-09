@@ -323,9 +323,11 @@ _SYSTEM_PROMPT_HEAD = (
     "the same case, and do not put every label after every sentence. Use "
     "only the labels shown in the excerpts: never write a file name or a "
     "page number. After the answer, on a new line, write QUOTES: and then "
-    'one line for each label you cited, in this form: [2] "a passage of at '
-    "most 200 characters copied word for word from excerpt 2 that states the "
-    'fact". Cite a label only if you can quote such a passage from that '
+    "one line each time you cite a label, in the order of your citations, in "
+    'this form: [2] "a passage of at most 200 characters copied word for '
+    "word from the Excerpt part of excerpt 2 (never from the document "
+    'summary) that states the fact of the sentence you cited it for". '
+    "Cite a label only if you can quote such a passage from that "
     "excerpt; do not write QUOTES: when you refuse. If the excerpts only partially answer "
     "the question, say exactly what they do and don't cover, rather "
     "than completing the picture from outside knowledge. "
@@ -402,9 +404,22 @@ def _build_prompt(
             if expose_document_date and chunk.metadata.document_date
             else ""
         )
+        context = []
+        if chunk.metadata.document_summary:
+            # said here as context: it opens every chunk of the document and is not a
+            # passage of the document to quote
+            context.append(
+                f"Document summary (not to be quoted): {chunk.metadata.document_summary}"
+            )
+        if chunk.metadata.header_path:
+            context.append(
+                f"Section heading (not to be quoted): {chunk.metadata.header_path}"
+            )
+        text = (
+            "\n".join([*context, f"Excerpt: {chunk.body}"]) if context else chunk.body
+        )
         context_parts.append(
-            f"[{i}] Source: {source}{date}, section {chunk.metadata.chunk_index}\n"
-            f"{chunk.content}"
+            f"[{i}] Source: {source}{date}, section {chunk.metadata.chunk_index}\n{text}"
         )
     context_text = "\n\n".join(context_parts)
 

@@ -20,7 +20,8 @@ import query.composition as composition_module
 from logger import EventLogger
 from metadata.scope_check import LLMPlanChecker
 from metadata.survey_resolver import LLMSurveyResolver
-from query.answering import ExactAnswerer
+from query.answering import ExactAnswerer, GroundedAnswerer
+from query.claim_judge import LLMClaimJudge
 from query.composition import build_query_service, build_retrieval_service
 from query.decision import PlanningDecider, Scope
 from query.outcome import NO_RESULTS_MESSAGE, Answerable
@@ -181,6 +182,10 @@ class TestQueryService:
         assert isinstance(service._decider, PlanningDecider)
         assert isinstance(service._decider._surveys, LLMSurveyResolver)
         assert isinstance(service._decider._checker, LLMPlanChecker)
+        grounded = service._grounded
+        assert isinstance(grounded, GroundedAnswerer)
+        assert isinstance(grounded._judge, LLMClaimJudge)
+        assert grounded._max_tokens == env.settings.ANSWER_MAX_TOKENS
         assert isinstance(service._exact, ExactAnswerer)
 
     @pytest.mark.parametrize("expose", [False, True])

@@ -67,7 +67,12 @@ class FakeGrounded:
         visible=None,
     ):
         self.reply = GroundedAnswer(
-            text, refused, citations, unknown, unverified, visible
+            text,
+            refused,
+            citations,
+            unknown,
+            unverified,
+            visible_text=visible,
         )
         self.calls = []
 

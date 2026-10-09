@@ -20,6 +20,7 @@ from drivers.reranker import get_reranker_driver
 from logger import get_logger
 from models import RetrievedChunk
 from query.answering import AnswerPolicy, ExactAnswerer, GroundedAnswerer, ResultPhraser
+from query.claim_judge import LLMClaimJudge
 from query.decision import (
     PlanningDecider,
     ProfileSelector,
@@ -125,6 +126,8 @@ def build_query_service(settings: Settings) -> QueryService:
                     get_logger(), settings.LLM_DRIVER, settings.LLM_MODEL
                 ),
             ),
+            max_tokens=settings.ANSWER_MAX_TOKENS,
+            judge=LLMClaimJudge(llm),
         ),
         RefusalRenderer(),
         default_profile=DEFAULT_PROFILE,
