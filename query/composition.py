@@ -82,6 +82,7 @@ def build_planning(
     from metadata.executor import PlanExecutor
     from metadata.identifier_resolver import IdentifierResolver
     from metadata.planner import LLMQueryPlanner
+    from metadata.survey_resolver import LLMSurveyResolver
 
     clock = SystemClock()
     compiler = PlanCompiler(DateRangeResolver(clock))
@@ -92,6 +93,7 @@ def build_planning(
         store,
         ScopeResolver(executor, IdentifierResolver(store)),
         ProfileSelector(DEFAULT_PROFILE),
+        LLMSurveyResolver(llm),
     )
     return decider, ExactAnswerer(executor, ResultPhraser(llm))
 

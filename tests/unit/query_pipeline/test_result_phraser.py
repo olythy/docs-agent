@@ -151,3 +151,26 @@ def test_a_phrasing_that_drops_the_documents_in_no_group_falls_back_to_the_facts
     assert kept.startswith("11 határozat: 5 ítélet, 3 végzés")
     assert dropped.startswith("Executed filter:")
     assert "in no group" in dropped
+
+
+def test_a_caveat_of_the_plan_is_in_the_plain_facts_and_after_the_phrased_answer():
+    plan = QueryPlan(DT, Operation.COUNT, caveat="counted by a model")
+    result = _count_result(count=7)
+
+    assert "Read with care: counted by a model" in render_result(plan, result)
+    phrased = ResultPhraser(Llm("Összesen 7 határozat van.")).phrase(
+        "hány?", plan, result
+    )
+    assert phrased.endswith(
+        "[Read with care: counted by a model]"
+    )  # not left to the model
+
+
+def test_a_plan_without_a_caveat_adds_no_such_line():
+    plan = QueryPlan(DT, Operation.COUNT)
+    result = _count_result(count=7)
+
+    assert "Read with care" not in render_result(plan, result)
+    assert "Read with care" not in ResultPhraser(Llm("7 határozat.")).phrase(
+        "hány?", plan, result
+    )

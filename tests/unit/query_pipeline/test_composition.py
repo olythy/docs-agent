@@ -18,6 +18,7 @@ from test_retrieval_characterization import (  # type: ignore[import-not-found]
 
 import query.composition as composition_module
 from logger import EventLogger
+from metadata.survey_resolver import LLMSurveyResolver
 from query.answering import ExactAnswerer
 from query.composition import build_query_service, build_retrieval_service
 from query.decision import PlanningDecider, Scope
@@ -177,6 +178,7 @@ class TestQueryService:
         service = build_query_service(env.settings)
 
         assert isinstance(service._decider, PlanningDecider)
+        assert isinstance(service._decider._surveys, LLMSurveyResolver)
         assert isinstance(service._exact, ExactAnswerer)
 
     @pytest.mark.parametrize("expose", [False, True])

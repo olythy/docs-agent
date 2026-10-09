@@ -106,6 +106,10 @@ class QueryPlan:
             by SQL; a later step evaluates it over the matching documents).
         reason: For ``UNSUPPORTED``, what was asked that cannot be done yet, in the
             question's language.
+        caveat: What the figures of this plan do NOT answer, or how far they can be
+            trusted, to be said beside them. Not part of the question's restrictions (so
+            unlike ``residual`` it does not turn an exact plan into a read one); set by
+            the code that built the plan, never by the planner's JSON.
     """
 
     doc_type: str | None
@@ -116,6 +120,7 @@ class QueryPlan:
     limit: int = DEFAULT_LIMIT
     residual: str | None = None
     reason: str | None = None
+    caveat: str | None = None
 
 
 _PLAN_FIELDS = {

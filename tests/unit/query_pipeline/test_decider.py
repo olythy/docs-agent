@@ -68,12 +68,31 @@ def facts(question="a question", identifiers=()):
     return QueryFacts(question, identifiers=tuple(identifiers))
 
 
-def decider(plan=None, fail=None, plans=None, profile="best_chunks", approved=True):
+class FakeSurveys:
+    """A survey resolver that returns a fixed plan (or None) and remembers its calls."""
+
+    def __init__(self, resolved=None):
+        self.resolved = resolved
+        self.calls: list[tuple[str, QueryPlan]] = []
+
+    def resolve(self, question, plan, catalogs):
+        self.calls.append((question, plan))
+        return self.resolved
+
+
+def decider(
+    plan=None,
+    fail=None,
+    plans=None,
+    profile="best_chunks",
+    approved=True,
+    surveys=None,
+):
     planner = FakePlanner(plan, fail)
     plans = plans or FakePlans()
     scopes = ScopeResolver(plans, IdentifierResolver(FakeSource(DOCS)))
     made = PlanningDecider(
-        planner, FakeCatalog(approved), scopes, ProfileSelector(profile)
+        planner, FakeCatalog(approved), scopes, ProfileSelector(profile), surveys
     )
     return made, planner, plans
 
@@ -135,6 +154,62 @@ class TestRefusals:
         assert decision.declined.reason is DeclineReason.SURVEY_NOT_YET
         assert decision.declined.stage == "planning"
         assert plans.executed == []  # no scope is built, nothing is read
+
+    def test_a_survey_the_resolver_cannot_cover_is_still_refused(self):
+        surveys = FakeSurveys(None)
+        made, _, _ = decider(QueryPlan(DT, Operation.SURVEY, FILTER), surveys=surveys)
+
+        decision = made.decide(facts("a question"))
+
+        assert isinstance(decision, Refuse)
+        assert decision.declined.reason is DeclineReason.SURVEY_NOT_YET
+        assert len(surveys.calls) == 1  # it was asked
+
+    def test_a_survey_the_keys_cover_is_answered_exactly_with_the_resolved_plan(self):
+        resolved = QueryPlan(
+            DT, Operation.COUNT, FILTER, group_by="outcome", caveat="by a model"
+        )
+        surveys = FakeSurveys(resolved)
+        made, _, plans = decider(
+            QueryPlan(DT, Operation.SURVEY, FILTER), surveys=surveys
+        )
+
+        decision = made.decide(facts("how did the cases end"))
+
+        assert isinstance(decision, AnswerExactly)
+        assert decision.plan == resolved
+        assert surveys.calls[0][0] == "how did the cases end"
+        assert plans.executed == []  # deciding is not executing
+
+    def test_a_resolved_plan_with_a_residual_is_still_read_not_counted(self):
+        """The same protection as for any exact plan: a part no key covers is not dropped."""
+        resolved = QueryPlan(DT, Operation.COUNT, FILTER, residual="the reasons")
+        made, _, _ = decider(
+            QueryPlan(DT, Operation.SURVEY, FILTER), surveys=FakeSurveys(resolved)
+        )
+
+        decision = made.decide(facts())
+
+        assert isinstance(decision, ReadDocuments)
+
+    def test_a_survey_that_names_a_document_never_asks_the_resolver(self):
+        surveys = FakeSurveys(QueryPlan(DT, Operation.COUNT, FILTER))
+        made, _, _ = decider(QueryPlan(None, Operation.SURVEY), surveys=surveys)
+
+        decision = made.decide(
+            facts("Compare these", identifiers=["4.P.20.409/2023/4"])
+        )
+
+        assert isinstance(decision, ReadDocuments)
+        assert surveys.calls == []
+
+    def test_only_a_survey_asks_the_resolver(self):
+        surveys = FakeSurveys(QueryPlan(DT, Operation.COUNT, FILTER))
+        made, _, _ = decider(QueryPlan(DT, Operation.COUNT, FILTER), surveys=surveys)
+
+        made.decide(facts())
+
+        assert surveys.calls == []
 
     def test_a_survey_that_names_a_document_is_read_like_a_lookup(self):
         """Refusing it would turn a question the system answers well into a 'not yet'."""

@@ -33,6 +33,7 @@ from metadata.planner import (
     collect_known_values,
     load_catalogs,
 )
+from metadata.survey_resolver import SurveyResolver
 from query.facts import QueryFacts
 from query.outcome import Declined, DeclineReason
 
@@ -140,8 +141,10 @@ class PlanningDecider:
     * ``unsupported`` (documents similar to a named one) -> ``Refuse(NOT_SUPPORTED)`` with the
       planner's reason;
     * ``survey`` (the practice or the outcomes across many documents the question does not
-      name) -> ``Refuse(SURVEY_NOT_YET)``, until a profile that reads that many documents
-      exists; a survey that names an identifier is read like a lookup;
+      name) -> an exact count when the survey resolver finds that the catalog's keys cover
+      the topic and what is asked about it (``AnswerExactly``), otherwise
+      ``Refuse(SURVEY_NOT_YET)``, until a profile that reads that many documents exists; a
+      survey that names an identifier is read like a lookup;
     * an exact operation covering the whole question -> ``AnswerExactly``; one with a
       residual (a condition no key covers) is read like a lookup;
     * a lookup -> the scope (the named documents, or the filters' documents) and the profile.
@@ -151,6 +154,8 @@ class PlanningDecider:
         catalog: Where the document types and keys, and the stored values, are read.
         scopes: Builds the scope of a lookup.
         profiles: Chooses the profile of a question to read.
+        surveys: Turns a survey the keys cover into an exact count (``None``: every
+            survey is refused, as before it existed).
 
     Raises:
         RuntimeError: From :meth:`decide` if no document type is approved yet.
@@ -162,11 +167,13 @@ class PlanningDecider:
         catalog: "CatalogReader",
         scopes: ScopeResolver,
         profiles: ProfileSelector,
+        surveys: SurveyResolver | None = None,
     ) -> None:
         self._planner = planner
         self._catalog = catalog
         self._scopes = scopes
         self._profiles = profiles
+        self._surveys = surveys
 
     def decide(self, facts: QueryFacts) -> Decision:
         """Decide how ``facts.question`` is answered."""
@@ -205,11 +212,24 @@ class PlanningDecider:
                 )
                 plan = replace(plan, operation=Operation.LOOKUP)
             else:
-                logger.info("[decide] A survey across many documents: not built yet.")
-                return Refuse(
-                    facts,
-                    Declined(DeclineReason.SURVEY_NOT_YET, stage="planning"),
+                resolved = (
+                    self._surveys.resolve(facts.question, plan, catalogs)
+                    if self._surveys is not None
+                    else None
                 )
+                if resolved is None:
+                    logger.info(
+                        "[decide] A survey across many documents: no key covers it."
+                    )
+                    return Refuse(
+                        facts,
+                        Declined(DeclineReason.SURVEY_NOT_YET, stage="planning"),
+                    )
+                logger.info(
+                    "[decide] A survey the keys cover: counted exactly by %s.",
+                    resolved.group_by,
+                )
+                plan = resolved
         plan = as_routed(plan)
         if plan.operation is not Operation.LOOKUP:
             return AnswerExactly(facts, plan)

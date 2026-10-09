@@ -176,6 +176,8 @@ def render_result(plan: QueryPlan, result: PlanResult) -> str:
         lines.append(
             f"Not applied (no key covers it, so the result is not narrowed by it): {plan.residual}"
         )
+    if plan.caveat:
+        lines.append(f"Read with care: {plan.caveat}")
     return "\n".join(lines)
 
 
@@ -259,7 +261,8 @@ class ResultPhraser:
                 missing,
             )
             return facts
-        return f"{reply}\n\n[Executed filter: {result.explanation}]"
+        caveat = f"\n[Read with care: {plan.caveat}]" if plan.caveat else ""
+        return f"{reply}\n\n[Executed filter: {result.explanation}]{caveat}"
 
 
 class ExactAnswerer:
