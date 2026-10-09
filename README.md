@@ -139,11 +139,12 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/
+│       ├── aggregate_ground_truth.json  # Hand-labelled subject/outcome of 32 property-law decisions (the q0010 set): the yardstick for the case_subject / aggregate_outcome extraction
 │       ├── meta_catalog.json  # Types and key catalog for the court-decision corpus (data, loaded by `meta_cli.py load-catalog`)
 │       ├── personas.json    # 5 user-profile definitions driving golden-question style
 │       └── questions.json   # Golden-set questions (question/answer/citation/verification_status)
 ├── tests/
-│   ├── unit/                 # Pure tests (fakes, no database); unit/query_pipeline/ holds the step-based retrieval's tests and the characterization scenarios
+│   ├── unit/                 # Pure tests (fakes, no database); grouped by module where a module has several: unit/query_pipeline/ (the step-based retrieval's tests and the characterization scenarios), unit/metadata/ (the structured-metadata layer), unit/scripts/
 │   ├── db/                   # Tests against a real Postgres+pgvector (AGENT_ENV=test)
 │   └── data/                 # Fixture documents
 ├── skills/                  # Claude Code skills (canonical source — `make skills-install` symlinks into .claude/skills/)
@@ -274,7 +275,7 @@ Typed per-document facts for counting/listing questions -- see `docs/structured-
 |---|---|
 | `make documents-sync` | `uv run python scripts/meta_cli.py sync-documents` — remove documents that have no chunks (what an ingest that failed between registering the document and saving its chunks leaves; idempotent) |
 | `uv run python scripts/meta_cli.py load-catalog corpus/data/meta_catalog.json` | validate a catalog file (`{"types": [{type, name, description, keys}]}`, many types allowed) and import its types and keys into `document_types` and `meta_keys` (a changed key definition bumps its version) |
-| `make extract-meta limit=50 [seed=7]` | `uv run python scripts/meta_cli.py extract-meta --limit 50 [--seed 7] [--workers 8]` — extract the catalog's keys (**one LLM call per document**); idempotent and resumable (only the keys whose definition changed are asked again); start small; `--seed` takes a random, reproducible sample instead of the first N by file name; `--workers N` runs the model calls of N documents at once (the run waits on the network: about 7x faster with 8; the stored result does not depend on N); a document whose provider call keeps failing is named in the report and retried by the next run |
+| `make extract-meta limit=50 [seed=7]` | `uv run python scripts/meta_cli.py extract-meta --limit 50 [--seed 7] [--workers 8]` — extract the catalog's keys (**one LLM call per document**); idempotent and resumable (only the keys whose definition changed are asked again); start small; `--seed` takes a random, reproducible sample instead of the first N by file name; `--identifiers-file F` (one document identifier per line, run through `uv run python scripts/meta_cli.py extract-meta`) restricts the run to a hand-picked set, e.g. to try a new key on documents that have a hand-labelled ground truth; `--workers N` runs the model calls of N documents at once (the run waits on the network: about 7x faster with 8; the stored result does not depend on N); a document whose provider call keeps failing is named in the report and retried by the next run |
 | `make classify-documents limit=20 seed=1` | give each document that has no type one: an LLM picks a known type or proposes a new one (stored `proposed`, unusable until approved), with a quote the code verifies; **LLM calls** |
 | `make meta-types` / `uv run python scripts/meta_cli.py set-type-status <type> <approved\|retired\|proposed>` | list the document types with status and document counts; approve or retire one |
 | `uv run python scripts/meta_cli.py assign-type <type> [--yes]` | manual shortcut for a one-type corpus: give every untyped document an approved type (dry run without `--yes`) |
