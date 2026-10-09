@@ -2,6 +2,18 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-09 — The first measurement on documents nothing was tuned on: 1 silent error in 40, 2 visible gaps
+
+**Design.** After the extraction settings were fixed (temperature 0, descriptions frozen), 40 documents that were not among the 82 labelled before were drawn at random, by what the extractor had answered: 12 of its 15 remaining `marital_property_division` and 28 of its 490 remaining `other`. I labelled them BLIND, reading the ruling (`fresh_sample_labels` in `corpus/data/aggregate_ground_truth.json`), then compared. (The three relevant documents found outside the 82 had been checked before and were left out of the draw.)
+
+**Result.** Subject 39/40, outcome 37/40, both 36/40 against the blind labels. The four differences: two outcomes `unverified` (visible gaps: the quote did not verify, so nothing is stored and a count reports them as "could not be verified"), one outcome where the extractor was right and my label wrong (the ruling ends "Ezt meghaladóan a felperes keresetét elutasítja"; the display I labelled from had cut the ruling off, the same kind of label error as before), and one silent extractor error: an inheritance suit (raw subject "hagyaték iránt indult perében") classified as `marital_property_division`, so the classification contradicts the extractor's own raw phrase.
+
+**So:** silent error 1 of 40 (2.5%; a 95% interval of roughly 0.1% to 13% with so few documents), visible gaps 2 of 40 (5%), and in the 28 random `other` documents no relevant case hidden (both fields right where stored). In the earlier, tuned sets the silent error was about 6%; this fresh figure is the one to quote, with its width.
+
+**What it does not settle.** The `other` bucket is 537 documents; 28 + 30 random ones found no q0010 case. The stronger evidence is the other check: the extractor's own raw subject of every `other` document was searched for property terms, and what turned up was land-registry challenges, unjust-enrichment suits and registration deletions, not q0010 subjects. That check relies on the raw phrase being faithful, which the inheritance suit shows is not guaranteed for the classification, though it is for the phrase.
+
+**A lesson about the labelling aids.** Three times a hand label was wrong because my display showed too little of the ruling (the first sentences, or 1000 characters). A labelling display must show the whole operative part, up to the reasoning.
+
 ## 2026-10-09 — The extraction ran at the provider's default temperature: 12 of 82 documents changed label between two runs; fixed, and the whole BK 2020-2024 set extracted
 
 **The finding.** After a small change of two key descriptions the 82 hand-labelled documents were extracted again, and 12 of them changed a label. Only 3 changes were explained by the edit (a contract-nullity suit, and two annulment cases); the rest was noise. The cause: `LLMMetaSource` calls `run_tool_calling_turn`, which sent no temperature, so Gemini's default (high for gemini-2.5-flash) applied to a classification task. A single run's error rate, such as the "about 6%" of the entry below, could not tell a real change from run-to-run variation.
