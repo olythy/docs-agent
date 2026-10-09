@@ -328,6 +328,9 @@ class PlanningDecider:
     * the planner cannot produce a valid plan -> ``Refuse(COULD_NOT_INTERPRET)``;
     * ``unsupported`` (documents similar to a named one) -> ``Refuse(NOT_SUPPORTED)`` with the
       planner's reason;
+    * ``survey`` (the practice or the outcomes across many documents the question does not
+      name) -> ``Refuse(SURVEY_NOT_YET)``, until a profile that reads that many documents
+      exists; a survey that names an identifier is read like a lookup;
     * an exact operation covering the whole question -> ``AnswerExactly``; one with a
       residual (a condition no key covers) is read like a lookup;
     * a lookup -> the scope (the named documents, or the filters' documents) and the profile.
@@ -381,6 +384,21 @@ class PlanningDecider:
                     DeclineReason.NOT_SUPPORTED, stage="planning", detail=plan.reason
                 ),
             )
+        if plan.operation is Operation.SURVEY:
+            if facts.identifiers:
+                # A question that names a document is read, whatever the planner thought:
+                # refusing it would turn something the system answers well into a "not yet".
+                logger.info(
+                    "[decide] A survey that names %s: read like a lookup.",
+                    ", ".join(facts.identifiers),
+                )
+                plan = replace(plan, operation=Operation.LOOKUP)
+            else:
+                logger.info("[decide] A survey across many documents: not built yet.")
+                return Refuse(
+                    facts,
+                    Declined(DeclineReason.SURVEY_NOT_YET, stage="planning"),
+                )
         plan = as_routed(plan)
         if plan.operation is not Operation.LOOKUP:
             return AnswerExactly(facts, plan)

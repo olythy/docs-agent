@@ -31,7 +31,7 @@ flowchart TD
 flowchart TD
     Q[Question] --> FR["QueryFactsReader<br/>identifiers and years, once"]
     FR --> DEC{"PlanningDecider<br/>planner + ScopeResolver"}
-    DEC -- Refuse --> REF["RefusalRenderer<br/>(could not interpret / not supported /<br/>no documents match)"]
+    DEC -- Refuse --> REF["RefusalRenderer<br/>(could not interpret / not supported /<br/>survey not yet / no documents match)"]
     DEC -- AnswerExactly --> EXA["ExactAnswerer<br/>SQL, then ResultPhraser (figures checked)"]
     DEC -- ReadDocuments --> RET["RetrievalService.retrieve()<br/>profile + the scope's documents"]
     RET -- Declined --> REF

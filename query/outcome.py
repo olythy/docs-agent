@@ -28,6 +28,14 @@ NOT_SUPPORTED_MESSAGE = (
     "This kind of question is not supported yet, so I will not guess at an answer."
 )
 
+#: Said when the question asks about the practice, the kinds of cases or the outcomes across
+#: many documents it does not name (it needs reading far more documents than the retrieval
+#: hands to the model). It contains the phrase the eval's decline detection reads.
+SURVEY_NOT_YET_MESSAGE = (
+    "This kind of question (a survey across many documents) is not supported yet, "
+    "but it is coming soon. I will not guess at an answer."
+)
+
 #: Said when the planner cannot turn the question into a valid plan.
 COULD_NOT_INTERPRET_MESSAGE = (
     "I could not interpret this question well enough to answer it from the "
@@ -54,6 +62,7 @@ class DeclineReason(StrEnum):
 
     COULD_NOT_INTERPRET = "could_not_interpret"
     NOT_SUPPORTED = "not_supported"
+    SURVEY_NOT_YET = "survey_not_yet"  # a question about many documents: not built yet
     NO_MATCHING_DOCUMENTS = "no_matching_documents"
     NOT_RELEVANT = "not_relevant"  # the cosine relevance gate
     RERANK_REJECTED = "rerank_rejected"  # the reranker's score gate
@@ -100,6 +109,8 @@ class RefusalRenderer:
         match declined.reason:
             case DeclineReason.COULD_NOT_INTERPRET:
                 return COULD_NOT_INTERPRET_MESSAGE
+            case DeclineReason.SURVEY_NOT_YET:
+                return SURVEY_NOT_YET_MESSAGE
             case DeclineReason.NOT_SUPPORTED:
                 if declined.detail:
                     return f"{NOT_SUPPORTED_MESSAGE} ({declined.detail})"

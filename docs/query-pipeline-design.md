@@ -127,7 +127,10 @@ Reused as they are (not part of the pipeline's own structure): `hybrid.py` (RRF)
   `AnswerExactly(facts, plan)`, `Refuse(facts, declined)`. The decider returns it and
   does nothing else: it neither runs the plan nor words the refusal.
 - `PlanningDecider`: planning failure → `Refuse(COULD_NOT_INTERPRET)`; `unsupported` →
-  `Refuse(NOT_SUPPORTED)` with the planner's reason; an exact plan covering the whole
+  `Refuse(NOT_SUPPORTED)` with the planner's reason; `survey` (the practice, the kinds of
+  cases or the outcomes across many documents the question does not name, picked by topic
+  or content) → `Refuse(SURVEY_NOT_YET)` until a profile that reads that many documents
+  exists, except that a survey which names an identifier is read like a lookup; an exact plan covering the whole
   question → `AnswerExactly`; an exact plan with a residual (a condition no key covers)
   is read like a lookup (`as_routed`); a lookup → the scope, and the profile.
 - **Scope rules** (`ScopeResolver`): several identifiers give the union of their
@@ -151,8 +154,9 @@ Reused as they are (not part of the pipeline's own structure): `hybrid.py` (RRF)
 
 ### 4.2 Outcome: one place for "no answer"
 
-- `DeclineReason`: `COULD_NOT_INTERPRET`, `NOT_SUPPORTED`, `NO_MATCHING_DOCUMENTS`,
-  `NOT_RELEVANT` (cosine gate), `RERANK_REJECTED` (cross-encoder gate).
+- `DeclineReason`: `COULD_NOT_INTERPRET`, `NOT_SUPPORTED`, `SURVEY_NOT_YET`,
+  `NO_MATCHING_DOCUMENTS`, `NOT_RELEVANT` (cosine gate), `RERANK_REJECTED` (cross-encoder
+  gate).
 - `RefusalRenderer` words each; both retrieval gates say the same to the person
   (`NO_RESULTS_MESSAGE`) and differ only in the explanation. The wording is fixed because
   the eval's decline detection (`decline_detection.py`) and the adversarial questions
@@ -275,11 +279,13 @@ reranker model, and refuses to call two snapshots comparable when they differ.
 - **Questions about many documents** ("what kinds of cases did X and Y decide between
   2020 and 2022"). Four chunks from about three documents cannot answer them, and the
   candidate list holds only about a third of the golden documents (numbers in
-  `docs/decisions.md`, 2026-10-08). The likely shape is a second profile that reads
-  documents rather than chunks (`document_survey`), chosen by the decision. To decide:
-  how the decision recognises such a question, how many documents it may read (cost and
-  time), and the yardstick: `independent_fact` and the number of different relevant
-  documents, not `exact_match`.
+  `docs/decisions.md`, 2026-10-08). **Recognised since 2026-10-08, not answered:** the
+  planner has a `survey` operation and the decision says plainly that this kind of
+  question is not supported yet (see 4.1). What is left is the reading itself: a second
+  profile that reads documents rather than chunks (`document_survey`), selected by the
+  same decision that now refuses. To decide: how many documents it may read (cost and
+  time); the yardstick is `independent_fact` and the number of different relevant
+  documents, with `exact_match` as a completeness check once the path is exhaustive.
 - The `ANSWER_GENERATED` audit event is not written on this path.
 - Which document type a question is about is taken from the planner's reading of the
   approved types' descriptions; inferring it per document (a stored type, a classifier)

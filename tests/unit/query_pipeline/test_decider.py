@@ -125,6 +125,39 @@ class TestRefusals:
         assert decision.declined.detail == "five similar cases were asked"
         assert plans.executed == []
 
+    def test_a_survey_across_many_documents_is_refused_as_not_built_yet(self):
+        plan = QueryPlan(DT, Operation.SURVEY, FILTER)
+        made, _, plans = decider(plan)
+
+        decision = made.decide(facts("In which cases did the court order payment?"))
+
+        assert isinstance(decision, Refuse)
+        assert decision.declined.reason is DeclineReason.SURVEY_NOT_YET
+        assert decision.declined.stage == "planning"
+        assert plans.executed == []  # no scope is built, nothing is read
+
+    def test_a_survey_that_names_a_document_is_read_like_a_lookup(self):
+        """Refusing it would turn a question the system answers well into a 'not yet'."""
+        plan = QueryPlan(None, Operation.SURVEY)
+        made, _, _ = decider(plan)
+
+        decision = made.decide(
+            facts("Compare these", identifiers=["4.P.20.409/2023/4"])
+        )
+
+        assert isinstance(decision, ReadDocuments)
+        assert decision.plan is not None and decision.plan.operation is Operation.LOOKUP
+        assert decision.scope.selection is not None  # the named document
+
+    def test_a_survey_with_a_residual_stays_a_survey(self):
+        plan = QueryPlan(DT, Operation.SURVEY, FILTER, residual="limitation")
+        made, _, _ = decider(plan)
+
+        decision = made.decide(facts())
+
+        assert isinstance(decision, Refuse)
+        assert decision.declined.reason is DeclineReason.SURVEY_NOT_YET
+
     def test_a_question_the_planner_cannot_interpret_is_refused_with_why(self):
         made, _, _ = decider(fail="unknown key 'colour'")
 

@@ -206,6 +206,25 @@ def test_a_malformed_unsupported_plan_is_rejected(extra, message):
         parse_plan(raw, TYPES)
 
 
+@pytest.mark.parametrize("document_type", [None, "court_decision"])
+def test_a_survey_plan_needs_no_type_and_keeps_its_filters_and_has_no_reason(
+    document_type,
+):
+    raw = {"document_type": document_type, "operation": "survey"}
+    if document_type:
+        raw["filters"] = [{"key": "issuing_body", "op": "eq", "value": "X"}]
+
+    plan = parse_plan(raw, TYPES)
+
+    assert plan.operation is Operation.SURVEY and plan.doc_type == document_type
+    assert bool(plan.filters) is bool(document_type) and plan.reason is None
+
+
+def test_a_survey_plan_does_not_take_a_reason():
+    with pytest.raises(PlanError, match="only goes with the 'unsupported'"):
+        parse_plan({"document_type": None, "operation": "survey", "reason": "x"}, TYPES)
+
+
 def test_a_reason_belongs_to_the_unsupported_operation_only():
     with pytest.raises(PlanError, match="only goes with the 'unsupported'"):
         _parse({"operation": "count", "reason": "why"})

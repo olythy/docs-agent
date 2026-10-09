@@ -111,3 +111,18 @@ class TestTheEvalCanTellItIsARefusal:
     )
     def test_every_refusal_reads_as_a_decline(self, declined):
         assert looks_like_a_decline(render(declined))
+
+
+class TestSurveyNotYet:
+    def test_the_sentence_is_fixed_and_english(self):
+        declined = Declined(DeclineReason.SURVEY_NOT_YET, "planning")
+
+        assert render(declined) == (
+            "This kind of question (a survey across many documents) is not supported yet, "
+            "but it is coming soon. I will not guess at an answer."
+        )
+
+    def test_the_eval_reads_it_as_an_honest_decline(self):
+        assert looks_like_a_decline(
+            render(Declined(DeclineReason.SURVEY_NOT_YET, "planning"))
+        )

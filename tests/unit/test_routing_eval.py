@@ -19,7 +19,12 @@ from query.outcome import Declined, DeclineReason
 def test_the_shipped_cases_load_resolve_golden_ids_and_cover_every_flow():
     cases = load_cases()
 
-    assert {c["expected"] for c in cases} == {"lookup", "exact", "unsupported"}
+    assert {c["expected"] for c in cases} == {
+        "lookup",
+        "exact",
+        "unsupported",
+        "survey",
+    }
     assert all(c["question"].strip() for c in cases)
     assert any(
         "27.P.20.339/2021/37" in c["question"] for c in cases
@@ -75,6 +80,11 @@ class TestFlowOfDecision:
         flow, detail = flow_of_decision(Refuse(FACTS, declined))
 
         assert flow == "lookup with an empty restriction" and detail == "the filter"
+
+    def test_a_survey_across_many_documents_is_its_own_flow(self):
+        declined = Declined(DeclineReason.SURVEY_NOT_YET, "planning")
+
+        assert flow_of_decision(Refuse(FACTS, declined))[0] == "survey"
 
     def test_a_question_that_could_not_be_planned_failed(self):
         declined = Declined(

@@ -347,6 +347,33 @@ def test_the_prompt_tells_the_model_what_unsupported_is_for_and_what_it_is_not_f
     assert '"reason": null' in prompt
 
 
+def test_a_survey_plan_is_accepted_and_its_filters_are_still_checked():
+    reply = (
+        '{"document_type": "court_decision", "operation": "survey", "filters": [],'
+        ' "reason": null}'
+    )
+
+    plan = _planner(ScriptedLLM(reply)).plan(
+        "in which cases did the court ...?", CATALOGS
+    )
+
+    assert plan.operation is Operation.SURVEY
+
+
+def test_the_prompt_tells_the_model_what_a_survey_is_and_what_it_is_not():
+    llm = ScriptedLLM(GOOD)
+
+    _planner(llm).plan("q", CATALOGS)
+
+    prompt = llm.calls[0][0]["content"]
+    assert '- "survey": the question asks about the PRACTICE' in prompt
+    assert "MANY documents that it does not name" in prompt
+    assert (
+        "Do NOT use it when the question names a case or document identifier" in prompt
+    )
+    assert 'questions about the practice across many documents are "survey"' in prompt
+
+
 def test_the_prompt_forbids_an_identifier_filter_in_a_lookup():
     """The router restricts a lookup to the documents the filters match; an exact
     identifier match failed on a trailing full stop and nothing was read (the single

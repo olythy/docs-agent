@@ -34,7 +34,8 @@ def flow_of_decision(decision) -> tuple[str, str]:
 
     Returns:
         ``(flow, detail)``. The flow is ``lookup`` (read documents), ``exact`` (answer from
-        the metadata), ``unsupported``, ``lookup with an empty restriction`` (the question's
+        the metadata), ``unsupported``, ``survey`` (a question about many documents that
+        are not named: not built yet), ``lookup with an empty restriction`` (the question's
         filters select no document, which is never what the question wanted: it turns a
         question that can be read into "no documents match", and an answer-level eval would
         show it only as a refusal) or ``failed`` (the planner gave no usable plan).
@@ -50,6 +51,8 @@ def flow_of_decision(decision) -> tuple[str, str]:
     detail = decision.declined.detail or ""
     if reason is DeclineReason.NOT_SUPPORTED:
         return "unsupported", detail
+    if reason is DeclineReason.SURVEY_NOT_YET:
+        return "survey", detail
     if reason is DeclineReason.NO_MATCHING_DOCUMENTS:
         return "lookup with an empty restriction", detail
     return "failed", f"could not plan: {detail}"
@@ -75,7 +78,7 @@ def load_cases(
             raise ValueError(
                 f"case {index}: give exactly one of 'question' and 'golden_id'"
             )
-        if case.get("expected") not in ("lookup", "exact", "unsupported"):
+        if case.get("expected") not in ("lookup", "exact", "unsupported", "survey"):
             raise ValueError(
                 f"case {index}: unknown expected flow {case.get('expected')!r}"
             )
@@ -117,7 +120,7 @@ def routing_eval(
                 )
 
     print(f"\n{'expected flow':<16}{'runs':>6}{'right':>8}")
-    for flow in ("lookup", "exact", "unsupported"):
+    for flow in ("lookup", "exact", "unsupported", "survey"):
         results = per_expected[flow]
         if results:
             print(f"{flow:<16}{len(results):>6}{sum(results) / len(results):>8.0%}")

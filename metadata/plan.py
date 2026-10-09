@@ -41,9 +41,13 @@ class Operation(StrEnum):
     ``COUNT`` an exact number (optionally grouped by a categorical key); ``LIST``
     the matching documents; ``SUM`` the total of a number key; ``LOOKUP`` the set of
     matching documents, to restrict a normal retrieval to; ``OVERVIEW`` the matching
-    documents with their summaries, for a synthesised overview; ``UNSUPPORTED`` a
-    request this system cannot do yet (for example "list five cases similar to case
-    X"): it is reported plainly, not answered by a search that cannot serve it.
+    documents with their summaries, for a synthesised overview; ``SURVEY`` a question
+    about the practice, the kinds of cases or the outcomes across many documents that
+    the question does not name and no key selects (it needs the documents themselves to
+    be read, which this system cannot do yet: it is reported plainly, with the type and
+    filters kept for the day it can); ``UNSUPPORTED`` a request this system cannot do yet
+    (for example "list five cases similar to case X"): it is reported plainly, not
+    answered by a search that cannot serve it.
     """
 
     LOOKUP = "lookup"
@@ -51,6 +55,7 @@ class Operation(StrEnum):
     COUNT = "count"
     SUM = "sum"
     OVERVIEW = "overview"
+    SURVEY = "survey"
     UNSUPPORTED = "unsupported"
 
 
@@ -90,7 +95,7 @@ class QueryPlan:
 
     Attributes:
         doc_type: The document type the plan is about (its keys are the usable ones
-            and only its documents are considered); ``None`` for a ``lookup`` that
+            and only its documents are considered); ``None`` for a ``lookup`` or ``survey`` that
             names no type.
         operation: What to compute.
         filters: Conditions that must all hold (an AND).
@@ -165,7 +170,11 @@ def parse_plan(raw: object, doc_types: Collection[str]) -> QueryPlan:
         raise PlanError("a plan needs an 'operation'")
     operation = _enum(Operation, raw["operation"], "operation")
     doc_type = _document_type(raw, doc_types)
-    if doc_type is None and operation not in (Operation.LOOKUP, Operation.UNSUPPORTED):
+    if doc_type is None and operation not in (
+        Operation.LOOKUP,
+        Operation.SURVEY,
+        Operation.UNSUPPORTED,
+    ):
         raise PlanError(
             f"the '{operation.value}' operation needs a document_type "
             f"({', '.join(sorted(doc_types)) or 'none is known'}): an exact answer is "
