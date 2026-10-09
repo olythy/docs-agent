@@ -22,8 +22,8 @@ from query.answering import ExactAnswerer
 from query.composition import build_query_service, build_retrieval_service
 from query.decision import PlanningDecider, Scope
 from query.outcome import NO_RESULTS_MESSAGE, Answerable
-from query.profiles import DEFAULT_PROFILE
-from query.service import RetrievalRequest
+from query.retrieval.profiles import DEFAULT_PROFILE
+from query.retrieval.service import RetrievalRequest
 
 QUESTION = "What about the costs of the proceedings?"
 

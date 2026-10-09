@@ -1,4 +1,4 @@
-"""Tests for query.listwise_rerank.listwise_rerank.
+"""Tests for query.retrieval.listwise_rerank.listwise_rerank.
 
 No real LLM call here -- the answer driver is a plain mock exercising the
 generic run_tool_calling_turn() interface every concrete driver implements.
@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 from drivers.llm import AgentTurnResult
 from models import ChunkMetadata, RetrievedChunk
-from query.listwise_rerank import _parse_choice, listwise_rerank
+from query.retrieval.listwise_rerank import _parse_choice, listwise_rerank
 
 
 def _chunk(chunk_id, source, summary=None, chunk_index=0):

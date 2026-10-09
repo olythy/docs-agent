@@ -68,30 +68,36 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── hash.py                # SHA-256 content hashing for ingest dedup/versioning
 │   ├── summarize.py          # generate_document_summary: one LLM call per document, embedded into every chunk
 │   └── ingest.py             # add_document and add_directory orchestration
-├── query/
-│   ├── hybrid.py             # reciprocal_rank_fusion: pure RRF fusion logic
-│   ├── listwise_rerank.py    # Optional final LLM disambiguation pass over near-duplicate candidates
-│   ├── time_filter.py        # extract_years(): the years a question names (for the opt-in period-aware retrieval)
-│   ├── decline_detection.py  # Shared "did the model honestly decline" heuristic (the golden eval)
-│   │   # Decision, retrieval and answering as small classes; see docs/query-pipeline-design.md
-│   ├── facts.py              # QueryFacts / QueryFactsReader: identifiers and years read from the question, once
-│   ├── answering.py          # GroundedAnswerer (+AnswerPolicy) writes an answer from the chunks read, ExactAnswerer runs an exact plan; ResultPhraser/render_result word the result 
-│   ├── inflection.py         # strip_case_ending: a Hungarian case ending glued to an identifier ("…/4-es"); the language layer, kept out of the generic rules
-│   ├── outcome.py            # Answerable / Declined(reason, stage) (a refusal is a value, not an empty list), RefusalRenderer and the wording of every refusal, in one place
-│   ├── decision.py           # Scope / ScopeResolver (which documents), Decision (ReadDocuments | AnswerExactly | Refuse), PlanningDecider, ProfileSelector
-│   ├── context.py            # RetrievalContext (one frozen context) + Slot: what the steps share
-│   ├── step.py               # RetrievalStep (the contract: requires/provides/run), Continue / Halt, StepName
-│   ├── candidate_steps.py    # embed, dense search, year widening, CSLS reorder, keyword search
-│   ├── ranking_steps.py      # RRF fusion, rerank, listwise rerank
-│   ├── gate_steps.py         # relevance gate (cosine) and the reranker's score gate
-│   ├── selection_steps.py    # top-k with guarantees, cosine cut
-│   ├── profiles.py           # the registered retrieval profile (best_chunks), ProfileResolver, PipelineFactory (built per query)
-│   ├── runner.py             # RetrievalPipeline: validates the chain, runs it, tells observers; TraceRecorder
-│   ├── observers.py          # progress and audit-log observers (steps never log)
-│   ├── service.py            # RetrievalService.retrieve: one entry, owns the store session
-│   ├── query_service.py      # QueryService.answer: decide -> refuse | answer exactly | retrieve and write; returns the text with an Explain
+├── query/                    # question -> decision -> (retrieval ->) answer; see docs/query-pipeline-design.md
+│   ├── service.py            # QueryService.answer: decide -> refuse | answer exactly | retrieve and write; returns the text with an Explain
 │   ├── knowledge_base.py     # query_knowledge_base (the agent's entry point) and search_knowledge_base (passages only, for the MCP)
-│   └── composition.py        # build_retrieval_service / build_query_service: the one place that reads Settings and the driver factories
+│   ├── composition.py        # build_retrieval_service / build_query_service: the one place that reads Settings and the driver factories
+│   ├── observers.py          # progress and audit-log observers, for the steps and for the answers (steps and the answerer never log)
+│   │   # Reading the question
+│   ├── facts.py              # QueryFacts / QueryFactsReader: identifiers and years read from the question, once
+│   ├── inflection.py         # strip_case_ending: a Hungarian case ending glued to an identifier ("…/4-es"); the language layer, kept out of the generic rules
+│   ├── time_filter.py        # extract_years(): the years a question names
+│   │   # Refusals
+│   ├── outcome.py            # Answerable / Declined(reason, stage) (a refusal is a value, not an empty list), RefusalRenderer and the wording of every refusal, in one place
+│   ├── decline_detection.py  # Shared "did the model honestly decline" heuristic (the golden eval)
+│   │   # Answering
+│   ├── answering.py          # GroundedAnswerer (+AnswerPolicy, AnswerObserver) writes an answer from the chunks read, ExactAnswerer runs an exact plan; ResultPhraser/render_result word the result
+│   ├── decision/             # "which way does the question go, over which documents?"
+│   │   ├── decider.py        # Decision (ReadDocuments | AnswerExactly | Refuse), PlanningDecider, ProfileSelector
+│   │   └── scope.py          # Scope / ScopeResolver: which documents a question may read, and the rules that build it
+│   └── retrieval/            # "which chunks answer it?"
+│       ├── context.py        # RetrievalContext (one frozen context) + Slot: what the steps share
+│       ├── step.py           # RetrievalStep (the contract: requires/provides/run), Continue / Halt, StepName
+│       ├── steps/            # the steps, by kind
+│       │   ├── candidates.py # embed, dense search, year widening, CSLS reorder, keyword search
+│       │   ├── ranking.py    # RRF fusion, rerank, listwise rerank
+│       │   ├── gates.py      # relevance gate (cosine) and the reranker's score gate
+│       │   └── selection.py  # the final top-k cut with the year quota and the spread over named documents
+│       ├── profiles.py       # the registered retrieval profile (best_chunks), ProfileResolver, PipelineFactory (built per query)
+│       ├── runner.py         # RetrievalPipeline: validates the chain, runs it, tells observers; TraceRecorder
+│       ├── service.py        # RetrievalService.retrieve: one entry, owns the store session
+│       ├── hybrid.py         # reciprocal_rank_fusion: pure RRF fusion logic
+│       └── listwise_rerank.py # Optional final LLM disambiguation pass over near-duplicate candidates
 ├── migrations/              # Python migrations (Laravel-artisan-style runner)
 │   ├── base.py                # Migration ABC: up()/down() run raw SQL, no ORM
 │   ├── 0001_create_document_chunks_table.py
@@ -408,16 +414,16 @@ The path from question to chunks is a short chain of small steps (`query/*_steps
 
 ### Hybrid search (vector + keyword, fused by rank)
 
-Pure cosine-similarity search (the original design) misses one common case: an exact name, number, or code-like token can score poorly on embedding similarity even when it's a perfect keyword match — the embedding "smooths over" exact tokens that a keyword search finds trivially. The `hybrid` profile (`query/profiles.py`, run by `query/service.py`) runs **both**, by default:
+Pure cosine-similarity search (the original design) misses one common case: an exact name, number, or code-like token can score poorly on embedding similarity even when it's a perfect keyword match — the embedding "smooths over" exact tokens that a keyword search finds trivially. The `hybrid` profile (`query/retrieval/profiles.py`, run by `query/retrieval/service.py`) runs **both**, by default:
 
 - `VectorStore.search()` — pgvector cosine similarity (unchanged).
 - `VectorStore.search_fulltext()` — Postgres full-text search over a generated `tsvector` column (`migrations/0002_add_fulltext_search.py`), using the `simple` text-search configuration deliberately, not `english`/`hungarian` — the corpus mixes both languages, and a single language-specific configuration (with its stemming and stopword list) would only serve one of them well.
 
-The two ranked lists are combined with **Reciprocal Rank Fusion** (`query/hybrid.py`'s `reciprocal_rank_fusion()`): every chunk's fused score is `Σ 1/(rank + k)` across whichever list(s) it appears in (`k=60`, the standard default). RRF fuses by **rank position**, not raw score — cosine similarity (0–1) and `ts_rank` (unbounded) live on incompatible scales, so averaging or weighting the raw numbers directly would be comparing apples to oranges. This is the same technique Elasticsearch/OpenSearch's built-in hybrid search uses: simple, no training, no extra model.
+The two ranked lists are combined with **Reciprocal Rank Fusion** (`query/retrieval/hybrid.py`'s `reciprocal_rank_fusion()`): every chunk's fused score is `Σ 1/(rank + k)` across whichever list(s) it appears in (`k=60`, the standard default). RRF fuses by **rank position**, not raw score — cosine similarity (0–1) and `ts_rank` (unbounded) live on incompatible scales, so averaging or weighting the raw numbers directly would be comparing apples to oranges. This is the same technique Elasticsearch/OpenSearch's built-in hybrid search uses: simple, no training, no extra model.
 
 **A real bug this surfaced**, found while building the eval script below, not by inspection: `search_fulltext()` originally passed the raw question straight into `websearch_to_tsquery('simple', question)`. Because `simple` has no stopword list (that's exactly why it was chosen — see above), every word of the question — including grammar words like "milyen"/"used"/"is" — became a **mandatory** term (`websearch_to_tsquery` ANDs bare words together). A real chunk almost never contains a question's grammar words verbatim, so keyword search was silently returning **zero results for nearly every natural-language question**, undetected until the eval script's real numbers showed `0 keyword result(s)` on every single run. The fix: the question's words are OR-joined (`" or ".join(query_text.split())`) before being passed to `websearch_to_tsquery`, so a chunk matching *any* of the question's content words now contributes to the fusion, ranked by how many/how prominently they matched. Covered by both a unit test (asserts the OR-joined string reaches the query) and a DB test (a real sentence full of grammar words that would have failed pre-fix).
 
-There is one retrieval profile, `best_chunks` (`query/profiles.py`: an ordered list of steps, everything described above), and the decision chooses it by name. A profile is data, not a class: a second one (for questions that ask about many documents) is a new entry in that registry plus the steps it needs, measured before it is added. The plain cosine-only search that preceded hybrid search is gone as a profile; its comparison is recorded in `docs/decisions.md`.
+There is one retrieval profile, `best_chunks` (`query/retrieval/profiles.py`: an ordered list of steps, everything described above), and the decision chooses it by name. A profile is data, not a class: a second one (for questions that ask about many documents) is a new entry in that registry plus the steps it needs, measured before it is added. The plain cosine-only search that preceded hybrid search is gone as a profile; its comparison is recorded in `docs/decisions.md`.
 
 ### Reranking (on by default)
 
@@ -444,7 +450,7 @@ The older 25-question, three-document benchmark that compared a pure-vector sear
 
 Two independent layers, not one:
 
-1. **Retrieval-layer gate** (`RelevanceGateStep`, `query/gate_steps.py`): if *nothing* in the vector-search candidate pool clears `RETRIEVAL_MIN_SCORE`, `query_knowledge_base()` returns `NO_RESULTS_MESSAGE` immediately — no LLM call at all. This deliberately checks pure vector cosine similarity only, never the fused RRF/reranker score: cosine similarity lives on a calibrated [0, 1] scale with a meaningful "too-low-to-be-relevant" interpretation (the original motivation for `RETRIEVAL_MIN_SCORE=0.25`). This catches questions genuinely unrelated to anything in the knowledge base.
+1. **Retrieval-layer gate** (`RelevanceGateStep`, `query/retrieval/steps/gates.py`): if *nothing* in the vector-search candidate pool clears `RETRIEVAL_MIN_SCORE`, `query_knowledge_base()` returns `NO_RESULTS_MESSAGE` immediately — no LLM call at all. This deliberately checks pure vector cosine similarity only, never the fused RRF/reranker score: cosine similarity lives on a calibrated [0, 1] scale with a meaningful "too-low-to-be-relevant" interpretation (the original motivation for `RETRIEVAL_MIN_SCORE=0.25`). This catches questions genuinely unrelated to anything in the knowledge base.
 2. **Cross-encoder reranking gate** (`RERANKER_DRIVER=cross_encoder`, the default): when enabled, `CrossEncoderRerankerDriver` scores each `(question, chunk)` pair jointly and discards any chunk scoring below `RERANKER_MIN_SCORE=-2.0` on the logit scale. This is a *second* gate that fires *after* the cosine gate — it operates on the already-filtered candidate pool, not the raw corpus. Its logit scale (unbounded, centered around 0) has a natural "irrelevant" region confirmed empirically: relevant chunks score +2 to +6, clearly irrelevant ones score -3.5 to -9. With `cross_encoder` enabled, the measured `Fallback = 1.00` (6/6 unanswerable queries correctly rejected at the retrieval layer, zero reaching the LLM), vs. `Fallback = 0.00` without it — a 6-chunk saving per irrelevant query with no LLM call at all.
 
   **Caveat:** `-2.0` was calibrated on the same 6 unanswerable questions that the `Fallback = 1.00` number above is then measured against — that's training-set accuracy, not a demonstrated generalization to unseen questions. Validating it properly needs a larger, independent eval set that wasn't used for tuning.

@@ -12,8 +12,8 @@ from query.decision import Scope
 from query.facts import QueryFactsReader
 from query.observers import AuditLogObserver
 from query.outcome import Answerable, Declined, DeclineReason
-from query.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
-from query.service import RetrievalRequest, RetrievalService
+from query.retrieval.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
+from query.retrieval.service import RetrievalRequest, RetrievalService
 
 
 def service(settings_override, observers=()):

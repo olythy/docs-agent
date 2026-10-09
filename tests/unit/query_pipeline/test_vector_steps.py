@@ -1,10 +1,10 @@
 """The steps of the vector profile, one at a time (what the scenarios cannot reach)."""
 
 from models import ChunkMetadata, RetrievedChunk
-from query.context import RetrievalContext
 from query.facts import QueryFacts
-from query.gate_steps import RelevanceGateStep
-from query.step import Continue, Halt
+from query.retrieval.context import RetrievalContext
+from query.retrieval.step import Continue, Halt
+from query.retrieval.steps.gates import RelevanceGateStep
 
 
 def chunk(chunk_id: int, score: float) -> RetrievedChunk:

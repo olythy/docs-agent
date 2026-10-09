@@ -25,7 +25,7 @@ flowchart TD
 
 `VectorStore.compute_hub_scores()` is a separate, decoupled batch pass over the whole corpus (not part of the per-document flow above) — run it after a bulk ingest to (re)populate every chunk's `hub_score`, used by retrieval's CSLS re-ranking below. Idempotent; safe to re-run after any corpus change.
 
-## Question to answer: `QueryService` (`query/query_service.py`)
+## Question to answer: `QueryService` (`query/service.py`)
 
 ```mermaid
 flowchart TD
@@ -77,7 +77,7 @@ Every swappable backend in this project follows the same shape: an ABC, one or m
 | Embedding backend | `EmbeddingDriver` | `LocalSentenceTransformerDriver`, `OpenAIEmbeddingDriver`, `OpenRouterEmbeddingDriver`, `GeminiEmbeddingDriver`, `JinaEmbeddingDriver`, `VertexEmbeddingDriver` | `EMBEDDING_DRIVER` | `get_embedding_driver()` (`drivers/embedding.py`) |
 | Answer generation | `AnswerDriver` | `OpenRouterAnswerDriver`, `OpenAIAnswerDriver`, `GeminiAnswerDriver`, `VertexAnswerDriver` | `LLM_DRIVER` | `get_answer_driver()` (`drivers/llm.py`) |
 | Reranking | `RerankerDriver` | `NoopRerankerDriver`, `CrossEncoderRerankerDriver`, `JinaRerankerDriver`, `VertexRankerDriver` | `RERANKER_DRIVER` | `get_reranker_driver()` (`drivers/reranker.py`) |
-| Which steps retrieve (a profile) | `ProfileSpec` | `best_chunks` (registered data in `query/profiles.py`; more are added there when measured) | the decision (`DEFAULT_PROFILE` unless it names another) | `ProfileResolver` / `PipelineFactory` (`query/profiles.py`) |
+| Which steps retrieve (a profile) | `ProfileSpec` | `best_chunks` (registered data in `query/retrieval/profiles.py`; more are added there when measured) | the decision (`DEFAULT_PROFILE` unless it names another) | `ProfileResolver` / `PipelineFactory` (`query/retrieval/profiles.py`) |
 | How a document is split into chunks | `ChunkingStrategy` | `WordChunkingStrategy`, `LangChainChunkingStrategy` | `CHUNKING_STRATEGY` | `get_chunking_strategy()` (`ingestion/chunker.py`) |
 | What happens to an over-limit chunk | `ChunkOverflowStrategy` | `WarnOverflowStrategy`, `SplitOverflowStrategy` | `CHUNK_OVERFLOW_STRATEGY` | `get_chunk_overflow_strategy()` (`ingestion/chunker.py`) |
 | Document text extraction | `Extractor` | `PDFExtractor`, `MarkdownExtractor` | **the file's extension** — the one deliberate exception; see `AGENTS.md` | `get_extractor(path)` (`ingestion/extractors.py`) |
@@ -145,14 +145,14 @@ Two yardsticks, on purpose: `exact_match` (every golden document must be in the 
 flowchart LR
     subgraph Orchestrators["Agent-facing tools (stay thin — no SQL, no business branching)"]
         ingest["ingestion/ingest.py<br/>add_document / add_directory"]
-        retrieval["query/knowledge_base.py<br/>query_knowledge_base / search_knowledge_base<br/>(over query/query_service.py)"]
+        retrieval["query/knowledge_base.py<br/>query_knowledge_base / search_knowledge_base<br/>(over query/service.py)"]
     end
     subgraph Strategies["Strategies & Drivers (swappable backends)"]
         drivers["drivers/*.py"]
         chunker["ingestion/chunker.py"]
         extractors["ingestion/extractors.py"]
         summarize["ingestion/summarize.py<br/>generate_document_summary"]
-        listwise["query/listwise_rerank.py<br/>listwise_rerank (optional)"]
+        listwise["query/retrieval/listwise_rerank.py<br/>listwise_rerank (optional)"]
     end
     subgraph DataAccess["Data access (all SQL lives here)"]
         db["db.py — connection factory"]
@@ -164,7 +164,7 @@ flowchart LR
         models["models.py<br/>ChunkMetadata / Chunk / RetrievedChunk"]
     end
     subgraph Fusion["Pure logic, no I/O"]
-        hybrid["query/hybrid.py<br/>reciprocal_rank_fusion"]
+        hybrid["query/retrieval/hybrid.py<br/>reciprocal_rank_fusion"]
         timefilter["query/time_filter.py<br/>extract_years"]
     end
     subgraph Measuring["Golden-set sub-app (not part of the agent)"]

@@ -1,6 +1,6 @@
 """The question-answering entry point of the agent: ``query_knowledge_base``.
 
-A thin function over :class:`query.query_service.QueryService`: it builds the service from
+A thin function over :class:`query.service.QueryService`: it builds the service from
 the settings and asks it. It decides nothing and carries nothing out itself; the service and
 the classes behind it do (see ``docs/query-pipeline-design.md``).
 
@@ -14,8 +14,8 @@ from models import RetrievedChunk
 from query.composition import build_query_service, build_retrieval_service
 from query.decision import scope_of_source_file
 from query.outcome import Answerable
-from query.profiles import DEFAULT_PROFILE
-from query.service import RetrievalRequest
+from query.retrieval.profiles import DEFAULT_PROFILE
+from query.retrieval.service import RetrievalRequest
 from store import VectorStore
 
 

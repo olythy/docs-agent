@@ -81,7 +81,7 @@ def stage_ids(records) -> dict[str, list[int]]:
     """The chunk ids every step left, by ``<step>.<list>`` (side results by ``<step>.<label>``).
 
     Args:
-        records: The step records of one retrieval (:class:`query.runner.StageRecord`).
+        records: The step records of one retrieval (:class:`query.retrieval.runner.StageRecord`).
     """
     stages: dict[str, list[int]] = {}
     for record in records:
@@ -98,8 +98,8 @@ def take_snapshot(questions: list[dict]) -> dict[str, Any]:
     from drivers.embedding import get_embedding_driver
     from query.composition import build_retrieval_service
     from query.outcome import Answerable
-    from query.profiles import DEFAULT_PROFILE
-    from query.service import RetrievalRequest
+    from query.retrieval.profiles import DEFAULT_PROFILE
+    from query.retrieval.service import RetrievalRequest
     from store import VectorStore
 
     driver = get_embedding_driver()

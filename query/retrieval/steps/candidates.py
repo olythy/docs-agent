@@ -11,8 +11,14 @@ Key exports:
 
 from drivers.embedding import EmbeddingDriver
 from models import RetrievedChunk
-from query.context import RetrievalContext, Slot
-from query.step import AuxRecord, Continue, RetrievalStep, StepName, StepResult
+from query.retrieval.context import RetrievalContext, Slot
+from query.retrieval.step import (
+    AuxRecord,
+    Continue,
+    RetrievalStep,
+    StepName,
+    StepResult,
+)
 from store import VectorStore
 
 

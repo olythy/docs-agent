@@ -27,7 +27,7 @@ from typing import Annotated
 import typer
 
 from models import RetrievedChunk
-from query.runner import StageRecord
+from query.retrieval.runner import StageRecord
 
 app = typer.Typer()
 
@@ -309,8 +309,8 @@ def funnel(
     from drivers.embedding import get_embedding_driver
     from query.composition import build_retrieval_service
     from query.outcome import Answerable
-    from query.profiles import DEFAULT_PROFILE
-    from query.service import RetrievalRequest
+    from query.retrieval.profiles import DEFAULT_PROFILE
+    from query.retrieval.service import RetrievalRequest
     from query.time_filter import extract_years
     from store import VectorStore
 

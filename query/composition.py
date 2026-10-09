@@ -1,7 +1,7 @@
 """Putting the retrieval together from the settings and the drivers.
 
 The one place that reads ``Settings`` and the driver factories to build a
-:class:`query.service.RetrievalService`: the embedding and reranker drivers, the
+:class:`query.retrieval.service.RetrievalService`: the embedding and reranker drivers, the
 listwise reranker (bound to its language model and limits, made lazily because the
 model client is only needed when that step is switched on) and the observers that write
 the progress lines and the audit log. Steps and the service themselves never see
@@ -26,12 +26,12 @@ from query.decision import (
     ScopeResolver,
 )
 from query.facts import QueryFactsReader
-from query.listwise_rerank import listwise_rerank
 from query.observers import AnswerAuditObserver, AuditLogObserver, ProgressLogObserver
 from query.outcome import RefusalRenderer
-from query.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
-from query.query_service import QueryService
-from query.service import RetrievalService
+from query.retrieval.listwise_rerank import listwise_rerank
+from query.retrieval.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
+from query.retrieval.service import RetrievalService
+from query.service import QueryService
 
 
 def build_retrieval_service(settings: Settings) -> RetrievalService:

@@ -22,7 +22,9 @@ from enum import StrEnum
 from config import Settings
 from drivers.embedding import EmbeddingDriver
 from drivers.reranker import RerankerDriver
-from query.candidate_steps import (
+from query.retrieval.runner import PipelineError, RetrievalPipeline
+from query.retrieval.step import RetrievalStep, StepName
+from query.retrieval.steps.candidates import (
     CslsReorderStep,
     DenseSearchStep,
     EmbedQueryStep,
@@ -30,16 +32,14 @@ from query.candidate_steps import (
     YearDenseWideningStep,
     YearKeywordWideningStep,
 )
-from query.gate_steps import RelevanceGateStep, RerankScoreGateStep
-from query.ranking_steps import (
+from query.retrieval.steps.gates import RelevanceGateStep, RerankScoreGateStep
+from query.retrieval.steps.ranking import (
     ListwiseRanker,
     ListwiseRerankStep,
     RerankStep,
     RrfFusionStep,
 )
-from query.runner import PipelineError, RetrievalPipeline
-from query.selection_steps import TopKWithGuaranteesStep
-from query.step import RetrievalStep, StepName
+from query.retrieval.steps.selection import TopKWithGuaranteesStep
 from store import VectorStore
 
 

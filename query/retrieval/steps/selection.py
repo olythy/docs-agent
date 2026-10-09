@@ -5,8 +5,8 @@ Key exports:
 """
 
 from models import RetrievedChunk
-from query.context import RetrievalContext, Slot
-from query.step import Continue, RetrievalStep, StepName, StepResult
+from query.retrieval.context import RetrievalContext, Slot
+from query.retrieval.step import Continue, RetrievalStep, StepName, StepResult
 
 
 def _round_robin_by_document(

@@ -1,6 +1,6 @@
 """The contract of a step of the retrieval pipeline.
 
-A step does one thing to a :class:`query.context.RetrievalContext`: it reads some slots
+A step does one thing to a :class:`query.retrieval.context.RetrievalContext`: it reads some slots
 and fills others, and either continues with the changed context (:class:`Continue`) or
 refuses the question (:class:`Halt`). It declares the slots it ``requires`` and
 ``provides``, so a chain that cannot work (a step reads what no earlier step wrote) is
@@ -22,8 +22,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from models import RetrievedChunk
-from query.context import RetrievalContext, Slot
 from query.outcome import Declined
+from query.retrieval.context import RetrievalContext, Slot
 
 
 class StepName(StrEnum):

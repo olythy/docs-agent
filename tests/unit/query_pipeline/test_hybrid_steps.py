@@ -8,18 +8,18 @@ functions (the hubness reorder and the final cut with its year quota).
 
 from logger import EventLogger
 from models import ChunkMetadata, RetrievedChunk
-from query.candidate_steps import (
+from query.facts import QueryFacts
+from query.observers import AuditLogObserver
+from query.retrieval.context import RetrievalContext
+from query.retrieval.step import Continue, Halt
+from query.retrieval.steps.candidates import (
     CslsReorderStep,
     KeywordSearchStep,
     YearDenseWideningStep,
     YearKeywordWideningStep,
 )
-from query.context import RetrievalContext
-from query.facts import QueryFacts
-from query.gate_steps import RerankScoreGateStep
-from query.observers import AuditLogObserver
-from query.selection_steps import TopKWithGuaranteesStep
-from query.step import Continue, Halt
+from query.retrieval.steps.gates import RerankScoreGateStep
+from query.retrieval.steps.selection import TopKWithGuaranteesStep
 
 
 def chunk(

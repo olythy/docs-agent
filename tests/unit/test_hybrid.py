@@ -1,7 +1,7 @@
-"""Tests for query.hybrid.reciprocal_rank_fusion (pure logic, no DB needed)."""
+"""Tests for query.retrieval.hybrid.reciprocal_rank_fusion (pure logic, no DB needed)."""
 
 from models import ChunkMetadata, RetrievedChunk
-from query.hybrid import reciprocal_rank_fusion
+from query.retrieval.hybrid import reciprocal_rank_fusion
 
 
 def _chunk(chunk_id, content="c", score=0.0, page=1) -> RetrievedChunk:

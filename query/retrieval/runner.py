@@ -20,9 +20,9 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from models import RetrievedChunk
-from query.context import CHUNK_SLOTS, RetrievalContext, Slot
 from query.outcome import Answerable, Declined
-from query.step import Halt, RetrievalStep, StepResult
+from query.retrieval.context import CHUNK_SLOTS, RetrievalContext, Slot
+from query.retrieval.step import Halt, RetrievalStep, StepResult
 
 
 class PipelineError(RuntimeError):

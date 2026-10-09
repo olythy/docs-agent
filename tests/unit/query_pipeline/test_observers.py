@@ -6,16 +6,16 @@ import logging
 from logger import EventLogger
 from models import ChunkMetadata, RetrievedChunk
 from query.answering import GroundedAnswer
-from query.context import RetrievalContext
 from query.facts import QueryFacts
-from query.gate_steps import RelevanceGateStep
 from query.observers import (
     AnswerAuditObserver,
     AuditLogObserver,
     CompositeObserver,
     ProgressLogObserver,
 )
-from query.step import Continue, RetrievalStep
+from query.retrieval.context import RetrievalContext
+from query.retrieval.step import Continue, RetrievalStep
+from query.retrieval.steps.gates import RelevanceGateStep
 
 
 def chunk(chunk_id: int, score: float) -> RetrievedChunk:

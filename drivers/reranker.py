@@ -50,7 +50,7 @@ class RerankerDriver(ABC):
         Args:
             question: The user's query text.
             chunks: Candidate chunks (as returned by
-                :func:`query.hybrid.reciprocal_rank_fusion`).
+                :func:`query.retrieval.hybrid.reciprocal_rank_fusion`).
 
         Returns:
             The same chunks, in descending relevance order. Implementations

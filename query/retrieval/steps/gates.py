@@ -5,9 +5,9 @@ Key exports:
     RerankScoreGateStep -- Refuses when the reranker scores every candidate too low.
 """
 
-from query.context import RetrievalContext, Slot
 from query.outcome import Declined, DeclineReason
-from query.step import Continue, Halt, RetrievalStep, StepName, StepResult
+from query.retrieval.context import RetrievalContext, Slot
+from query.retrieval.step import Continue, Halt, RetrievalStep, StepName, StepResult
 
 
 class RelevanceGateStep(RetrievalStep):

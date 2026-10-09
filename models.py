@@ -75,7 +75,7 @@ class ChunkMetadata:
             score means the chunk's embedding sits in a "generic"/central
             region of the embedding space (many other chunks look similar
             to it); used to penalize generic chunks at query time (see
-            ``query.candidate_steps.CslsReorderStep``) without ever excluding them
+            ``query.retrieval.steps.candidates.CslsReorderStep``) without ever excluding them
             outright -- see ``docs/decisions.md`` for why a hard exclusion
             threshold was tried first and rejected.
         document_summary: A short, LLM-generated, fact-focused summary of
@@ -175,7 +175,7 @@ class RetrievedChunk:
 
     Attributes:
         id: The row's ``document_chunks.id`` primary key — lets callers
-            (e.g. :func:`query.hybrid.reciprocal_rank_fusion`) identify the
+            (e.g. :func:`query.retrieval.hybrid.reciprocal_rank_fusion`) identify the
             *same* chunk across separate result sets (vector vs. keyword
             search), since two different rows could coincidentally share
             identical text.

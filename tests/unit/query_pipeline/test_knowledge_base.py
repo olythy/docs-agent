@@ -5,8 +5,8 @@ from models import ChunkMetadata, RetrievedChunk
 from query.decision import Scope, scope_of_source_file
 from query.knowledge_base import query_knowledge_base
 from query.outcome import Answerable, Declined, DeclineReason
-from query.profiles import DEFAULT_PROFILE
-from query.service import RetrievalResult
+from query.retrieval.profiles import DEFAULT_PROFILE
+from query.retrieval.service import RetrievalResult
 
 
 class FakeService:

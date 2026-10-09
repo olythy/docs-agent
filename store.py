@@ -635,12 +635,12 @@ class VectorStore:
             years: Optional years; only chunks whose ``document_date`` falls
                 in one of them are considered (documents without a date are
                 excluded from this call -- callers that want them back run
-                an unfiltered search too, see ``query.service``).
+                an unfiltered search too, see ``query.retrieval.service``).
 
         Returns:
             A list of :class:`models.RetrievedChunk` ordered by descending
             similarity. Each carries ``id`` (the row's primary key — lets
-            callers like :func:`query.hybrid.reciprocal_rank_fusion`
+            callers like :func:`query.retrieval.hybrid.reciprocal_rank_fusion`
             identify the *same* chunk across a separate keyword-search
             result set, since two different rows could coincidentally
             share identical text).
@@ -726,7 +726,7 @@ class VectorStore:
         reasoning scored just as "similar to many other chunks" as actual
         copy-pasted boilerplate -- a hard threshold can't tell those
         apart. A continuous penalty applied at *query* time (CSLS-style,
-        see :class:`query.candidate_steps.CslsReorderStep`) never excludes anything
+        see :class:`query.retrieval.steps.candidates.CslsReorderStep`) never excludes anything
         outright, so it can't repeat that failure mode; confirmed live on
         the same real test case that CSLS re-ranking alone (no exclusion)
         moved a known-correct document from rank 16 to rank 6 of 19 real
@@ -817,7 +817,7 @@ class VectorStore:
         live to measurably improve keyword-search rank on this
         all-Hungarian legal corpus, see docs/decisions.md's 2026-10-03
         entry), ranked by ``ts_rank``. This is the keyword half of
-        hybrid search; see :func:`query.hybrid.reciprocal_rank_fusion` for
+        hybrid search; see :func:`query.retrieval.hybrid.reciprocal_rank_fusion` for
         how it's combined with :meth:`search`'s vector results. The
         tsquery-side config must always match ``content_tsv``'s own
         config — a query built with a different config would tokenize
@@ -938,7 +938,7 @@ class VectorStore:
 
         Returns:
             Matching chunks, each with a placeholder ``score`` (1.0) — the
-            caller (the ``hybrid`` profile of ``query.profiles``)
+            caller (the ``hybrid`` profile of ``query.retrieval.profiles``)
             doesn't rank these against the vector/full-text results, it
             merges them in directly, and the reranker re-scores everything
             downstream anyway.

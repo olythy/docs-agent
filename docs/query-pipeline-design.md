@@ -68,7 +68,7 @@ not what was decided.
 | `GroundedAnswerer` | Write the answer from the chunks | `answering.py` |
 | `ExactAnswerer` | Run an exact plan and word the result | `answering.py` |
 | `RefusalRenderer` | What is the person told when there is no answer? | `outcome.py` |
-| `QueryService` | Connect them in the one order there is, and explain | `query_service.py` |
+| `QueryService` | Connect them in the one order there is, and explain | `service.py` |
 
 The two questions people mix up: **`Scope` is about documents** (decided from the
 metadata, before any ranking), **a profile is about steps** (what the retrieval does
@@ -97,29 +97,38 @@ inside the scope). The retrieval decides neither; it receives both.
 
 ## 4. Modules
 
-| Module | Contents |
-|---|---|
-| `facts.py` | `QueryFacts`, `QueryFactsReader` |
-| `inflection.py` | `strip_case_ending` (the Hungarian language layer for identifiers) |
-| `outcome.py` | `Answerable`, `Declined`, `DeclineReason`, `RefusalRenderer`, the fixed refusal sentences |
-| `decision.py` | `Decision` (`ReadDocuments` / `AnswerExactly` / `Refuse`), `Scope`, `ScopeResolver`, `PlanningDecider`, `ProfileSelector`, `as_routed`, `scope_of_source_file` |
-| `context.py` | `RetrievalContext` (one frozen context), `Slot` |
-| `step.py` | `RetrievalStep` (the contract), `Continue` / `Halt`, `AuxRecord`, `StepName` |
-| `candidate_steps.py` | embed, dense search, year widening (dense and keyword), CSLS reorder, keyword search |
-| `ranking_steps.py` | RRF fusion, rerank, listwise rerank |
-| `gate_steps.py` | the relevance gate (cosine) and the reranker's score gate |
-| `selection_steps.py` | the final cut with the year quota and the spread over named documents |
-| `profiles.py` | `StepSpec`, `ProfileSpec`, `PROFILES`, `DEFAULT_PROFILE`, `Condition`, `ProfileResolver`, `PipelineFactory` |
-| `runner.py` | `RetrievalPipeline`, `StepObserver`, `TraceRecorder`, `StageRecord` |
-| `observers.py` | `AuditLogObserver`, `ProgressLogObserver`, `CompositeObserver`, `AnswerAuditObserver` |
-| `service.py` | `RetrievalRequest`, `RetrievalResult`, `RetrievalService` |
-| `answering.py` | `GroundedAnswerer`, `AnswerPolicy`, `AnswerObserver`, `ExactAnswerer`, `ResultPhraser`, `render_result` |
-| `query_service.py` | `QueryService`, `Answer`, `Explain` |
-| `knowledge_base.py` | `query_knowledge_base` (the agent's entry), `search_knowledge_base` (passages only, for the MCP) |
-| `composition.py` | `build_retrieval_service`, `build_planning`, `build_query_service` |
+Grouped by responsibility, so that it is clear where to touch:
 
-Reused as they are (not part of the pipeline's own structure): `hybrid.py` (RRF),
-`listwise_rerank.py`, `time_filter.py` (`extract_years`), `decline_detection.py`.
+```
+query/
+├── service.py         QueryService, Answer, Explain: connects the parts, in the one order there is
+├── knowledge_base.py  query_knowledge_base (the agent), search_knowledge_base (passages only, the MCP)
+├── composition.py     build_retrieval_service, build_planning, build_query_service: the only reader of Settings
+├── observers.py       AuditLogObserver, ProgressLogObserver, CompositeObserver, AnswerAuditObserver
+│
+├── facts.py  inflection.py  time_filter.py     reading the question
+├── outcome.py  decline_detection.py            refusals: the value, the wording, the eval's reading of it
+├── answering.py       GroundedAnswerer, AnswerPolicy, AnswerObserver, ExactAnswerer, ResultPhraser
+│
+├── decision/          "which way does the question go, over which documents?"
+│   ├── decider.py     Decision (ReadDocuments / AnswerExactly / Refuse), PlanningDecider, ProfileSelector, as_routed
+│   └── scope.py       Scope, ScopeResolver, scope_of_source_file
+│
+└── retrieval/         "which chunks answer it?"
+    ├── context.py  step.py  runner.py  service.py   the shared context, the step contract, the pipeline, the entry
+    ├── profiles.py    StepSpec, ProfileSpec, PROFILES, DEFAULT_PROFILE, Condition, ProfileResolver, PipelineFactory
+    ├── steps/         candidates.py  ranking.py  gates.py  selection.py   (the steps, by kind)
+    └── hybrid.py  listwise_rerank.py                the pure logic some steps use
+```
+
+A new kind of question that is read differently (for example a profile that reads
+documents rather than chunks) adds steps under `retrieval/steps/` and an entry in
+`retrieval/profiles.py`; the decision chooses it by name. A new refusal is a
+`DeclineReason` in `outcome.py` and a branch in the decider. Nothing else has to move.
+
+Dependencies point one way: the entry modules use `decision`, `retrieval` and
+`answering`; `retrieval` uses `facts`, `outcome` and the `Scope` value from `decision`;
+`decision` uses `facts` and `outcome` and never `retrieval`.
 
 ### 4.1 Decision and scope
 

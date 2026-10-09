@@ -18,9 +18,9 @@ from collections.abc import Sequence
 from logger import EventLogger, LogAction
 from models import RetrievedChunk
 from query.answering import GroundedAnswer
-from query.context import CHUNK_SLOTS, RetrievalContext
-from query.runner import StepObserver
-from query.step import Halt, RetrievalStep, StepName, StepResult
+from query.retrieval.context import CHUNK_SLOTS, RetrievalContext
+from query.retrieval.runner import StepObserver
+from query.retrieval.step import Halt, RetrievalStep, StepName, StepResult
 
 _progress = logging.getLogger("query.progress")
 

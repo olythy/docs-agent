@@ -140,8 +140,8 @@ class TestAnswerAndRetrieved:
         from query.decision import ReadDocuments, Scope
         from query.facts import QueryFacts
         from query.outcome import Answerable
-        from query.query_service import Answer, Explain
-        from query.service import RetrievalResult
+        from query.retrieval.service import RetrievalResult
+        from query.service import Answer, Explain
 
         chunk = RetrievedChunk(
             id=1,
@@ -180,7 +180,7 @@ class TestCitationRanks:
         from corpus.commands.eval import DIAGNOSTIC_POOL_SIZE, _citation_ranks
         from models import ChunkMetadata, RetrievedChunk
         from query.outcome import Answerable
-        from query.service import RetrievalResult
+        from query.retrieval.service import RetrievalResult
 
         def chunk(i, source):
             return RetrievedChunk(

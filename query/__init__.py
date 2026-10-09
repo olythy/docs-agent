@@ -1,7 +1,12 @@
-"""Query package.
+"""Query package: question -> decision -> (retrieval ->) answer.
 
-Contains the retrieval and answer-generation pipeline:
+    service, knowledge_base, composition, observers -- the entry layer
+    facts, inflection, time_filter  -- reading the question
+    outcome, decline_detection      -- refusals (the value, the wording, the eval's reading)
+    answering                       -- the grounded and the exact answerer
+    decision/                       -- which way the question goes, over which documents
+    retrieval/                      -- which chunks answer it (context, steps, profiles)
 
-    retrieval  -- Embeds a question, fetches top-k similar chunks from the
-                  vector store, and generates a grounded answer via the LLM driver.
+Nothing is imported here on purpose: importing ``query.facts`` or ``query.outcome`` must not
+load the model drivers. The design is in ``docs/query-pipeline-design.md``.
 """

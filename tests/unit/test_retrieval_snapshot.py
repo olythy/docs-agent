@@ -76,8 +76,8 @@ def test_different_settings_make_the_comparison_meaningless_and_say_so():
 
 def test_the_stage_ids_name_each_list_by_its_step_and_keep_side_results():
     from models import ChunkMetadata, RetrievedChunk
-    from query.context import Slot
-    from query.runner import StageRecord
+    from query.retrieval.context import Slot
+    from query.retrieval.runner import StageRecord
 
     def chunk(i):
         return RetrievedChunk(

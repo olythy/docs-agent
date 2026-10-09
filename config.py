@@ -300,7 +300,7 @@ class Settings:
                               reranking) — always at least RETRIEVAL_TOP_K,
                               but wider by default so fusion/reranking has
                               something to actually reorder (default: 20).
-                              See ``query/profiles.py``.
+                              See ``query/retrieval/profiles.py``.
         HUB_SCORE_NEIGHBOR_SAMPLE_SIZE
                               How many nearest neighbors (in the whole
                               corpus, by cosine similarity)
@@ -312,12 +312,12 @@ class Settings:
                               — see docs/decisions.md for why it was
                               rejected): this score is a continuous
                               genericness measure, used only to re-rank
-                              (:class:`query.candidate_steps.CslsReorderStep`), never
+                              (:class:`query.retrieval.steps.candidates.CslsReorderStep`), never
                               to exclude a chunk outright.
         LISTWISE_RERANK_ENABLED
                               Whether the ``hybrid`` profile runs a
                               final listwise LLM disambiguation pass (see
-                              ``query.listwise_rerank.listwise_rerank``)
+                              ``query.retrieval.listwise_rerank.listwise_rerank``)
                               right before the ``top_k`` cut (default:
                               ``False``). Costs one extra LLM_DRIVER call
                               per query -- confirmed live to be the single
@@ -342,7 +342,7 @@ class Settings:
                               all (default: ``True``). Taking turns across the
                               documents a question *names* (case numbers) is
                               not a setting: it always happens
-                              (``query.selection_steps.TopKWithGuaranteesStep``).
+                              (``query.retrieval.steps.selection.TopKWithGuaranteesStep``).
                               On by default after an A/B measurement (see
                               docs/decisions.md).
 

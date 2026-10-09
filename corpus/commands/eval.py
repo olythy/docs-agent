@@ -452,8 +452,8 @@ def _citation_ranks(
     from config import settings
     from query.composition import build_retrieval_service
     from query.outcome import Answerable
-    from query.profiles import DEFAULT_PROFILE
-    from query.service import RetrievalRequest
+    from query.retrieval.profiles import DEFAULT_PROFILE
+    from query.retrieval.service import RetrievalRequest
     from store import VectorStore
 
     result = build_retrieval_service(settings).retrieve(
@@ -849,7 +849,7 @@ def eval(
         typer.Option(
             help=(
                 "Read with this retrieval profile instead of the one the decision "
-                "chooses (a name from query/profiles.py)."
+                "chooses (a name from query/retrieval/profiles.py)."
             )
         ),
     ] = None,
@@ -881,7 +881,7 @@ def eval(
     aren't enough yet. Grading strategy per persona comes from
     corpus/data/personas.json's grading_strategies field.
     """
-    from query.profiles import PROFILES
+    from query.retrieval.profiles import PROFILES
 
     if profile is not None and profile not in PROFILES:
         raise typer.BadParameter(f"--profile must be one of {sorted(PROFILES)}")

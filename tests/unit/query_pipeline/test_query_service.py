@@ -16,8 +16,8 @@ from query.outcome import (
     DeclineReason,
     RefusalRenderer,
 )
-from query.query_service import QueryService
-from query.service import RetrievalResult
+from query.retrieval.service import RetrievalResult
+from query.service import QueryService
 
 PLAN = QueryPlan("court_decision", Operation.COUNT, (Filter("k", FilterOp.EQ, "v"),))
 CHUNK = RetrievedChunk(

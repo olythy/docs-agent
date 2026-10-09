@@ -1,133 +1,215 @@
-"""The entry point of the new retrieval: a question in, chunks (or a refusal) out.
+"""Answering a question end to end: decide, then carry the decision out.
 
-:class:`RetrievalService` coordinates, and nothing else: it reads the facts, resolves
-the profile, opens the store for the run, builds the pipeline and runs it. It owns the
-store session (open, check the embedding dimension), so the pipeline itself stays
-ignorant of the store's lifecycle.
+:class:`QueryService` is the one entry point of the new pipeline. It owns no logic of its
+own about *what* to do (that is the decider's) nor *how* (the retrieval, the answerers and the
+refusal renderer do it); it connects them in the one order there is:
+
+    facts -> decision -> refuse | answer exactly | retrieve -> (refuse | write the answer)
+
+Every answer comes back with an :class:`Explain`: the decision that was taken, what the
+retrieval did, who refused. Nothing the person is told is only in a log.
 
 Key exports:
-    RetrievalRequest, RetrievalResult -- What goes in and comes out.
-    RetrievalService                  -- Runs a retrieval.
+    Answer       -- The text, with its explanation.
+    Explain      -- How the answer came about.
+    QueryService -- Answers a question.
 """
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+import logging
+from dataclasses import dataclass, replace
+from typing import Protocol
 
-from drivers.embedding import EmbeddingDriver
-from query.context import RetrievalContext
-from query.decision import Scope
+from metadata.plan import QueryPlan
+from models import RetrievedChunk
+from query.answering import GroundedAnswer
+from query.decision import (
+    AnswerExactly,
+    Decider,
+    Decision,
+    ReadDocuments,
+    Refuse,
+    Scope,
+)
 from query.facts import QueryFactsReader
-from query.observers import CompositeObserver
-from query.outcome import Answerable, Declined
-from query.profiles import PipelineFactory, ProfileResolver
-from query.runner import StageRecord, StepObserver, TraceRecorder
+from query.outcome import Answerable, Declined, RefusalRenderer
+from query.retrieval.service import RetrievalRequest, RetrievalResult
 from store import VectorStore
 
+logger = logging.getLogger(__name__)
 
-@dataclass(frozen=True)
-class RetrievalRequest:
-    """A question to retrieve chunks for.
 
-    Attributes:
-        question: The user's question.
-        profile: The name of the profile to run.
-        metadata_filter: A key/value restriction on chunk metadata.
-        query_vector: A precomputed embedding of the question.
-        top_k: Overrides ``RETRIEVAL_TOP_K``.
-        min_score: Overrides ``RETRIEVAL_MIN_SCORE``.
-        scope: Which documents the retrieval may look at (decided beforehand, from the
-            metadata). The service restricts the store to it, so no caller has to remember
-            to; when it has a selection it **replaces** any restriction the given store has.
-            ``None`` means unrestricted.
-    """
+class Retrieves(Protocol):
+    """Reads the best chunks (:class:`query.retrieval.service.RetrievalService`)."""
 
-    question: str
-    profile: str
-    metadata_filter: Mapping[str, object] | None = None
-    query_vector: Sequence[float] | None = None
-    top_k: int | None = None
-    min_score: float | None = None
-    scope: Scope | None = None
+    def retrieve(
+        self, request: RetrievalRequest, store: VectorStore
+    ) -> RetrievalResult: ...
+
+
+class AnswersExactly(Protocol):
+    """Answers from the metadata alone (:class:`query.answering.ExactAnswerer`)."""
+
+    def answer(self, question: str, plan: QueryPlan) -> str: ...
+
+
+class AnswersFromChunks(Protocol):
+    """Writes an answer from chunks (:class:`query.answering.GroundedAnswerer`)."""
+
+    def answer(
+        self, question: str, chunks: tuple[RetrievedChunk, ...]
+    ) -> GroundedAnswer: ...
 
 
 @dataclass(frozen=True)
-class RetrievalResult:
-    """How a retrieval ended.
+class Explain:
+    """How an answer came about.
 
     Attributes:
-        outcome: The chunks, or the refusal (which says which stage refused).
-        records: What every step that ran held going in and coming out.
-        scope: The scope the retrieval ran under, with its note (what was left out, what
-            matched only approximately), so the answer can carry it.
+        decision: What was decided for the question.
+        retrieval: What the retrieval did; ``None`` when no documents were read.
+        declined: Who refused and why; ``None`` when the question was answered.
+        model_refused: The model itself answered with its refusal sentence.
     """
 
-    outcome: Answerable | Declined
-    records: tuple[StageRecord, ...]
-    scope: Scope = field(default_factory=Scope)
+    decision: Decision
+    retrieval: RetrievalResult | None = None
+    declined: Declined | None = None
+    model_refused: bool = False
+
+    @property
+    def chunks(self) -> tuple[RetrievedChunk, ...]:
+        """The chunks the answer was written from (none when nothing was read or kept)."""
+        if self.retrieval is not None and isinstance(
+            self.retrieval.outcome, Answerable
+        ):
+            return self.retrieval.outcome.chunks
+        return ()
 
 
-class RetrievalService:
-    """Runs a retrieval from a request.
+@dataclass(frozen=True)
+class Answer:
+    """What the person is told, and how it came about.
+
+    Attributes:
+        text: The answer, with any caveat of the scope appended.
+        explain: How it came about.
+    """
+
+    text: str
+    explain: Explain
+
+
+class QueryService:
+    """Answers a question.
 
     Args:
         facts_reader: Reads the identifiers and years of the question.
-        resolver: Turns a profile name and settings into numbers.
-        factory: Builds the pipeline.
-        embedding: The embedding driver (its dimension is checked against the store).
-        observers: Told after every step (progress and audit logging); the trace is
-            always recorded.
+        decider: Decides how the question is answered.
+        retrieval: Reads the best chunks of the documents in scope.
+        exact: Answers from the metadata alone.
+        grounded: Writes an answer from the chunks read.
+        refusals: Words a refusal.
+        default_profile: The profile to read with when the caller fixes the scope itself
+            (no decider is asked, so none chooses a profile).
     """
 
     def __init__(
         self,
         facts_reader: QueryFactsReader,
-        resolver: ProfileResolver,
-        factory: PipelineFactory,
-        embedding: EmbeddingDriver,
-        observers: Sequence[StepObserver] = (),
+        decider: Decider,
+        retrieval: Retrieves,
+        exact: AnswersExactly,
+        grounded: AnswersFromChunks,
+        refusals: RefusalRenderer,
+        default_profile: str,
     ) -> None:
         self._facts_reader = facts_reader
-        self._resolver = resolver
-        self._factory = factory
-        self._embedding = embedding
-        self._observers = tuple(observers)
+        self._decider = decider
+        self._retrieval = retrieval
+        self._exact = exact
+        self._grounded = grounded
+        self._refusals = refusals
+        self._default_profile = default_profile
 
-    def retrieve(
-        self, request: RetrievalRequest, store: VectorStore
-    ) -> RetrievalResult:
-        """Run the retrieval of ``request`` over ``store``.
+    def answer(
+        self,
+        question: str,
+        *,
+        top_k: int | None = None,
+        min_score: float | None = None,
+        profile: str | None = None,
+        scope: Scope | None = None,
+        store: VectorStore | None = None,
+    ) -> Answer:
+        """Answer ``question``.
 
-        If the request has a scope with a selection, the retrieval runs over the store
-        restricted to it (replacing any restriction ``store`` had), and the scope comes back
-        in the result with its note.
+        Args:
+            question: The user's question.
+            top_k: Overrides ``RETRIEVAL_TOP_K``.
+            min_score: Overrides ``RETRIEVAL_MIN_SCORE``.
+            profile: Reads with this profile instead of the one the decision chose (for
+                comparing profiles; it changes nothing about the decision itself).
+            scope: A scope the caller fixes (e.g. one file): nothing is decided, the
+                documents inside it are read.
+            store: The chunk store (default: the configured one).
 
         Raises:
-            RuntimeError: If the embedding driver's dimension does not match the store.
+            RuntimeError: If no document type is approved (the planner was switched on
+                before ``load-catalog``), or the embedding dimension does not match the store.
+            metadata.plan.PlanError: If an exact plan no longer fits the catalog.
         """
-        facts = self._facts_reader.read(request.question)
-        scope = request.scope if request.scope is not None else Scope()
-        if scope.selection is not None:
-            store = store.restricted_to(scope.selection)
-        profile = self._resolver.resolve(
-            request.profile, top_k=request.top_k, min_score=request.min_score
+        facts = self._facts_reader.read(question)
+        decision: Decision = (
+            ReadDocuments(facts, None, self._default_profile, scope)
+            if scope is not None
+            else self._decider.decide(facts)
         )
-        context = RetrievalContext(
-            facts=facts,
-            metadata_filter=request.metadata_filter,
-            spread_documents=scope.names_several_documents,
-            query_vector=(
-                tuple(request.query_vector)
-                if request.query_vector is not None
-                else None
+        match decision:
+            case Refuse(declined=declined):
+                return Answer(
+                    self._refusals.render(declined),
+                    Explain(decision, declined=declined),
+                )
+            case AnswerExactly(plan=plan):
+                if self._exact is None:
+                    raise RuntimeError(
+                        "An exact answer was decided but no ExactAnswerer is set."
+                    )
+                return Answer(self._exact.answer(question, plan), Explain(decision))
+            case ReadDocuments():
+                if profile is not None:
+                    decision = replace(decision, profile=profile)
+                return self._read(question, decision, top_k, min_score, store)
+
+    def _read(
+        self,
+        question: str,
+        decision: ReadDocuments,
+        top_k: int | None,
+        min_score: float | None,
+        store: VectorStore | None,
+    ) -> Answer:
+        """Retrieve inside the decision's scope and write the answer."""
+        result = self._retrieval.retrieve(
+            RetrievalRequest(
+                question,
+                profile=decision.profile,
+                top_k=top_k,
+                min_score=min_score,
+                scope=decision.scope,
             ),
+            store if store is not None else VectorStore(),
         )
-        recorder = TraceRecorder()
-        with store:
-            store.assert_dimension_matches(self._embedding.dimension)
-            pipeline = self._factory.build(profile, store)
-            run = pipeline.run(context, CompositeObserver([recorder, *self._observers]))
-        return RetrievalResult(
-            outcome=run.outcome,
-            records=tuple(recorder.records),
-            scope=scope,
-        )
+        note = result.scope.note
+        outcome = result.outcome
+        if isinstance(outcome, Declined):
+            text, explain = (
+                self._refusals.render(outcome),
+                Explain(decision, result, declined=outcome),
+            )
+        else:
+            assert isinstance(outcome, Answerable)
+            grounded = self._grounded.answer(question, outcome.chunks)
+            text = grounded.text
+            explain = Explain(decision, result, model_refused=grounded.refused)
+        return Answer(f"{text}\n\n{note}" if note else text, explain)

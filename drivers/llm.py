@@ -340,7 +340,7 @@ def _build_prompt(
     Args:
         question: The user's question.
         context_chunks: Retrieved chunks, already ranked best-first (see
-            ``query.service.RetrievalService``).
+            ``query.retrieval.service.RetrievalService``).
         expose_document_date: Show each excerpt's date; ``None`` reads
             ``settings.EXPOSE_DOCUMENT_DATE``.
 

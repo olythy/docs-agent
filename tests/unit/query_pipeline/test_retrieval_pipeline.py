@@ -10,11 +10,11 @@ from typing import ClassVar
 import pytest
 
 from models import ChunkMetadata, RetrievedChunk
-from query.context import RetrievalContext, Slot
 from query.facts import QueryFactsReader
 from query.outcome import Answerable, Declined, DeclineReason
-from query.runner import PipelineError, RetrievalPipeline, TraceRecorder
-from query.step import (
+from query.retrieval.context import RetrievalContext, Slot
+from query.retrieval.runner import PipelineError, RetrievalPipeline, TraceRecorder
+from query.retrieval.step import (
     AuxRecord,
     Continue,
     Halt,

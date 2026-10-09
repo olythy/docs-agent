@@ -11,9 +11,9 @@ from collections.abc import Callable
 
 from drivers.reranker import RerankerDriver
 from models import RetrievedChunk
-from query.context import RetrievalContext, Slot
-from query.hybrid import reciprocal_rank_fusion
-from query.step import Continue, RetrievalStep, StepName, StepResult
+from query.retrieval.context import RetrievalContext, Slot
+from query.retrieval.hybrid import reciprocal_rank_fusion
+from query.retrieval.step import Continue, RetrievalStep, StepName, StepResult
 
 
 class RrfFusionStep(RetrievalStep):
@@ -55,7 +55,7 @@ class RerankStep(RetrievalStep):
         return Continue(context.with_slots(ranked=tuple(reranked)))
 
 
-#: Reorders chunks for a question (see :func:`query.listwise_rerank.listwise_rerank`).
+#: Reorders chunks for a question (see :func:`query.retrieval.listwise_rerank.listwise_rerank`).
 ListwiseRanker = Callable[[str, list[RetrievedChunk]], list[RetrievedChunk]]
 
 

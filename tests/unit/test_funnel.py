@@ -92,7 +92,7 @@ def _step_chunk(chunk_id: int, source: str = "a.docx") -> RetrievedChunk:
 
 
 def _record(step, inputs=None, outputs=None, aux=None, notes=None, declined=None):
-    from query.runner import StageRecord
+    from query.retrieval.runner import StageRecord
 
     return StageRecord(
         step=step,
@@ -108,7 +108,7 @@ def _record(step, inputs=None, outputs=None, aux=None, notes=None, declined=None
 class TestStepRows:
     def test_a_search_starts_from_nothing_and_a_filter_shows_what_it_received(self):
         from corpus.commands.funnel import step_rows
-        from query.context import Slot
+        from query.retrieval.context import Slot
 
         pool = (
             _step_chunk(1, "a.docx"),
@@ -139,7 +139,7 @@ class TestStepRows:
 
     def test_a_fusion_receives_both_pools_once_each(self):
         from corpus.commands.funnel import step_rows
-        from query.context import Slot
+        from query.retrieval.context import Slot
 
         dense = (_step_chunk(1), _step_chunk(2))
         keyword = (_step_chunk(2), _step_chunk(3))  # chunk 2 is in both
@@ -161,7 +161,7 @@ class TestStepRows:
 
     def test_the_step_that_loses_a_golden_document_is_named(self):
         from corpus.commands.funnel import step_rows
-        from query.context import Slot
+        from query.retrieval.context import Slot
 
         ranked = (_step_chunk(1, "gold.docx"), _step_chunk(2, "other.docx"))
 
@@ -186,7 +186,7 @@ class TestStepRows:
 
     def test_a_step_that_starts_from_nothing_cannot_drop_anything(self):
         from corpus.commands.funnel import step_rows
-        from query.context import Slot
+        from query.retrieval.context import Slot
 
         (row,) = step_rows(
             [_record("dense_search", outputs={Slot.DENSE_POOL: (_step_chunk(1),)})],
@@ -197,7 +197,7 @@ class TestStepRows:
 
     def test_a_gate_that_passes_hands_on_what_it_received(self):
         from corpus.commands.funnel import step_rows
-        from query.context import Slot
+        from query.retrieval.context import Slot
 
         pool = (_step_chunk(1), _step_chunk(2))
 
@@ -209,8 +209,8 @@ class TestStepRows:
 
     def test_a_refusing_gate_gives_out_nothing_and_drops_every_golden_document(self):
         from corpus.commands.funnel import step_rows
-        from query.context import Slot
         from query.outcome import Declined, DeclineReason
+        from query.retrieval.context import Slot
 
         pool = (_step_chunk(1, "gold.docx"),)
         refusal = Declined(DeclineReason.NOT_RELEVANT, stage="relevance_gate")
@@ -232,7 +232,7 @@ class TestStepRows:
 
     def test_side_pools_and_notes_are_reported_and_years_are_spelled_out(self):
         from corpus.commands.funnel import step_rows
-        from query.context import Slot
+        from query.retrieval.context import Slot
 
         (row,) = step_rows(
             [

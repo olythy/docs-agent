@@ -153,8 +153,12 @@ def test_a_retrieval_service_restricts_a_real_store_to_the_scope(
     from query.decision import Scope
     from query.facts import QueryFactsReader
     from query.outcome import Answerable
-    from query.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
-    from query.service import RetrievalRequest, RetrievalService
+    from query.retrieval.profiles import (
+        DEFAULT_PROFILE,
+        PipelineFactory,
+        ProfileResolver,
+    )
+    from query.retrieval.service import RetrievalRequest, RetrievalService
 
     with db_conn.cursor() as cur:
         cur.execute("SELECT id FROM documents WHERE source_file = 'b.pdf';")

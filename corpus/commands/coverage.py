@@ -89,7 +89,7 @@ def coverage() -> None:
 def _print_hub_score_coverage() -> None:
     """Print how many chunks have a hub_score, in red if any are missing.
 
-    CSLS re-ranking (see ``query.candidate_steps.CslsReorderStep``) needs ``compute-hub-scores``
+    CSLS re-ranking (see ``query.retrieval.steps.candidates.CslsReorderStep``) needs ``compute-hub-scores``
     to have run over the *current* corpus; an eval run against chunks
     without a score silently measures a pipeline with CSLS (partly) off.
     """

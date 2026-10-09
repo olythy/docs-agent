@@ -4,7 +4,7 @@ A question about documents is answered by a short chain of steps (search, fuse, 
 select ...) that share one frozen :class:`RetrievalContext`: a fixed part (the facts, the
 metadata filter) and named *slots* that the steps fill. A slot is named for what it
 holds, not for the phase that produced it; each slot has one writing step, and a new
-need adds a slot. The steps' contract is in :mod:`query.step`.
+need adds a slot. The steps' contract is in :mod:`query.retrieval.step`.
 
 Key exports:
     Slot, CHUNK_SLOTS -- The named parts of the context.

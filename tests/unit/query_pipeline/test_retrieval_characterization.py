@@ -36,8 +36,8 @@ from drivers.reranker import CrossEncoderRerankerDriver, RerankerDriver
 from models import ChunkMetadata, RetrievedChunk
 from query.facts import QueryFactsReader
 from query.outcome import Answerable
-from query.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
-from query.service import RetrievalRequest, RetrievalService
+from query.retrieval.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileResolver
+from query.retrieval.service import RetrievalRequest, RetrievalService
 
 CASE = "10.P.20.100/2022/5"
 CASE2 = "20.P.20.200/2021/3"
