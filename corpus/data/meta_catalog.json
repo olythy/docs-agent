@@ -36,6 +36,39 @@
           "multi_valued": true,
           "description": "Every identifier this document states for ITSELF in its own text, exactly as written, one value per distinct written form: the case number (ügyszám, normally after 'Az ügy száma:'), the decision's own number (after 'Az ítélet száma:' or 'A határozat száma:', and the number printed in the page header or title), and any other number the document gives as its own. The case number and the decision's number can differ (by a sequence number, a suffix such as -III or -ítélet, or a part such as a roman numeral), and both must be stored when the document states both. Do NOT include the number of another case that the text only mentions (a first-instance or earlier case, a cited decision). Filter with eq or in for one known number, or contains for a part (for example a case-type prefix).",
           "example": "27.P.20.093/2020/13"
+        },
+        {
+          "key": "case_subject_raw",
+          "value_type": "text",
+          "description": "What the lawsuit is about, as the document itself words it: the short phrase after 'A per tárgya:' in the heading, or the phrase before 'iránt indított perében' ('... ellen <subject> iránt indított perében'). Copy that phrase in the document's language (for example 'tulajdonjog megállapítása'); do not translate, shorten or classify it. Omit the key if the heading does not state a subject.",
+          "example": "közös tulajdon megszüntetése"
+        },
+        {
+          "key": "case_subject",
+          "value_type": "text",
+          "description": "The kind of property lawsuit, classified into a closed list. co_ownership_dissolution = the claim is to end a co-ownership of a thing (közös tulajdon megszüntetése), by buy-out, auction or division. ownership_declaration = the claim is a declaration of ownership (tulajdonjog megállapítása), for example by adverse possession (elbirtoklás) or by building on another's land (ráépítés). ownership_declaration_and_co_ownership_dissolution = the claims include BOTH. marital_property_division = the claim is to divide the property of spouses or cohabitants (házastársi vagy élettársi vagyonközösség megosztása, házassági vagyonjogi per). other = any other kind of case, including loan, damages, contract and company disputes, and orders that decide no such claim. Decide by what the plaintiff claims and the court rules on, not only by the heading's label: if the heading says declaration of ownership but the claim and the ruling end a co-ownership by auction or buy-out, it is co_ownership_dissolution. Quote the sentence that states the claim or the ruling.",
+          "example": "ownership_declaration",
+          "allowed_values": [
+            "co_ownership_dissolution",
+            "ownership_declaration",
+            "ownership_declaration_and_co_ownership_dissolution",
+            "marital_property_division",
+            "other"
+          ]
+        },
+        {
+          "key": "aggregate_outcome",
+          "value_type": "text",
+          "description": "How the lawsuit ended for the PLAINTIFF, decided from the ruling (the operative part after the heading, which starts with a sentence like 'A bíróság ... elutasítja / megállapítja / megszünteti / kötelezi'), not from the reasoning. granted = the claim was upheld in full (for a co-ownership dissolution: the court ended the co-ownership as claimed, by buy-out or auction). partly_granted = upheld in part and dismissed for the rest ('ezt meghaladóan elutasítja'). dismissed = the claim was dismissed (keresetét elutasítja). partial_or_interim = the document is a partial judgment (részítélet) or an interim judgment (közbenső ítélet) that does not finally end the case. procedural_end = the proceedings ended without a decision on the claim (withdrawal, termination, transfer). other = none of these. Quote the ruling sentence that shows it.",
+          "example": "dismissed",
+          "allowed_values": [
+            "granted",
+            "partly_granted",
+            "dismissed",
+            "partial_or_interim",
+            "procedural_end",
+            "other"
+          ]
         }
       ]
     }

@@ -1,0 +1,215 @@
+{
+  "description": "Hand-labelled ground truth for the q0010 set: Budapest Környéki Törvényszék decisions from 2020-2024 whose first chunks mention 'közös tulajdon megszüntetése' or 'tulajdonjog megállapítása'. Subject = what the claim in the heading/ruling is about; outcome = the plaintiff's perspective. Labelled by reading the ruling, not by the extractor.",
+  "vocabulary": {
+    "case_subject": [
+      "ownership_declaration",
+      "co_ownership_dissolution",
+      "ownership_declaration_and_co_ownership_dissolution",
+      "marital_property_division",
+      "other"
+    ],
+    "aggregate_outcome": [
+      "granted",
+      "partly_granted",
+      "dismissed",
+      "partial_or_interim",
+      "procedural_end",
+      "other"
+    ]
+  },
+  "labels": [
+    {
+      "case_number": "10.P.20.190/2023/4/ítélet",
+      "case_subject": "co_ownership_dissolution",
+      "aggregate_outcome": "granted",
+      "note": "auction"
+    },
+    {
+      "case_number": "10.P.20.404/2019/56/ítélet",
+      "case_subject": "other",
+      "aggregate_outcome": "granted",
+      "note": "loan repayment plus a declaration of ownership; subject is mixed, labelled other"
+    },
+    {
+      "case_number": "11.P.20.582/2021/22/ítélet",
+      "case_subject": "co_ownership_dissolution",
+      "aggregate_outcome": "partly_granted",
+      "note": "only a payment of 1,050,000 HUF granted, the rest dismissed; the dissolution itself is not ordered"
+    },
+    {
+      "case_number": "13.G.40.154/2024/4",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "20.P.20.072/2024/15-ítélet",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "20.P.20.291/2021/31-ítélet",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "granted",
+      "note": "also dissolves co-ownership by buy-out"
+    },
+    {
+      "case_number": "20.P.20.575/2021/35-ítélet",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "21.P.20.036/2022/25-Ít",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "21.P.20.158/2023/35-I",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "21.P.20.495/2022/46-Ít.",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "21.P.20.644/2021/76-Ít",
+      "case_subject": "co_ownership_dissolution",
+      "aggregate_outcome": "granted",
+      "note": "auction sale"
+    },
+    {
+      "case_number": "23.P.20.422/2021/53/ítélet",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "dismissed",
+      "note": "adverse possession claim"
+    },
+    {
+      "case_number": "26.P.20.087/2019/82/ítélet",
+      "case_subject": "ownership_declaration_and_co_ownership_dissolution",
+      "aggregate_outcome": "partly_granted",
+      "note": "claims: declaration and dissolution. Revised after the first extraction run: the ruling says 'ezt meghaladóan a felperes keresetét elutasítja' (dismissed beyond what was granted). First label (granted) was made without reading the end of the ruling."
+    },
+    {
+      "case_number": "26.P.20.190/2019/65/ítélet",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "granted",
+      "note": "adverse building (ráépítés)"
+    },
+    {
+      "case_number": "26.P.21.124/2016/106/részjogerős ítélet",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "granted",
+      "note": "'részjogerős' judgment, but it decides the claim; marital-property ground"
+    },
+    {
+      "case_number": "27.P.20.150/2021/27",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "27.P.20.301/2019/41",
+      "case_subject": "co_ownership_dissolution",
+      "aggregate_outcome": "granted",
+      "note": "buy-out, auction as the alternative"
+    },
+    {
+      "case_number": "27.P.20.339/2021/37",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "27.P.20.403/2020/63",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "27.P.20.437/2020/30-3",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "partial_or_interim",
+      "note": "interim judgment (cohabitation period established)"
+    },
+    {
+      "case_number": "27.P.20.494/2021/94",
+      "case_subject": "marital_property_division",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.296/2021/14-ítélet",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.321/2021/57-ítélet",
+      "case_subject": "ownership_declaration_and_co_ownership_dissolution",
+      "aggregate_outcome": "partly_granted",
+      "note": "heading: dissolution of co-ownership; the ruling also orders tolerance of a changed ownership share and the court upheld the defendant's counterclaim and the claim 'részben'. Revised after the first extraction run; the first labels were made from the summary only."
+    },
+    {
+      "case_number": "4.P.20.337/2021/51-ítélet",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.430/2020/48-ítélet",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "granted",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.444/2021/56-ítélet",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "partly_granted",
+      "note": "44/100 share granted, the rest dismissed"
+    },
+    {
+      "case_number": "4.P.20.487/2020/221-ítélet",
+      "case_subject": "co_ownership_dissolution",
+      "aggregate_outcome": "granted",
+      "note": "buy-out"
+    },
+    {
+      "case_number": "4.P.20.548/2022/28-ítélet",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.566/2023/9-részítélet",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "partial_or_interim",
+      "note": "partial judgment; upholds an earlier partial judgment; adverse possession"
+    },
+    {
+      "case_number": "4.P.20.638/2021/9-ítélet",
+      "case_subject": "ownership_declaration",
+      "aggregate_outcome": "dismissed",
+      "note": ""
+    },
+    {
+      "case_number": "4.P.20.647/2019/65-ítélet",
+      "case_subject": "co_ownership_dissolution",
+      "aggregate_outcome": "granted",
+      "note": "the heading says declaration, but the claim and the ruling are a dissolution by auction"
+    },
+    {
+      "case_number": "7.P.20.303/2023/17ít",
+      "case_subject": "co_ownership_dissolution",
+      "aggregate_outcome": "partly_granted",
+      "note": "auction sale ordered; 'ezt meghaladóan a keresetet elutasítja' and the counterclaim is dismissed. Revised after the first extraction run; the first label was made from the summary only."
+    }
+  ],
+  "revisions": "3 labels were revised on 2026-10-09 after comparing with the first extraction run, each on the strength of a quoted sentence of the ruling; the other 29 were not touched. The first agreement (before the revision) was subject 30/32, outcome 28/32, both 27/32."
+}
