@@ -64,6 +64,15 @@ class SurveyResolver(Protocol):
     ) -> QueryPlan | None: ...
 
 
+def date_keys(catalog: TypeCatalog) -> dict[str, MetaKey]:
+    """The keys a count can be broken down by year with: the single-valued date keys."""
+    return {
+        k.key: k
+        for k in catalog.keys
+        if k.value_type is ValueType.DATE and not k.multi_valued
+    }
+
+
 def usable_keys(catalog: TypeCatalog) -> dict[str, MetaKey]:
     """The keys a survey can be resolved with: closed vocabulary, text, one value each."""
     return {
@@ -106,17 +115,22 @@ class LLMSurveyResolver:
         keys = usable_keys(catalog)
         if not keys:
             return None
-        reply = self._ask(question, plan, keys)
+        dates = date_keys(catalog)
+        reply = self._ask(question, plan, keys, dates)
         if reply is None:
             return None
-        return self._build(plan, keys, reply)
+        return self._build(plan, keys, dates, reply)
 
     def _ask(
-        self, question: str, plan: QueryPlan, keys: dict[str, MetaKey]
+        self,
+        question: str,
+        plan: QueryPlan,
+        keys: dict[str, MetaKey],
+        dates: dict[str, MetaKey],
     ) -> dict | None:
         """The model's answer as a dict, or ``None`` if there is no usable JSON object."""
         turn = self._llm.run_tool_calling_turn(
-            [{"role": "user", "content": self._prompt(question, plan, keys)}],
+            [{"role": "user", "content": self._prompt(question, plan, keys, dates)}],
             temperature=self._temperature,
         )
         try:
@@ -128,7 +142,10 @@ class LLMSurveyResolver:
 
     @staticmethod
     def _build(
-        plan: QueryPlan, keys: dict[str, MetaKey], reply: dict
+        plan: QueryPlan,
+        keys: dict[str, MetaKey],
+        dates: dict[str, MetaKey],
+        reply: dict,
     ) -> QueryPlan | None:
         """The checked count plan the reply describes, or ``None``."""
         topic_key = reply.get("topic_key")
@@ -151,6 +168,11 @@ class LLMSurveyResolver:
             or group_by == topic_key
         ):
             return None
+        by_year = reply.get("by_year")
+        if by_year is not None and (
+            not isinstance(by_year, str) or by_year not in dates
+        ):
+            return None
         unanswered = reply.get("unanswered")
         caveat = EXTRACTED_BY_MODEL
         if isinstance(unanswered, str) and unanswered.strip():
@@ -165,6 +187,7 @@ class LLMSurveyResolver:
                 Filter(topic_key, FilterOp.IN, list(dict.fromkeys(values))),
             ),
             group_by=group_by,
+            by_year=by_year,
             limit=DEFAULT_LIMIT,
             residual=None,
             reason=None,
@@ -172,13 +195,37 @@ class LLMSurveyResolver:
         )
 
     @staticmethod
-    def _prompt(question: str, plan: QueryPlan, keys: dict[str, MetaKey]) -> str:
-        """The resolver prompt: the question and the closed-vocabulary keys."""
+    def _prompt(
+        question: str,
+        plan: QueryPlan,
+        keys: dict[str, MetaKey],
+        dates: dict[str, MetaKey],
+    ) -> str:
+        """The resolver prompt: the question, the closed-vocabulary keys and the date keys."""
         described = []
         for k in keys.values():
             values = ", ".join(k.allowed_values or ())
             described.append(f"- {k.key}: {k.description}\n  Stored values: {values}")
         restricted = ", ".join(f.key for f in plan.filters) or "none"
+        by_year_rule = (
+            "- by_year: one of the DATE KEYS when the question asks how something "
+            "developed, changed or went over the years (a development, a trend, year by "
+            "year); the count is then also given for each calendar year. null otherwise.\n"
+            if dates
+            else ""
+        )
+        unanswered_years = (
+            " (a change over the years is answered when by_year is set)"
+            if dates
+            else ', or "the change over the years"'
+        )
+        by_year_field = '"by_year": "<date key>" or null, ' if dates else ""
+        date_block = (
+            "\n\nDATE KEYS (a count can be broken down by calendar year of one of them)\n"
+            + "\n".join(f"- {k.key}: {k.description}" for k in dates.values())
+            if dates
+            else ""
+        )
         return (
             "A question was asked about a collection of documents. Decide whether it can be "
             "answered EXACTLY by counting documents: the documents about the question's "
@@ -186,6 +233,7 @@ class LLMSurveyResolver:
             "and only their stored values.\n\n"
             "KEYS (closed lists of stored values)\n"
             + "\n".join(described)
+            + date_block
             + "\n\nRULES\n"
             "- topic_key / topic_values: the key whose stored values NAME what the cases in "
             "the question are about, and for EVERY stored value of that key a true or "
@@ -199,16 +247,19 @@ class LLMSurveyResolver:
             "down by. A question about how the court decided, the practice, the results or "
             "the outcomes of the cases asks for the key that holds how the cases ended: use "
             "it if there is one. null only when the question just asks how many.\n"
-            "- unanswered: in the question's language, a short phrase naming only what the "
-            'count cannot answer, such as "the reasons", "the content of the rulings" or '
-            '"the change from year to year"; never the question itself, never what the '
-            "count does answer; null when the count answers all of it.\n"
+            + by_year_rule
+            + "- unanswered: in the question's language, a short phrase naming only what the "
+            'count cannot answer, such as "the reasons" or "the content of the rulings"'
+            + unanswered_years
+            + "; never the question itself, never what the count does answer; null when "
+            "the count answers all of it.\n"
             "- If the question cannot be answered by a count (it needs the content of the "
             'rulings, or no key fits), answer with "topic_key": null.\n'
             f"- The question's court, period and similar restrictions are applied "
             f"separately (already restricted: {restricted}); do not repeat them.\n"
             'Output ONLY one JSON object: {"topic_key": "<key>" or null, '
             '"topic_values": {"<stored value>": true or false, ...}, "group_by": "<key>" or null, '
-            '"unanswered": "<text>" or null}\n\n'
+            + by_year_field
+            + '"unanswered": "<text>" or null}\n\n'
             f"QUESTION\n{question}\n"
         )

@@ -41,6 +41,10 @@ CATALOG = TypeCatalog(
     [
         _key("court", None),  # free text: not a closed vocabulary
         _key("fee", None, ValueType.NUMBER),
+        _key("decided", None, ValueType.DATE),
+        _key(
+            "filed", None, ValueType.DATE, multi=True
+        ),  # several dates: no year breakdown
         _key("tags", ("a", "b"), multi=True),  # several values per document
         SUBJECT,
         OUTCOME,
@@ -229,3 +233,44 @@ def test_a_verdict_list_may_name_only_the_values_it_judged_true_or_false():
     assert plan.filters[-1] == Filter(
         "subject", FilterOp.IN, ["sale"]
     )  # a partial list is fine
+
+
+def test_a_development_over_the_years_is_counted_by_year_of_a_date_key():
+    plan, _ = resolve(good(by_year="decided"))
+
+    assert plan is not None and plan.by_year == "decided"
+    assert plan.group_by == "outcome"  # the outcome breakdown stays
+
+
+def test_the_date_keys_are_offered_in_the_prompt_and_the_year_is_asked_for():
+    _, llm = resolve(good())
+
+    prompt = llm.calls[0][0]
+    assert "DATE KEYS" in prompt and "- decided:" in prompt
+    assert "- filed:" not in prompt  # several dates per document: not offered
+    assert '"by_year"' in prompt
+
+
+@pytest.mark.parametrize("by_year", ["court", "nope", "filed", "subject", 3])
+def test_a_year_breakdown_by_something_that_is_not_a_single_date_key_gives_no_plan(
+    by_year,
+):
+    plan, _ = resolve(good(by_year=by_year))
+
+    assert plan is None
+
+
+def test_without_a_date_key_the_prompt_has_no_date_section():
+    llm = Llm(good())
+    catalog = TypeCatalog(
+        CATALOG.doc_type,
+        [k for k in CATALOG.keys if k.value_type is not ValueType.DATE],
+    )
+
+    resolver(llm).resolve("q", SURVEY, [catalog])
+
+    assert "DATE KEYS" not in llm.calls[0][0]
+    assert "by_year" not in llm.calls[0][0]  # neither the rule nor the output field
+    assert (
+        "the change over the years" in llm.calls[0][0]
+    )  # it is then simply unanswered

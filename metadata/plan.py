@@ -106,6 +106,9 @@ class QueryPlan:
             by SQL; a later step evaluates it over the matching documents).
         reason: For ``UNSUPPORTED``, what was asked that cannot be done yet, in the
             question's language.
+        by_year: For ``COUNT``, a date key to additionally break the count down by calendar
+            year (alone, or crossed with ``group_by``). Set by the code that builds the plan
+            (the survey resolver), never by the planner's JSON.
         caveat: What the figures of this plan do NOT answer, or how far they can be
             trusted, to be said beside them. Not part of the question's restrictions (so
             unlike ``residual`` it does not turn an exact plan into a read one); set by
@@ -121,6 +124,7 @@ class QueryPlan:
     residual: str | None = None
     reason: str | None = None
     caveat: str | None = None
+    by_year: str | None = None
 
 
 _PLAN_FIELDS = {

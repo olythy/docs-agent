@@ -198,3 +198,92 @@ def test_without_unstated_documents_no_such_line_is_written():
     assert "do not state a value" not in render_result(
         QueryPlan(DT, Operation.COUNT), _count_result(count=10)
     )
+
+
+def _yearly_result():
+    return _count_result(
+        count=5,
+        yearly=((2024, 3), (2025, 1)),
+        by_period=((2024, "judgment", 2), (2024, "order", 1), (2025, "judgment", 1)),
+        groups=(("judgment", 3), ("order", 1)),
+        grouped_documents=4,
+        ungrouped=(("confirmed_absent", 1),),
+    )
+
+
+def test_a_count_by_year_is_listed_year_by_year_with_the_groups_inside_each_year():
+    plan = QueryPlan(
+        DT, Operation.COUNT, group_by="document_kind", by_year="decision_date"
+    )
+
+    text = render_result(plan, _yearly_result())
+
+    assert "By year (decision_date):" in text
+    assert "  2024: 3 (judgment 2, order 1)" in text
+    assert "  2025: 1 (judgment 1)" in text
+
+
+def test_the_year_table_is_added_by_the_code_after_the_phrased_answer():
+    plan = QueryPlan(
+        DT, Operation.COUNT, group_by="document_kind", by_year="decision_date"
+    )
+
+    out = ResultPhraser(
+        Llm("5 határozat: 3 ítélet, 1 végzés, 1 csoport nélküli.")
+    ).phrase("hány?", plan, _yearly_result())
+
+    assert "  2024: 3 (judgment 2, order 1)" in out
+    assert (
+        out.index("5 határozat") < out.index("By year") < out.index("[Executed filter")
+    )
+
+
+def test_year_figures_are_not_required_of_the_model_but_the_totals_are():
+    plan = QueryPlan(
+        DT, Operation.COUNT, group_by="document_kind", by_year="decision_date"
+    )
+    result = _yearly_result()
+
+    kept = ResultPhraser(
+        Llm("5 határozat: 3 ítélet, 1 végzés, 1 csoport nélküli.")
+    ).phrase("hány?", plan, result)
+    dropped = ResultPhraser(Llm("5 határozat van.")).phrase("hány?", plan, result)
+
+    assert kept.startswith("5 határozat: 3 ítélet")
+    assert dropped.startswith(
+        "Executed filter:"
+    )  # a dropped total falls back to the facts
+
+
+def test_with_no_dated_document_the_year_line_says_so():
+    plan = QueryPlan(DT, Operation.COUNT, by_year="decision_date")
+
+    assert "no matching document has a value for it" in render_result(
+        plan, _count_result(count=2)
+    )
+
+
+def test_a_plan_without_by_year_prints_no_year_table():
+    assert "By year" not in render_result(
+        QueryPlan(DT, Operation.COUNT), _count_result(count=2)
+    )
+
+
+def test_the_model_is_told_not_to_repeat_a_year_table_that_the_code_adds():
+    plan = QueryPlan(
+        DT, Operation.COUNT, group_by="document_kind", by_year="decision_date"
+    )
+    llm = Llm("5 határozat: 3 ítélet, 1 végzés, 1 csoport nélküli.")
+    asked = []
+    llm.run_tool_calling_turn = lambda messages: (
+        asked.append(messages[0]["content"]),
+        SimpleNamespace(content=llm.reply),
+    )[1]
+
+    ResultPhraser(llm).phrase("hány?", plan, _yearly_result())
+    ResultPhraser(llm).phrase(
+        "hány?", QueryPlan(DT, Operation.COUNT), _count_result(count=5)
+    )
+
+    assert "do not repeat it" in asked[0]
+    assert "do not repeat it" not in asked[1]  # no table, nothing to warn about

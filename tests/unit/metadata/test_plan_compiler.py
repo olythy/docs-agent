@@ -271,6 +271,61 @@ def test_a_plan_without_filters_has_nothing_unstated(compiler):
     assert compiler.compile(_plan(), KEYS).unstated_sql is None
 
 
+def _by_year(**kw):
+    from dataclasses import replace
+
+    return replace(_plan(**kw), by_year="decision_date")
+
+
+def test_a_count_by_year_asks_for_the_year_totals_and_the_year_by_group_table(compiler):
+    compiled = compiler.compile(_by_year(group_by="document_kind"), KEYS)
+
+    assert compiled.year_totals_sql is not None and compiled.period_sql is not None
+    assert "extract(year FROM y.value_date)" in compiled.year_totals_sql
+    assert "GROUP BY 1, 2" in compiled.period_sql
+    assert compiled.year_totals_params[0] == "decision_date"
+    assert compiled.period_params[:2] == ("decision_date", "document_kind")
+    for sql, params in (
+        (compiled.year_totals_sql, compiled.year_totals_params),
+        (compiled.period_sql, compiled.period_params),
+    ):
+        assert sql.count("%s") == len(params)
+
+
+def test_a_count_by_year_without_a_grouping_key_has_only_the_year_totals(compiler):
+    compiled = compiler.compile(_by_year(), KEYS)
+
+    assert compiled.year_totals_sql is not None
+    assert compiled.period_sql is None
+
+
+def test_without_by_year_there_are_no_period_queries(compiler):
+    compiled = compiler.compile(_plan(group_by="document_kind"), KEYS)
+
+    assert compiled.year_totals_sql is None and compiled.period_sql is None
+
+
+def test_by_year_needs_a_count_and_a_date_key(compiler):
+    from dataclasses import replace
+
+    with pytest.raises(PlanError, match="by_year needs a count"):
+        compiler.compile(
+            replace(_plan(operation="list"), by_year="decision_date"), KEYS
+        )
+    with pytest.raises(PlanError, match="not a date key"):
+        compiler.compile(replace(_plan(), by_year="issuing_body"), KEYS)
+    with pytest.raises(PlanError, match="unknown or unapproved key"):
+        compiler.compile(replace(_plan(), by_year="nope"), KEYS)
+
+
+def test_the_planners_json_cannot_set_by_year():
+    with pytest.raises(PlanError, match="unknown plan field"):
+        parse_plan(
+            {"operation": "count", "document_type": DT, "by_year": "decision_date"},
+            [DT],
+        )
+
+
 def test_text_operators(compiler):
     ne = compiler.compile(
         _plan(filters=[{"key": "issuing_body", "op": "ne", "value": "A"}]), KEYS

@@ -361,6 +361,74 @@ def test_a_query_without_filters_has_nothing_unstated(world):
     assert _run(world, operation="count").unstated == 0
 
 
+def test_a_count_by_year_and_kind_over_the_documents_that_have_a_date(world):
+    from dataclasses import replace
+
+    _put(world, 21, "Egri Törvényszék", date(2024, 3, 1), "judgment")
+    _put(world, 22, "Egri Törvényszék", date(2024, 5, 1), "judgment")
+    _put(world, 23, "Egri Törvényszék", date(2024, 6, 1), "order")
+    # no date: in the total, in no year
+    _put(world, 24, "Egri Törvényszék", None, "judgment", statuses=("issuing_body",))
+    world.set_status(
+        MetaStatus(_h(24), "decision_date", MetaState.CONFIRMED_ABSENT, key_version=1)
+    )
+    plan = replace(
+        parse_plan(
+            {
+                "operation": "count",
+                "document_type": DT,
+                "group_by": "document_kind",
+                "filters": [
+                    {"key": "issuing_body", "op": "eq", "value": "Egri Törvényszék"}
+                ],
+            },
+            [DT, "invoice"],
+        ),
+        by_year="decision_date",
+    )
+
+    result = PlanExecutor(
+        world, PlanCompiler(DateRangeResolver(FixedClock(TODAY)))
+    ).execute(plan)
+
+    assert result.count == 5  # doc 4 (2025) + 21, 22, 23, 24
+    assert dict(result.yearly) == {2024: 3, 2025: 1}  # doc 24 is in no year
+    assert {(y, v): n for y, v, n in result.by_period} == {
+        (2024, "judgment"): 2,
+        (2024, "order"): 1,
+        (2025, "judgment"): 1,
+    }
+    assert (
+        result.unstated == 0
+    )  # a document with no date does not match only because of ... nothing here
+
+
+def test_a_count_by_year_without_a_grouping_key_gives_only_the_year_totals(world):
+    from dataclasses import replace
+
+    _put(world, 21, "Egri Törvényszék", date(2024, 3, 1), "judgment")
+    plan = replace(
+        parse_plan(
+            {
+                "operation": "count",
+                "document_type": DT,
+                "filters": [
+                    {"key": "issuing_body", "op": "eq", "value": "Egri Törvényszék"}
+                ],
+            },
+            [DT, "invoice"],
+        ),
+        by_year="decision_date",
+    )
+
+    result = PlanExecutor(
+        world, PlanCompiler(DateRangeResolver(FixedClock(TODAY)))
+    ).execute(plan)
+
+    assert dict(result.yearly) == {2024: 1, 2025: 1}
+    assert result.by_period == () and result.groups == ()
+
+
 def test_number_and_text_filters(world):
     costly = _run(
         world,

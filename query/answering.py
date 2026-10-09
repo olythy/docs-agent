@@ -177,6 +177,7 @@ def render_result(plan: QueryPlan, result: PlanResult) -> str:
             lines.append(f"  {source_file}{summary}")
         if result.truncated:
             lines.append(f"  (showing {len(result.documents)} of {result.count})")
+    lines += _by_year_lines(plan, result)
     if unknown_note:
         lines.append(unknown_note)
     if unstated_note:
@@ -188,6 +189,26 @@ def render_result(plan: QueryPlan, result: PlanResult) -> str:
     if plan.caveat:
         lines.append(f"Read with care: {plan.caveat}")
     return "\n".join(lines)
+
+
+def _by_year_lines(plan: QueryPlan, result: PlanResult) -> list[str]:
+    """The count year by year (and by the grouping key within each year), as plain lines.
+
+    Written by code, never left to the model: a table of this size is exactly where a
+    copied number goes wrong.
+    """
+    if plan.by_year is None:
+        return []
+    if not result.yearly:
+        return [f"By year ({plan.by_year}): no matching document has a value for it."]
+    within: dict[int, list[str]] = {}
+    for year, value, n in result.by_period:
+        within.setdefault(year, []).append(f"{value} {n}")
+    lines = [f"By year ({plan.by_year}):"]
+    for year, n in result.yearly:
+        detail = f" ({', '.join(within[year])})" if year in within else ""
+        lines.append(f"  {year}: {n}{detail}")
+    return lines
 
 
 _UNGROUPED_REASON = {
@@ -253,11 +274,17 @@ class ResultPhraser:
 
     def phrase(self, question: str, plan: QueryPlan, result: PlanResult) -> str:
         facts = render_result(plan, result)
+        year_note = (
+            "A year-by-year table is added after your answer by the system: do not "
+            "repeat it, only say in a sentence what it shows. "
+            if plan.by_year is not None and result.yearly
+            else ""
+        )
         prompt = (
             "Answer the question in the same language as the question, using ONLY "
             "the facts below. Copy every number exactly. If some documents could "
             "not be decided, or part of the question is not applied, say so "
-            "plainly. Do not add anything the facts do not state.\n\n"
+            f"plainly. {year_note}Do not add anything the facts do not state.\n\n"
             f"QUESTION: {question}\n\nFACTS:\n{facts}"
         )
         reply = (
@@ -275,7 +302,9 @@ class ResultPhraser:
             )
             return facts
         caveat = f"\n[Read with care: {plan.caveat}]" if plan.caveat else ""
-        return f"{reply}\n\n[Executed filter: {result.explanation}]{caveat}"
+        by_year = _by_year_lines(plan, result)
+        table = "\n\n" + "\n".join(by_year) if by_year else ""
+        return f"{reply}{table}\n\n[Executed filter: {result.explanation}]{caveat}"
 
 
 class ExactAnswerer:

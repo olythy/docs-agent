@@ -108,6 +108,13 @@ class CompiledQuery:
             not in the result although they may belong to it; ``None`` when the plan has
             no filters. Disjoint from ``unknown_sql``.
         unstated_params: Parameters of ``unstated_sql``.
+        year_totals_sql: For a count with ``by_year``: the matching documents per calendar
+            year of that date key, as ``(year, count)`` rows. A document with no value for
+            the date key is in no year (it is among the unstated ones).
+        year_totals_params: Parameters of ``year_totals_sql``.
+        period_sql: For a count with ``by_year`` and ``group_by``: ``(year, group value,
+            count)`` rows.
+        period_params: Parameters of ``period_sql``.
         coverage_sql: For a grouped count only: a query that sorts the matching
             documents by what is known of the grouping key -- ``labelled`` (it has a
             value, so it is in some group), or its extraction state (``unverified``,
@@ -129,9 +136,48 @@ class CompiledQuery:
     selection: DocumentSelection
     unstated_sql: str | None = None
     unstated_params: tuple[Any, ...] = ()
+    year_totals_sql: str | None = None
+    year_totals_params: tuple[Any, ...] = ()
+    period_sql: str | None = None
+    period_params: tuple[Any, ...] = ()
     coverage_sql: str | None = None
     coverage_params: tuple[Any, ...] = ()
     multi_valued: bool = False
+
+
+_MAX_PERIOD_ROWS = 1000
+
+
+def _yearly(
+    year_key: str,
+    group_key: MetaKey | None,
+    match_sql: str,
+    match_params: tuple[Any, ...],
+) -> tuple[str, tuple[Any, ...], str | None, tuple[Any, ...]]:
+    """The queries that break a count down by calendar year of a date key.
+
+    Returns:
+        ``(year_totals_sql, params, period_sql, params)``; the second query (year crossed
+        with the grouping key) is ``None`` when there is no grouping key.
+    """
+    totals = (
+        "SELECT extract(year FROM y.value_date)::int, count(DISTINCT d.id) "
+        "FROM documents d JOIN document_meta y "
+        "ON y.document_id = d.id AND y.key = %s "
+        f"WHERE {match_sql} GROUP BY 1 ORDER BY 1"
+    )
+    totals_params = (year_key, *match_params)
+    if group_key is None:
+        return totals, totals_params, None, ()
+    column = _VALUE_COLUMN[group_key.value_type]
+    crossed = (
+        f"SELECT extract(year FROM y.value_date)::int, m.{column}, "
+        "count(DISTINCT d.id) FROM documents d "
+        "JOIN document_meta y ON y.document_id = d.id AND y.key = %s "
+        "JOIN document_meta m ON m.document_id = d.id AND m.key = %s "
+        f"WHERE {match_sql} GROUP BY 1, 2 ORDER BY 1, 3 DESC, 2 LIMIT {_MAX_PERIOD_ROWS}"
+    )
+    return totals, totals_params, crossed, (year_key, group_key.key, *match_params)
 
 
 def _coverage(
@@ -265,6 +311,20 @@ class PlanCompiler:
                 group_key.key, match_sql, match_params
             )
             multi_valued = group_key.multi_valued
+        year_totals_sql = period_sql = None
+        year_totals_params = period_params = ()
+        if plan.by_year is not None:
+            if plan.operation is not Operation.COUNT:
+                raise PlanError("by_year needs a count")
+            year_key = self._key(plan.by_year, usable, "by_year")
+            if year_key.value_type is not ValueType.DATE:
+                raise PlanError(
+                    f"cannot break down by year with {year_key.key!r}: it is not a date key"
+                )
+            group_key_or_none = usable[plan.group_by] if plan.group_by else None
+            year_totals_sql, year_totals_params, period_sql, period_params = _yearly(
+                year_key.key, group_key_or_none, match_sql, match_params
+            )
         return CompiledQuery(
             operation=plan.operation,
             sql=sql,
@@ -279,6 +339,10 @@ class PlanCompiler:
             selection=DocumentSelection(
                 f"SELECT d.id FROM documents d WHERE {match_sql}", match_params
             ),
+            year_totals_sql=year_totals_sql,
+            year_totals_params=year_totals_params,
+            period_sql=period_sql,
+            period_params=period_params,
             coverage_sql=coverage_sql,
             coverage_params=coverage_params,
             multi_valued=multi_valued,

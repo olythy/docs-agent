@@ -2,6 +2,20 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-09 — A count can be broken down by year: "how did the practice develop" now has its figures
+
+**What was built.** `QueryPlan.by_year` (a date key; set only by code, like `caveat`: the planner's JSON is refused if it names it). The compiler builds two more queries for a `count`: the matching documents per calendar year of that date key (`extract(year ...)`), and, with a `group_by`, the year crossed with the grouping key. `PlanResult.yearly` / `by_period` carry them; `render_result` prints them as "By year (decision_date): 2022: 10 (dismissed 7, granted 2, ...)". The survey resolver gets the single-valued date keys in its prompt and one more field, `by_year` (a date key when the question asks how something developed, changed or went over the years); it is checked like the others (a single-valued date key of the type, otherwise no plan), and the rule and the field are written into the prompt only when the type has a date key.
+
+**Why one extra dimension and not a general multi-key group-by.** The question that needs it is a trend, which is always "by period"; a second free grouping key would need the grouped-count coverage ("in no group, because ...") to be defined for tuples, and nothing asks for it. A document with no value for the date key is in no year; it is already reported as "does not state a value a filter asked for" when the date is also filtered, and the year line says so when no matching document has a date.
+
+**The table is written by code.** A table of about twenty numbers is exactly where a copied figure goes wrong, so it is appended after the phrased answer (and is in the plain facts of the fallback), and the phraser is told not to repeat it (its first version rewrote the table, and the answer carried it twice). The totals the model does write are still checked.
+
+**Result on q0010** (BK court, 2020-2024, the three topics, 26 decisions): 2020: 2 (granted 2); 2021: 4 (granted 2, dismissed 1, partly granted 1); 2022: 10 (dismissed 7, granted 2, partly granted 1); 2023: 5 (dismissed 2, partly granted 2, granted 1); 2024: 5 (dismissed 2, granted 1, interim 1). The years add up to the 26. What the answer still says it does not give: the reasons behind the rulings.
+
+**Verified by** a database test on the real SQL (counts by year and kind, a document without a date in no year, year totals without a grouping key), compiler, executor, rendering, phraser and resolver tests, and twelve mutations (one survived the first round: no test covered the year totals without a grouping key; added, now killed). A test found a real flaw while it was written: with no date key in the catalog the prompt still talked about `by_year`, so a model could return a key that is rejected and drop the whole plan.
+
+**Seen, not fixed.** The phrased Hungarian answer rendered `granted` as "helybenhagytak" (upheld on appeal) once; "helyt adott" is the right term. The word is the model's, the stored values are English tokens, and the year table shows the raw tokens too. A glossary of the stored values per language would fix both; nothing else needs it yet.
+
 ## 2026-10-09 — Documents that state no value a filter asked for are reported, apart from the unknown ones
 
 **The gap.** A count over a period silently left out every decision that states no date (the extractor looked and confirmed it absent). By the design (`structured-metadata-design.md`, and a database test), such a document "cannot match" and is not "unknown", so neither the figure nor the "up to K more" note mentioned it. For q0010 that was 23 decisions of the BK court that are not in "2020-2024" and not said to be missing.

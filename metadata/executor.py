@@ -49,6 +49,10 @@ class PlanResult:
         unstated: Documents that do not state a value a filter asked for (looked for and
             confirmed absent, e.g. a decision with no date): they are not in the result and
             not among ``unknown``, but may belong to it.
+        yearly: For a count broken down by year: ``(year, count)`` pairs, the matching
+            documents that have a value for the date key.
+        by_period: For a count broken down by year and a grouping key: ``(year, group
+            value, count)`` triples.
         groups: For a grouped count, ``(value, count)`` pairs.
         ungrouped: For a grouped count, the matching documents that are in no group,
             as ``(reason, count)`` pairs: ``unverified`` (a value was extracted but
@@ -73,6 +77,8 @@ class PlanResult:
     unknown: int
     documents: tuple[tuple[Any, ...], ...] = ()
     unstated: int = 0
+    yearly: tuple[tuple[int, int], ...] = ()
+    by_period: tuple[tuple[int, Any, int], ...] = ()
     groups: tuple[tuple[Any, int], ...] = ()
     ungrouped: tuple[tuple[str, int], ...] = ()
     grouped_documents: int = 0
@@ -154,6 +160,21 @@ class PlanExecutor:
                 query.unstated_sql, query.unstated_params
             )[0][0]
         rows = self._store.execute_query(query.sql, query.params)
+        years: dict[str, Any] = {}
+        if query.year_totals_sql is not None:
+            years["yearly"] = tuple(
+                (y, n)
+                for y, n in self._store.execute_query(
+                    query.year_totals_sql, query.year_totals_params
+                )
+            )
+        if query.period_sql is not None:
+            years["by_period"] = tuple(
+                (y, v, n)
+                for y, v, n in self._store.execute_query(
+                    query.period_sql, query.period_params
+                )
+            )
 
         op = plan.operation
         if op is Operation.COUNT and plan.group_by is None:
@@ -163,6 +184,7 @@ class PlanExecutor:
                 count=rows[0][0],
                 unknown=unknown,
                 unstated=unstated,
+                **years,
             )
         if op is Operation.COUNT:
             assert query.count_sql is not None
@@ -188,6 +210,7 @@ class PlanExecutor:
                 unknown=unknown,
                 unstated=unstated,
                 groups=groups,
+                **years,
                 ungrouped=ungrouped,
                 grouped_documents=grouped_documents,
                 groups_overlap=query.multi_valued,
