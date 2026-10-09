@@ -124,6 +124,11 @@ Output **exactly** this JSON shape (no surrounding prose):
 
 `citations` is an empty list `[]` only for the `adversarial` persona.
 
+After a question is verified, run `uv run python corpus/cli.py add-quotes -q <id>`: it
+adds to each citation a word-for-word `quote` of the decision's own text that supports
+the answer (checked by code against the stored chunks). The evaluation locates that quote
+in the chunks as they are now, so the citation stays valid when the corpus is re-ingested.
+
 ## Part 2 — Verifying a drafted question
 
 Given a drafted question (as above) and the **real, full content** of each

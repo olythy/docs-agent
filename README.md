@@ -130,6 +130,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── commands/
 │   │   ├── download.py        # `download` command (thin wrapper around download_court_decisions.py)
 │   │   ├── generate_questions.py  # `generate-questions` command (draft + two-tier-verify golden questions)
+│   │   ├── add_quotes.py      # `add-quotes` command: gives every golden citation a code-verified supporting quote
 │   │   ├── eval.py            # `eval` command: persona-bucketed golden-set accuracy + citation correctness
 │   │   ├── compute_hub_scores.py  # `compute-hub-scores` command (CSLS hub_score batch pass)
 │   │   ├── coverage.py        # `coverage` command: how much of the golden set is answerable now; flags missing hub scores
@@ -138,6 +139,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   │   └── meta_plan_eval.py  # `meta-plan-eval` command: planner + compiler scored on generated count/list questions
 │   │   ├── retrieval_snapshot.py  # `retrieval-snapshot` command: pin and compare what retrieval returns (proves a change to the retrieval changed nothing it should not)
 │   │   ├── routing_eval.py    # `routing-eval` command: does the decider pick the right flow (read / exact / not supported yet), and does a restriction select any document? decider only, no retrieval, no answer
+│   ├── golden_quotes.py      # Locates a golden citation's quote in the current chunks (stable across re-ingest); section-level hit check
 │   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
 │   └── data/
@@ -443,6 +445,7 @@ Controlled by `RERANKER_DRIVER` (`.env`, default `cross_encoder`) — a Strategy
 Retrieval and answers are measured on the golden set (`corpus/`), not on a toy corpus: verified questions with the documents each one must cite, grouped by persona, graded by two yardsticks (`exact_match`: every golden document is in the final chunks; `independent_fact`: any real document that supports the answer counts, for the category questions where many documents would be right). The tools, all under `uv run python corpus/cli.py`:
 
 - `eval [-q ID ...] [--repeat N] [--profile NAME]` — runs the questions through the real `QueryService` and grades answer, retrieval hit and citation per persona; `--repeat` because the model is not deterministic.
+- `add-quotes [--persona ID] [-q ID ...]` — gives every golden citation a word-for-word `quote` of the decision's own text, proposed by the model and accepted only if the code finds it in a stored chunk. `eval` then reports, per persona, `sec_ret` (the supporting passage of every expected document was among the chunks read) and `sec_cit` (the answer also cites it), looked up in the chunks as they are now, so the numbers survive a re-ingest.
 - `retrieval-snapshot --out F` / `--compare F` — records the chunk ids every retrieval step left for the questions and compares a fresh run with such a file, so a change to the retrieval shows up as exactly the questions it changed.
 - `funnel` — per question, step by step: how many chunks went in and out, how long each took, and which step dropped a golden document.
 - `routing-eval` — does the decider choose the right flow (read documents / answer exactly / not supported yet) on a list of questions, and does a restriction it builds select any document at all.

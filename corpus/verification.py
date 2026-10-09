@@ -14,7 +14,8 @@ only the pure, non-prompt pieces live here.
 Key exports:
     extract_json           -- Parse the first JSON object out of an LLM response.
     verify_citation_exists -- Tier 1: does this source_file exist in document_chunks?
-    fetch_full_content     -- Concatenate every chunk for one source_file, in order.
+    fetch_chunk_bodies     -- Every chunk of one source_file as (chunk_index, own text).
+    fetch_full_content     -- The document's own text, chunk by chunk, in order.
 """
 
 from llm_json import extract_json  # noqa: F401  (re-exported: the existing import path)
@@ -47,21 +48,47 @@ def verify_citation_exists(citation: dict) -> bool:
         conn.close()
 
 
-def fetch_full_content(source_file: str) -> str:
-    """Concatenate every chunk for one source_file, in chunk_index order."""
+def fetch_chunk_bodies(source_file: str) -> list[tuple[int, str]]:
+    """Every chunk of one source_file as ``(chunk_index, own text)``, in chunk order.
+
+    The own text is the stored content without the document summary, the identifiers and
+    the heading that open every stored chunk (``RetrievedChunk.body``): a passage of those
+    is not a passage of the document.
+    """
     from db import get_connection
+    from models import ChunkMetadata, RetrievedChunk
 
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT content FROM document_chunks
+                SELECT id, content, metadata FROM document_chunks
                 WHERE metadata->>'source_file' = %s
                 ORDER BY (metadata->>'chunk_index')::int;
                 """,
                 (source_file,),
             )
-            return "\n\n".join(row[0] for row in cur.fetchall())
+            chunks = [
+                RetrievedChunk(
+                    id=row[0],
+                    content=row[1],
+                    metadata=ChunkMetadata.from_dict(row[2]),
+                    score=0.0,
+                )
+                for row in cur.fetchall()
+            ]
     finally:
         conn.close()
+    return [(c.metadata.chunk_index, c.body) for c in chunks]
+
+
+def fetch_full_content(source_file: str) -> str:
+    """The document's own text: every chunk's own text, in chunk order.
+
+    Without the summary, identifiers and heading that open each stored chunk: they repeat
+    in all of the document's chunks (about 25), and a reader that checks a claim against
+    this text should neither be shown the generated summary as if it were the document nor
+    spend a sixth of its character budget on it. Neighbouring chunks overlap by a few words.
+    """
+    return "\n\n".join(body for _, body in fetch_chunk_bodies(source_file))

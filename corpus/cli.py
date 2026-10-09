@@ -17,6 +17,7 @@ Usage::
     uv run python corpus/cli.py download [options]
     uv run python corpus/cli.py generate-questions <persona_id> [--count N]
     uv run python corpus/cli.py eval [--persona ID] [--profile NAME] [--only-covered] [--verbose] [-q ID ...] [--repeat N]
+    uv run python corpus/cli.py add-quotes [--persona ID] [-q ID ...]
     uv run python corpus/cli.py compute-hub-scores
     uv run python corpus/cli.py coverage
     uv run python corpus/cli.py funnel -q ID [-q ID ...]
@@ -36,6 +37,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from corpus.commands import (
+    add_quotes,
     compute_hub_scores,
     coverage,
     download,
@@ -50,6 +52,7 @@ from corpus.commands import (
 
 app = typer.Typer(help=__doc__)
 app.add_typer(download.app)
+app.add_typer(add_quotes.app)
 app.add_typer(generate_questions.app)
 app.add_typer(eval.app)
 app.add_typer(compute_hub_scores.app)

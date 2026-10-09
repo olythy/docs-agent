@@ -15,6 +15,9 @@ or content support NOT_SUPPORTED/UNCLEAR), or, for the adversarial persona,
 "verified" whenever the citation is correctly empty (an adversarial
 question has no real citation to check).
 
+A verified question's citations also get a word-for-word supporting ``quote``
+(corpus/golden_quotes.py); one that cannot be quoted is "needs_review".
+
 This unattended path is expected to be noisier than drafting the question
 interactively inside Claude Code (see SKILL.md) -- that's exactly why
 nothing here is trusted without the verification step.
@@ -34,6 +37,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from corpus.verification import (
     extract_json,
+    fetch_chunk_bodies,
     fetch_full_content,
     verify_citation_exists,
 )
@@ -241,7 +245,7 @@ def generate_one(persona_id: str, personas: dict[str, dict]) -> dict:
 
     status = "verified" if verdict == "SUPPORTED" else "needs_review"
 
-    return {
+    entry = {
         "id": None,  # filled in by the caller once appended
         "persona_id": persona_id,
         "question": drafted["question"],
@@ -254,6 +258,32 @@ def generate_one(persona_id: str, personas: dict[str, dict]) -> dict:
         "verification_notes": reason,
         "notes": drafted.get("notes", ""),
     }
+    if status == "verified":
+        quote_citations(entry)
+    return entry
+
+
+def quote_citations(entry: dict, fetch=fetch_chunk_bodies, ask=None) -> None:
+    """Give a verified question's citations a code-verified supporting ``quote``.
+
+    A citation that gets none (the model could not quote the document word for word)
+    makes the question ``needs_review``: without a quote nothing can be said about it at
+    section level.
+
+    Args:
+        entry: A questions.json-shaped entry; changed in place.
+        fetch: ``source_file`` to the document's ``(chunk_index, own text)`` list.
+        ask: Asks the model for a passage (default: the answer driver).
+    """
+    from corpus.golden_quotes import add_quotes, llm_ask
+
+    report = add_quotes([entry], fetch, ask or llm_ask)
+    if report.failed:
+        entry["verification_status"] = "needs_review"
+        entry["verification_notes"] = (
+            "No word-for-word supporting quote found for: "
+            + ", ".join(source for _, source, _ in report.failed)
+        )
 
 
 @app.command("generate-questions")

@@ -2,6 +2,16 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-11 — Golden citations name a passage, not a chunk: a verified `quote` located at eval time
+
+**Why.** The brief wants a citation to point at the exact document *and section*. A chunk's index and id change with every re-ingest (new chunking, new settings), so a golden reference by `chunk_index` would rot exactly when the settings experiments need it. A word-for-word passage of the decision does not change: `corpus/golden_quotes.py` looks the quote up in the chunks as they are now (`locate`), and the eval reports `sec_ret` / `sec_cit` per persona (supporting passage among the chunks read / also cited).
+
+**How the quotes were made.** `add-quotes` asks the model for one passage per citation and accepts it only if the code finds it in the document's own chunk text (not the summary or header). 61 of 65 citations got one. Measured: the model ignored the 250-character limit even when told its length (about 20 stayed over it after retries), so a verified over-long quote is now cut at a word boundary: the start of a verified passage is still in the same chunk. The 4 without a quote are q0032/q0034, whose file names carry an accent (`Torvenyszék`) and exist in no chunk; they were already `needs_review`.
+
+**Open.** The quotes are model-picked and only code-verified to exist in the document, not that they carry the key fact: the 61 are to be hand-reviewed (`logs/golden_quotes_review.txt`). `generate-questions` now quotes a verified question's citations itself and sends it to review if it cannot.
+
+Commits: the two titled "golden citations carry a verified quote" / "add verified quotes to the golden questions".
+
 ## 2026-10-11 — Citations are judged per sentence, against the chunk's own text; the opening chunk joins a one-document question
 
 **What was checked first (the plan said "make the summary not part of the chunk" and nothing had verified it).** (1) Every stored chunk is `summary + identifiers + header breadcrumb + own text` (`_package_chunk`), and the ingest embeds that whole packaged text. (2) `strip_chunk_prefixes` (already used by the metadata extraction, `runner.py:273`) inverts the packaging: on all 55,038 stored chunks, packaging the stripped text again reproduces the stored content byte for byte, none is left with its summary, none is empty. So the chunk's own text is **computed** from the stored text and the metadata (`RetrievedChunk.body`): no data migration, no re-embedding, and retrieval (embedding, full-text, rerank) still sees the packaged text, so it is untouched. (3) NOT guaranteed by that, and found by measuring: making citations strict does not by itself keep the answers. For q0002 the document has 22 chunks, the question retrieved sections 1, 7, 14, 20, and the section that states the subject and the ruling (section 0, "Rendelkező rész") was not among them; until then the answer had rested on the generated summary, which the judge saw in every chunk and so called "supported". With strict quoting the model refused 4 of 4.

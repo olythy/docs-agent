@@ -541,6 +541,29 @@ def _answer(question: str, profile: str | None):
     return build_query_service(settings).answer(question, profile=profile)
 
 
+def _section_result(question: dict, full) -> dict | None:
+    """Whether the golden supporting passages were retrieved, and whether the answer cites them.
+
+    Section level: the golden citation's quote is looked for in the chunks as they are now,
+    so this stays true whatever the chunking. ``None`` when the question's citations have no
+    quotes (or it has no citation).
+    """
+    from corpus.golden_quotes import section_hits
+
+    citations = question.get("citations", [])
+    retrieved = [(c.metadata.source_file, c.body) for c in full.explain.chunks]
+    cited_ids = {c.chunk_id for c in full.citations}
+    cited = [
+        (c.metadata.source_file, c.body)
+        for c in full.explain.chunks
+        if c.id in cited_ids
+    ]
+    retrieved_hit = section_hits(citations, retrieved)
+    if retrieved_hit is None:
+        return None
+    return {"retrieved": retrieved_hit, "cited": bool(section_hits(citations, cited))}
+
+
 def _citation_support(result) -> dict:
     """The chunk-level citation check of one answer, as a plain dict."""
     from corpus.citation_support import check_citation_support, llm_judge
@@ -599,6 +622,7 @@ def evaluate_one(
         return result
 
     result["citation_support"] = _citation_support(full)
+    result["section"] = _section_result(question, full)
     persona = personas[question["persona_id"]]
     grading_strategy_names = persona.get("grading_strategies", ["exact_match"])
     result["grades"] = {
@@ -641,7 +665,8 @@ def print_report(results: list[dict]) -> None:
 
     header = (
         f"{'persona':<22}{'strategy':<17}{'n':>4}  {'retrieval':>10}  "
-        f"{'answer':>8}  {'citation':>9}  {'decline':>8}  {'cite_prec':>10}  {'wrong':>6}"
+        f"{'answer':>8}  {'citation':>9}  {'decline':>8}  {'cite_prec':>10}  {'wrong':>6}  "
+        f"{'sec_ret':>8}  {'sec_cit':>8}"
     )
     print(header)
     print("-" * len(header))
@@ -651,7 +676,7 @@ def print_report(results: list[dict]) -> None:
         decline = _rate(adversarial_bucket, "is_decline")
         print(
             f"{'adversarial':<22}{'-':<17}{len(adversarial_bucket):>4}  {'-':>10}  "
-            f"{'-':>8}  {'-':>9}  {fmt(decline):>8}  {'-':>10}  {'-':>6}"
+            f"{'-':>8}  {'-':>9}  {fmt(decline):>8}  {'-':>10}  {'-':>6}  {'-':>8}  {'-':>8}"
         )
 
     graded = [r for r in results if "grades" in r]
@@ -671,6 +696,11 @@ def print_report(results: list[dict]) -> None:
         precision, wrong = _citation_precision(
             [r for r in graded if r["persona_id"] == persona_id]
         )
+        sections = [
+            r["section"]
+            for r in graded
+            if r["persona_id"] == persona_id and r.get("section") is not None
+        ]
         flag = ""
         if answer is not None and answer < 0.95:
             flag = "  <-- below 95% target"
@@ -678,7 +708,8 @@ def print_report(results: list[dict]) -> None:
         print(
             f"{persona_id:<22}{strategy_name:<17}{len(bucket):>4}  {fmt(retrieval):>10}  "
             f"{fmt(answer):>8}  {fmt(citation):>9}  {'-':>8}  {fmt(precision):>10}  "
-            f"{'-' if wrong is None else wrong:>6}{flag}"
+            f"{'-' if wrong is None else wrong:>6}  "
+            f"{fmt(_rate(sections, 'retrieved')):>8}  {fmt(_rate(sections, 'cited')):>8}{flag}"
         )
 
     _print_report_legend()
@@ -728,6 +759,12 @@ def print_verbose_cases(results: list[dict]) -> None:
                 f"  graded        : adversarial, declined correctly = {r['is_decline']}"
             )
             continue
+        section = r.get("section")
+        if section is not None:
+            print(
+                f"  section       : supporting passage retrieved={section['retrieved']} "
+                f"cited={section['cited']}"
+            )
         support = r.get("citation_support")
         if support is not None:
             print(
@@ -768,6 +805,10 @@ How to read this table:
               reading of "points exactly at the section that supports the claim".
   wrong       wrong citations: pairs whose chunk does not support the sentence, plus
               labels that named no excerpt. The goal is zero.
+  sec_ret     of the questions whose golden citations carry a quote: the share where the
+              supporting passage of EVERY expected document was among the chunks the model
+              read (the quote is looked up in the chunks as they are now).
+  sec_cit     the share where the answer also CITES a chunk holding that passage.
   <-- below 95% target: answer accuracy under the project's per-persona goal.
 
 Grading strategies (a persona can have two; each gets its own row):
