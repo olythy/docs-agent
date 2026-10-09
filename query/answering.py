@@ -159,6 +159,7 @@ def render_result(plan: QueryPlan, result: PlanResult) -> str:
     elif result.groups:
         lines.append(f"Matching documents: {result.count}")
         lines += [f"  {value}: {n}" for value, n in result.groups[:_SHOWN]]
+        lines += _grouping_gaps(result)
     elif result.operation is Operation.COUNT:
         lines.append(f"Matching documents: {result.count}")
     else:
@@ -178,10 +179,39 @@ def render_result(plan: QueryPlan, result: PlanResult) -> str:
     return "\n".join(lines)
 
 
+_UNGROUPED_REASON = {
+    "unverified": "its value could not be verified",
+    "confirmed_absent": "the document does not state it",
+    "not_attempted": "it has not been extracted yet",
+}
+
+
+def _grouping_gaps(result: PlanResult) -> list[str]:
+    """Lines saying which matching documents the shown groups do not cover, and why."""
+    lines = [
+        f"  (in no group, {_UNGROUPED_REASON.get(reason, reason)}): {n}"
+        for reason, n in result.ungrouped
+    ]
+    if result.groups_overlap:
+        lines.append(
+            "  Note: a document can be in more than one group, so the groups can add "
+            f"up to more than {result.count}."
+        )
+    else:
+        shown = sum(n for _, n in result.groups[:_SHOWN])
+        if shown < result.grouped_documents:
+            lines.append(
+                f"  ({result.grouped_documents - shown} more document(s) are in "
+                "smaller groups that are not listed.)"
+            )
+    return lines
+
+
 def _figures(result: PlanResult) -> list[str]:
     """The numbers an answer must reproduce exactly."""
     figures = [str(n) for n in (result.count, result.unknown or None) if n is not None]
     figures += [str(n) for _, n in result.groups[:_SHOWN]]
+    figures += [str(n) for _, n in result.ungrouped]
     if result.total is not None:
         figures.append(str(int(result.total)))
     return figures

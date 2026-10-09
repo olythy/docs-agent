@@ -69,3 +69,85 @@ def test_a_phrased_answer_that_changes_a_number_falls_back_to_the_plain_facts():
     )
 
     assert out.startswith("Executed filter:") and "Matching documents: 7" in out
+
+
+def _grouped_result(**kw):
+    base = {
+        "operation": Operation.COUNT,
+        "explanation": "court_decision documents",
+        "count": 10,
+        "unknown": 0,
+        "groups": (("judgment", 5), ("order", 3)),
+        "grouped_documents": 8,
+    }
+    return PlanResult(**{**base, **kw})
+
+
+def test_a_grouped_count_says_who_is_in_no_group_and_why():
+    result = _grouped_result(
+        ungrouped=(("confirmed_absent", 1), ("unverified", 1)),
+    )
+
+    text = render_result(
+        QueryPlan(DT, Operation.COUNT, group_by="document_kind"), result
+    )
+
+    assert "judgment: 5" in text
+    assert "(in no group, the document does not state it): 1" in text
+    assert "(in no group, its value could not be verified): 1" in text
+
+
+def test_a_grouped_count_with_everything_labelled_adds_no_gap_line():
+    result = _grouped_result(count=8)
+
+    text = render_result(
+        QueryPlan(DT, Operation.COUNT, group_by="document_kind"), result
+    )
+
+    assert "in no group" not in text
+    assert "smaller groups" not in text
+
+
+def test_a_grouped_count_says_when_the_limit_hid_small_groups():
+    result = _grouped_result(count=8, groups=(("judgment", 5),), grouped_documents=8)
+
+    text = render_result(
+        QueryPlan(DT, Operation.COUNT, group_by="document_kind"), result
+    )
+
+    assert "3 more document(s) are in smaller groups that are not listed" in text
+
+
+def test_overlapping_groups_are_flagged_instead_of_pretending_to_add_up():
+    result = _grouped_result(
+        groups_overlap=True, groups=(("a", 7), ("b", 6)), grouped_documents=10
+    )
+
+    text = render_result(QueryPlan(DT, Operation.COUNT, group_by="topic"), result)
+
+    assert "can be in more than one group" in text
+    assert (
+        "smaller groups" not in text
+    )  # the shortfall check is meaningless when they overlap
+
+
+def test_a_phrasing_that_drops_the_documents_in_no_group_falls_back_to_the_facts():
+    """The 1 and 2 in no group are part of the answer; leaving them out would hide the gap."""
+    result = _grouped_result(
+        count=11,
+        groups=(("judgment", 5), ("order", 3)),
+        grouped_documents=8,
+        ungrouped=(("not_attempted", 2), ("unverified", 1)),
+    )
+    plan = QueryPlan(DT, Operation.COUNT, group_by="document_kind")
+
+    kept = ResultPhraser(
+        Llm("11 határozat: 5 ítélet, 3 végzés, 2 nincs kinyerve, 1 nem ellenőrzött.")
+    ).phrase("hány?", plan, result)
+    dropped = ResultPhraser(Llm("11 határozat: 5 ítélet és 3 végzés.")).phrase(
+        "hány?", plan, result
+    )
+
+    assert kept.startswith("11 határozat: 5 ítélet, 3 végzés")
+    assert dropped.startswith("Executed filter:")
+    assert "in no group" in dropped

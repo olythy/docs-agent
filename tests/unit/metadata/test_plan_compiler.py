@@ -204,6 +204,48 @@ def test_a_grouped_count_breaks_down_by_a_text_key(compiler):
     )  # the groups need not add up to the number of documents
 
 
+def test_a_grouped_count_also_asks_who_is_in_no_group(compiler):
+    """Without it, documents lacking the key silently vanish from the breakdown."""
+    compiled = compiler.compile(
+        _plan(
+            group_by="document_kind",
+            filters=[{"key": "issuing_body", "op": "eq", "value": "A"}],
+        ),
+        KEYS,
+    )
+
+    assert compiled.coverage_sql is not None
+    assert "'labelled'" in compiled.coverage_sql
+    assert "document_meta_status" in compiled.coverage_sql
+    assert "'not_attempted'" in compiled.coverage_sql
+    # the grouping key (twice: its values and its status), then the same filter as the groups
+    assert compiled.coverage_params[:2] == ("document_kind", "document_kind")
+    assert "A" in compiled.coverage_params
+    assert compiled.coverage_sql.count("%s") == len(compiled.coverage_params)
+    assert compiled.multi_valued is False
+
+
+def test_only_a_grouped_count_has_a_coverage_query(compiler):
+    assert compiler.compile(_plan(), KEYS).coverage_sql is None
+    assert compiler.compile(_plan(operation="list"), KEYS).coverage_sql is None
+
+
+def test_a_multi_valued_grouping_key_is_flagged_because_groups_overlap(compiler):
+    keys = [
+        *KEYS,
+        MetaKey(
+            DT,
+            "topic",
+            ValueType.TEXT,
+            "d",
+            multi_valued=True,
+            status=KeyStatus.APPROVED,
+        ),
+    ]
+
+    assert compiler.compile(_plan(group_by="topic"), keys).multi_valued is True
+
+
 def test_text_operators(compiler):
     ne = compiler.compile(
         _plan(filters=[{"key": "issuing_body", "op": "ne", "value": "A"}]), KEYS

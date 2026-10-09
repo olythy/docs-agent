@@ -47,6 +47,15 @@ class PlanResult:
         documents: For list-like operations, ``(content_hash, source_file[, summary])``
             rows, at most the plan's limit.
         groups: For a grouped count, ``(value, count)`` pairs.
+        ungrouped: For a grouped count, the matching documents that are in no group,
+            as ``(reason, count)`` pairs: ``unverified`` (a value was extracted but
+            could not be verified), ``confirmed_absent`` (the document does not state
+            it) or ``not_attempted`` (never extracted). Without this the groups would
+            silently add up to less than ``count``.
+        grouped_documents: For a grouped count, how many matching documents have a value
+            for the key (so are in some group), shown or not.
+        groups_overlap: The grouping key is multi-valued, so a document may be in
+            several groups and the groups can add up to more than ``count``.
         total: The sum, for ``sum``.
         sum_documents: How many documents contributed to the sum.
         truncated: The list holds fewer documents than ``count``.
@@ -61,6 +70,9 @@ class PlanResult:
     unknown: int
     documents: tuple[tuple[Any, ...], ...] = ()
     groups: tuple[tuple[Any, int], ...] = ()
+    ungrouped: tuple[tuple[str, int], ...] = ()
+    grouped_documents: int = 0
+    groups_overlap: bool = False
     total: Decimal | None = None
     sum_documents: int | None = None
     truncated: bool = False
@@ -143,12 +155,26 @@ class PlanExecutor:
                 query.count_sql, query.count_params
             )[0][0]
             groups = tuple((value, n) for value, n in rows)
+            assert query.coverage_sql is not None
+            coverage = self._store.execute_query(
+                query.coverage_sql, query.coverage_params
+            )
+            grouped_documents = sum(n for bucket, n in coverage if bucket == "labelled")
+            ungrouped = tuple(
+                sorted(
+                    ((bucket, n) for bucket, n in coverage if bucket != "labelled"),
+                    key=lambda pair: (-pair[1], pair[0]),
+                )
+            )
             return PlanResult(
                 op,
                 query.explanation,
                 count=total_documents,
                 unknown=unknown,
                 groups=groups,
+                ungrouped=ungrouped,
+                grouped_documents=grouped_documents,
+                groups_overlap=query.multi_valued,
             )
         if op is Operation.LOOKUP:
             return PlanResult(

@@ -103,6 +103,14 @@ class CompiledQuery:
         explanation: The filter in words, to show the user what was actually asked.
         selection: The matching documents as a sub-select, for restricting a
             retrieval to them (see :class:`models.DocumentSelection`).
+        coverage_sql: For a grouped count only: a query that sorts the matching
+            documents by what is known of the grouping key -- ``labelled`` (it has a
+            value, so it is in some group), or its extraction state (``unverified``,
+            ``confirmed_absent``, ``not_attempted``) -- as ``(bucket, count)`` rows.
+            The groups alone silently leave the unlabelled documents out.
+        coverage_params: Parameters of ``coverage_sql``.
+        multi_valued: The grouping key can hold several values per document, so a
+            document may be counted in more than one group.
     """
 
     operation: Operation
@@ -114,6 +122,23 @@ class CompiledQuery:
     unknown_params: tuple[Any, ...]
     explanation: str
     selection: DocumentSelection
+    coverage_sql: str | None = None
+    coverage_params: tuple[Any, ...] = ()
+    multi_valued: bool = False
+
+
+def _coverage(
+    key: str, match_sql: str, match_params: tuple[Any, ...]
+) -> tuple[str, tuple[Any, ...]]:
+    """The query sorting matching documents by what is known of the grouping ``key``."""
+    sql = (
+        "SELECT CASE WHEN EXISTS (SELECT 1 FROM document_meta m "
+        "WHERE m.document_id = d.id AND m.key = %s) THEN 'labelled' "
+        "ELSE coalesce((SELECT s.state FROM document_meta_status s "
+        "WHERE s.document_id = d.id AND s.key = %s), 'not_attempted') END, "
+        f"count(*) FROM documents d WHERE {match_sql} GROUP BY 1"
+    )
+    return sql, (key, key, *match_params)
 
 
 class PlanCompiler:
@@ -194,6 +219,13 @@ class PlanCompiler:
         sql, params, needs_count = self._operation(
             plan, usable, match_sql, match_params
         )
+        coverage_sql, coverage_params, multi_valued = None, (), False
+        if plan.operation is Operation.COUNT and plan.group_by is not None:
+            group_key = usable[plan.group_by]  # _operation already validated it
+            coverage_sql, coverage_params = _coverage(
+                group_key.key, match_sql, match_params
+            )
+            multi_valued = group_key.multi_valued
         return CompiledQuery(
             operation=plan.operation,
             sql=sql,
@@ -206,6 +238,9 @@ class PlanCompiler:
             selection=DocumentSelection(
                 f"SELECT d.id FROM documents d WHERE {match_sql}", match_params
             ),
+            coverage_sql=coverage_sql,
+            coverage_params=coverage_params,
+            multi_valued=multi_valued,
         )
 
     # -------------------------------------------------------------- operations

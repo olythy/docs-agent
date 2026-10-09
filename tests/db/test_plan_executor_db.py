@@ -194,6 +194,128 @@ def test_a_grouped_count_and_its_total(world):
     assert result.count == 4
 
 
+def test_a_grouped_count_accounts_for_documents_in_no_group(world):
+    """The groups alone would add up to 4 of 7 and nobody would notice."""
+    # no kind value, each for a different reason
+    _put(
+        world,
+        5,
+        "Egri Törvényszék",
+        date(2025, 10, 16),
+        None,
+        statuses=("issuing_body", "decision_date"),
+    )
+    world.set_status(
+        MetaStatus(_h(5), "document_kind", MetaState.CONFIRMED_ABSENT, key_version=1)
+    )
+    _put(
+        world,
+        6,
+        "Egri Törvényszék",
+        date(2025, 10, 17),
+        None,
+        statuses=("issuing_body", "decision_date"),
+    )
+    world.set_status(
+        MetaStatus(_h(6), "document_kind", MetaState.UNVERIFIED, key_version=1)
+    )
+    _put(
+        world,
+        7,
+        "Egri Törvényszék",
+        date(2025, 10, 18),
+        None,
+        statuses=("issuing_body", "decision_date"),
+    )
+    _put(
+        world,
+        8,
+        "Egri Törvényszék",
+        date(2025, 10, 19),
+        None,
+        statuses=("issuing_body", "decision_date"),
+    )
+
+    result = _run(world, operation="count", group_by="document_kind")
+
+    assert result.count == 8
+    assert dict(result.groups) == {"judgment": 3, "order": 1}
+    assert result.grouped_documents == 4
+    assert dict(result.ungrouped) == {
+        "confirmed_absent": 1,
+        "unverified": 1,
+        "not_attempted": 2,
+    }
+    assert result.groups_overlap is False
+    # nothing is lost: every matching document is in a group or in exactly one reason
+    assert (
+        result.grouped_documents + sum(n for _, n in result.ungrouped) == result.count
+    )
+
+
+def test_the_gap_respects_the_filter_of_the_plan(world):
+    _put(
+        world,
+        5,
+        "Egri Törvényszék",
+        date(2025, 10, 16),
+        None,
+        statuses=("issuing_body", "decision_date"),
+    )
+    _put(
+        world,
+        6,
+        "Debreceni Ítélőtábla",
+        date(2025, 10, 17),
+        None,
+        statuses=("issuing_body", "decision_date"),
+    )
+
+    result = _run(
+        world,
+        operation="count",
+        group_by="document_kind",
+        filters=[{"key": "issuing_body", "op": "eq", "value": "Egri Törvényszék"}],
+    )
+
+    assert result.count == 2
+    assert dict(result.groups) == {"judgment": 1}
+    assert dict(result.ungrouped) == {"not_attempted": 1}
+
+
+def test_a_multi_valued_key_is_flagged_and_its_groups_may_exceed_the_total(world):
+    world.upsert_key(
+        MetaKey(
+            DT,
+            "topic",
+            ValueType.TEXT,
+            "d",
+            multi_valued=True,
+            status=KeyStatus.APPROVED,
+        )
+    )
+    for n in (1, 2):
+        world.add_value(
+            MetaValue(
+                _h(n), "topic", 1, MetaSource.LLM, value_text="contract", ordinal=0
+            )
+        )
+        world.add_value(
+            MetaValue(
+                _h(n), "topic", 1, MetaSource.LLM, value_text="damages", ordinal=1
+            )
+        )
+        world.set_status(MetaStatus(_h(n), "topic", MetaState.PRESENT, key_version=1))
+
+    result = _run(world, operation="count", group_by="topic")
+
+    assert result.count == 4
+    assert dict(result.groups) == {"contract": 2, "damages": 2}
+    assert sum(n for _, n in result.groups) > result.grouped_documents  # 4 > 2
+    assert result.grouped_documents == 2
+    assert result.groups_overlap is True
+
+
 def test_number_and_text_filters(world):
     costly = _run(
         world,
