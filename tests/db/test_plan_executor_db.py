@@ -316,6 +316,51 @@ def test_a_multi_valued_key_is_flagged_and_its_groups_may_exceed_the_total(world
     assert result.groups_overlap is True
 
 
+def test_documents_that_state_no_filtered_value_are_reported_apart_from_the_unknown(
+    world,
+):
+    """A decision with no date is neither in nor out of a period: say how many there are."""
+    present, absent, unverified = (
+        MetaState.PRESENT,
+        MetaState.CONFIRMED_ABSENT,
+        MetaState.UNVERIFIED,
+    )
+
+    def doc(n, court_state, date_state, body="Egri Törvényszék"):
+        _put(world, n, body, date(2025, 10, 20), "judgment", statuses=())
+        for key, state in (
+            ("issuing_body", court_state),
+            ("decision_date", date_state),
+        ):
+            world.set_status(MetaStatus(_h(n), key, state, key_version=1))
+            if (
+                state is not present
+            ):  # no value is stored for what is not there/verified
+                world.replace_values(_h(n), key, [])
+
+    doc(11, present, present)  # matches
+    doc(12, present, absent)  # states no date -> unstated
+    doc(13, present, unverified)  # date unverified -> unknown, not unstated
+    doc(14, present, absent, body="Debreceni Ítélőtábla")  # another court: cannot match
+    doc(15, unverified, absent)  # no date, court unverified -> unstated, not unknown
+
+    result = _run(
+        world,
+        operation="count",
+        filters=[
+            {"key": "issuing_body", "op": "eq", "value": "Egri Törvényszék"},
+            {"key": "decision_date", "op": "between", "value": LAST_OCTOBER},
+        ],
+    )
+
+    # the fixture's own Egri decision of last October (document 4) matches as well
+    assert (result.count, result.unstated, result.unknown) == (2, 2, 1)
+
+
+def test_a_query_without_filters_has_nothing_unstated(world):
+    assert _run(world, operation="count").unstated == 0
+
+
 def test_number_and_text_filters(world):
     costly = _run(
         world,

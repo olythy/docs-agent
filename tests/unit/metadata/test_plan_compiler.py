@@ -246,6 +246,31 @@ def test_a_multi_valued_grouping_key_is_flagged_because_groups_overlap(compiler)
     assert compiler.compile(_plan(group_by="topic"), keys).multi_valued is True
 
 
+def test_documents_that_state_no_filtered_value_are_counted_in_a_query_of_their_own(
+    compiler,
+):
+    compiled = compiler.compile(
+        _plan(
+            filters=[
+                {"key": "issuing_body", "op": "eq", "value": "A"},
+                {"key": "legal_costs", "op": "gt", "value": 10},
+            ]
+        ),
+        KEYS,
+    )
+
+    assert compiled.unstated_sql is not None
+    assert "s.state = 'confirmed_absent'" in compiled.unstated_sql
+    assert " AND NOT (" in compiled.unstated_sql  # not in the result itself
+    assert compiled.unstated_sql.count("%s") == len(compiled.unstated_params)
+    # disjoint from the unknown ones: the unknown query treats absent as known
+    assert "'present', 'confirmed_absent'" in compiled.unknown_sql
+
+
+def test_a_plan_without_filters_has_nothing_unstated(compiler):
+    assert compiler.compile(_plan(), KEYS).unstated_sql is None
+
+
 def test_text_operators(compiler):
     ne = compiler.compile(
         _plan(filters=[{"key": "issuing_body", "op": "ne", "value": "A"}]), KEYS

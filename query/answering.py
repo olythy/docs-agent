@@ -151,6 +151,13 @@ def render_result(plan: QueryPlan, result: PlanResult) -> str:
         if result.unknown
         else None
     )
+    unstated_note = (
+        f"{result.unstated} further document(s) do not state a value a filter asked "
+        "for (for example no date), so they are not in the figures above, but may "
+        "belong to them."
+        if result.unstated
+        else None
+    )
     if result.operation is Operation.SUM:
         lines.append(
             f"Total of {plan.sum_key}: {result.total} "
@@ -172,6 +179,8 @@ def render_result(plan: QueryPlan, result: PlanResult) -> str:
             lines.append(f"  (showing {len(result.documents)} of {result.count})")
     if unknown_note:
         lines.append(unknown_note)
+    if unstated_note:
+        lines.append(unstated_note)
     if plan.residual:
         lines.append(
             f"Not applied (no key covers it, so the result is not narrowed by it): {plan.residual}"
@@ -211,7 +220,11 @@ def _grouping_gaps(result: PlanResult) -> list[str]:
 
 def _figures(result: PlanResult) -> list[str]:
     """The numbers an answer must reproduce exactly."""
-    figures = [str(n) for n in (result.count, result.unknown or None) if n is not None]
+    figures = [
+        str(n)
+        for n in (result.count, result.unknown or None, result.unstated or None)
+        if n is not None
+    ]
     figures += [str(n) for _, n in result.groups[:_SHOWN]]
     figures += [str(n) for _, n in result.ungrouped]
     if result.total is not None:

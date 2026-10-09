@@ -174,3 +174,27 @@ def test_a_plan_without_a_caveat_adds_no_such_line():
     assert "Read with care" not in ResultPhraser(Llm("7 határozat.")).phrase(
         "hány?", plan, result
     )
+
+
+def test_documents_that_state_no_filtered_value_are_told_and_must_be_mentioned():
+    result = _count_result(count=10, unstated=3)
+    plan = QueryPlan(DT, Operation.COUNT)
+
+    assert (
+        "3 further document(s) do not state a value a filter asked for"
+        in render_result(plan, result)
+    )
+    kept = ResultPhraser(
+        Llm("10 határozat, további 3 nem tünteti fel a dátumot.")
+    ).phrase("hány?", plan, result)
+    dropped = ResultPhraser(Llm("10 határozat van.")).phrase("hány?", plan, result)
+    assert kept.startswith("10 határozat, további 3")
+    assert dropped.startswith(
+        "Executed filter:"
+    )  # a dropped figure falls back to the facts
+
+
+def test_without_unstated_documents_no_such_line_is_written():
+    assert "do not state a value" not in render_result(
+        QueryPlan(DT, Operation.COUNT), _count_result(count=10)
+    )

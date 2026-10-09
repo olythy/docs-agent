@@ -103,6 +103,11 @@ class CompiledQuery:
         explanation: The filter in words, to show the user what was actually asked.
         selection: The matching documents as a sub-select, for restricting a
             retrieval to them (see :class:`models.DocumentSelection`).
+        unstated_sql: A query for the number of documents that do not state a value a
+            filter asked for (the key was looked for and confirmed absent), so they are
+            not in the result although they may belong to it; ``None`` when the plan has
+            no filters. Disjoint from ``unknown_sql``.
+        unstated_params: Parameters of ``unstated_sql``.
         coverage_sql: For a grouped count only: a query that sorts the matching
             documents by what is known of the grouping key -- ``labelled`` (it has a
             value, so it is in some group), or its extraction state (``unverified``,
@@ -122,6 +127,8 @@ class CompiledQuery:
     unknown_params: tuple[Any, ...]
     explanation: str
     selection: DocumentSelection
+    unstated_sql: str | None = None
+    unstated_params: tuple[Any, ...] = ()
     coverage_sql: str | None = None
     coverage_params: tuple[Any, ...] = ()
     multi_valued: bool = False
@@ -215,6 +222,38 @@ class PlanCompiler:
             )
             unknown_params = (*could_params, *match_params)
 
+        # Documents whose filtered value the document itself does not state (looked for
+        # and confirmed absent): they cannot match, and are not in the count, but a
+        # reader should be told how many there are (a decision with no date is neither
+        # in nor out of "2020-2024"). Disjoint from the unknown ones above, which are
+        # not absent on any filtered key.
+        unstated_sql: str | None = None
+        unstated_params: tuple[Any, ...] = ()
+        if compiled:
+            ignoring_parts = (
+                ["(d.document_type IS NULL OR d.document_type = %s)"]
+                if plan.doc_type is not None
+                else []
+            ) + [
+                f"({c.satisfied_sql} OR NOT {c.known_sql} OR {c.absent_sql})"
+                for c in compiled
+            ]
+            any_absent = " OR ".join(c.absent_sql for c in compiled)
+            unstated_sql = (
+                f"SELECT count(*) FROM documents d WHERE {' AND '.join(ignoring_parts)} "
+                f"AND ({any_absent}) AND NOT ({match_sql})"
+            )
+            unstated_params = (
+                *type_params,
+                *(
+                    p
+                    for c in compiled
+                    for p in (*c.satisfied_params, *c.known_params, *c.absent_params)
+                ),
+                *(p for c in compiled for p in c.absent_params),
+                *match_params,
+            )
+
         count_sql = f"SELECT count(*) FROM documents d WHERE {match_sql}"
         sql, params, needs_count = self._operation(
             plan, usable, match_sql, match_params
@@ -234,6 +273,8 @@ class PlanCompiler:
             count_params=match_params if needs_count else (),
             unknown_sql=unknown_sql,
             unknown_params=unknown_params,
+            unstated_sql=unstated_sql,
+            unstated_params=unstated_params,
             explanation=explanation,
             selection=DocumentSelection(
                 f"SELECT d.id FROM documents d WHERE {match_sql}", match_params
@@ -326,11 +367,17 @@ class PlanCompiler:
             "EXISTS (SELECT 1 FROM document_meta_status s WHERE s.document_id = d.id "
             f"AND s.key = %s AND s.key_version >= %s AND s.state IN {_KNOWN_STATES})"
         )
+        absent = (
+            "EXISTS (SELECT 1 FROM document_meta_status s WHERE s.document_id = d.id "
+            "AND s.key = %s AND s.key_version >= %s AND s.state = 'confirmed_absent')"
+        )
         return _CompiledFilter(
             satisfied_sql=exists,
             satisfied_params=(key.key, *params),
             known_sql=known,
             known_params=(key.key, key.version),
+            absent_sql=absent,
+            absent_params=(key.key, key.version),
             words=f"{key.key} {words}",
         )
 
@@ -529,4 +576,6 @@ class _CompiledFilter:
     satisfied_params: tuple[Any, ...]
     known_sql: str
     known_params: tuple[Any, ...]
+    absent_sql: str
+    absent_params: tuple[Any, ...]
     words: str

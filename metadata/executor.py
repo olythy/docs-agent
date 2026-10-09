@@ -46,6 +46,9 @@ class PlanResult:
             ``count`` *plus up to* ``unknown``.
         documents: For list-like operations, ``(content_hash, source_file[, summary])``
             rows, at most the plan's limit.
+        unstated: Documents that do not state a value a filter asked for (looked for and
+            confirmed absent, e.g. a decision with no date): they are not in the result and
+            not among ``unknown``, but may belong to it.
         groups: For a grouped count, ``(value, count)`` pairs.
         ungrouped: For a grouped count, the matching documents that are in no group,
             as ``(reason, count)`` pairs: ``unverified`` (a value was extracted but
@@ -69,6 +72,7 @@ class PlanResult:
     count: int | None
     unknown: int
     documents: tuple[tuple[Any, ...], ...] = ()
+    unstated: int = 0
     groups: tuple[tuple[Any, int], ...] = ()
     ungrouped: tuple[tuple[str, int], ...] = ()
     grouped_documents: int = 0
@@ -144,11 +148,22 @@ class PlanExecutor:
             unknown = self._store.execute_query(
                 query.unknown_sql, query.unknown_params
             )[0][0]
+        unstated = 0
+        if query.unstated_sql is not None:
+            unstated = self._store.execute_query(
+                query.unstated_sql, query.unstated_params
+            )[0][0]
         rows = self._store.execute_query(query.sql, query.params)
 
         op = plan.operation
         if op is Operation.COUNT and plan.group_by is None:
-            return PlanResult(op, query.explanation, count=rows[0][0], unknown=unknown)
+            return PlanResult(
+                op,
+                query.explanation,
+                count=rows[0][0],
+                unknown=unknown,
+                unstated=unstated,
+            )
         if op is Operation.COUNT:
             assert query.count_sql is not None
             total_documents = self._store.execute_query(
@@ -171,6 +186,7 @@ class PlanExecutor:
                 query.explanation,
                 count=total_documents,
                 unknown=unknown,
+                unstated=unstated,
                 groups=groups,
                 ungrouped=ungrouped,
                 grouped_documents=grouped_documents,
@@ -182,6 +198,7 @@ class PlanExecutor:
                 query.explanation,
                 count=rows[0][0],
                 unknown=unknown,
+                unstated=unstated,
                 selection=query.selection,
             )
         if op is Operation.SUM:
@@ -191,12 +208,13 @@ class PlanExecutor:
                 query.explanation,
                 count=None,
                 unknown=unknown,
+                unstated=unstated,
                 total=total,
                 sum_documents=contributing,
             )
         assert query.count_sql is not None
         count = self._store.execute_query(query.count_sql, query.count_params)[0][0]
         return PlanResult(
-            op, query.explanation, count=count, unknown=unknown,
+            op, query.explanation, count=count, unknown=unknown, unstated=unstated,
             documents=tuple(tuple(r) for r in rows), truncated=len(rows) < count,
         )  # fmt: skip
