@@ -362,6 +362,28 @@ def test_replace_values_swaps_the_rows_of_one_key_only(db_conn):
     assert store.get_values(HASH_A, "court") == []
 
 
+def test_documents_needing_extraction_can_be_restricted_to_chosen_documents(db_conn):
+    store = DocumentStore()
+    store.upsert_document(Document(HASH_A, "a.docx"))
+    store.upsert_document(Document(HASH_B, "b.docx"))
+    _typed(store, HASH_A, HASH_B)
+    keys = [_key("court")]
+    rows = store.execute_query(
+        "SELECT id, source_file FROM documents ORDER BY source_file", ()
+    )
+    id_a, id_b = rows[0][0], rows[1][0]
+
+    def named(ids):
+        found = store.documents_needing(keys, "court_decision", document_ids=ids)
+        return [d.source_file for d in found]
+
+    assert named(None) == ["a.docx", "b.docx"]
+    assert named([id_b]) == ["b.docx"]
+    assert named([id_a, id_b]) == ["a.docx", "b.docx"]
+    assert named([]) == []  # an empty set is not "no restriction"
+    assert named([id_b + 1000]) == []
+
+
 def test_documents_needing_extraction_follow_the_status_and_the_key_version(db_conn):
     store = DocumentStore()
     store.upsert_document(Document(HASH_A, "a.docx"))

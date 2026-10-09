@@ -59,6 +59,7 @@ class DocumentRepository(Protocol):
         doc_type: str,
         limit: int | None = None,
         seed: int | None = None,
+        document_ids: Sequence[int] | None = None,
     ) -> list[Document]: ...
     def get_statuses(self, content_hash: str) -> dict[str, MetaStatus]: ...
     def replace_values(
@@ -165,7 +166,11 @@ class MetaExtractionRunner:
         self._on_progress = on_progress
 
     def run(
-        self, doc_type: str, limit: int | None = None, seed: int | None = None
+        self,
+        doc_type: str,
+        limit: int | None = None,
+        seed: int | None = None,
+        document_ids: Sequence[int] | None = None,
     ) -> RunReport:
         """Extract every pending approved key for up to ``limit`` documents.
 
@@ -175,12 +180,16 @@ class MetaExtractionRunner:
             seed: With ``limit``, take a random sample fixed by this seed instead
                 of the first documents by file name (which is rarely
                 representative: files are named by court).
+            document_ids: Only these documents (by ``documents.id``), e.g. a
+                hand-picked set to try a new key on.
 
         Returns:
             The counts of what happened.
         """
         keys = self._documents.list_keys(doc_type, KeyStatus.APPROVED)
-        todo = self._documents.documents_needing(keys, doc_type, limit, seed)
+        todo = self._documents.documents_needing(
+            keys, doc_type, limit, seed, document_ids
+        )
         if self._workers > 1:
             return self._run_concurrently(todo, keys, doc_type)
         report = RunReport()

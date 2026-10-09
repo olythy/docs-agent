@@ -515,6 +515,7 @@ class DocumentStore:
         doc_type: str,
         limit: int | None = None,
         seed: int | None = None,
+        document_ids: Sequence[int] | None = None,
     ) -> list[Document]:
         """Return documents of ``doc_type`` for which a key still has to be extracted.
 
@@ -534,13 +535,17 @@ class DocumentStore:
             seed: If given, the documents are taken in a random order that is
                 fixed by this seed (so a trial sample is representative yet
                 reproducible); otherwise in file-name order.
+            document_ids: If given, only these documents (by ``documents.id``) are
+                considered, e.g. to try a new key on a hand-picked set.
         """
         if not keys:
             return []
         sql = """
             SELECT d.content_hash, d.source_file, d.summary, d.ingested_at
             FROM documents d
-            WHERE d.document_type = %s AND EXISTS (
+            WHERE d.document_type = %s
+              AND (%s::bigint[] IS NULL OR d.id = ANY(%s::bigint[]))
+              AND EXISTS (
                 SELECT 1 FROM unnest(%s::text[], %s::int[]) AS k(key, version)
                 WHERE NOT EXISTS (
                     SELECT 1 FROM document_meta_status s
@@ -553,8 +558,11 @@ class DocumentStore:
             LIMIT %s;
         """
         seed_text = None if seed is None else str(seed)
+        ids = None if document_ids is None else list(document_ids)
         params = (
             doc_type,
+            ids,
+            ids,
             [k.key for k in keys],
             [k.version for k in keys],
             seed_text,

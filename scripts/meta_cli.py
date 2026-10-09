@@ -24,7 +24,7 @@ Commands:
                       recognisably stale); a key that already matches is left alone.
                       Example: corpus/data/meta_catalog.json.
 
-    extract-meta [--doc-type T] [--limit N [--seed S]] [--workers W]
+    extract-meta [--doc-type T] [--limit N [--seed S]] [--identifiers-file F] [--workers W]
                       Extract every pending approved key of up to N documents of each
                       document type (or of type T only); a type's keys are asked only of
                       its own documents, and documents with no type are skipped (default:
@@ -39,6 +39,9 @@ Commands:
                       run is waiting for the network, so W=8 is about 8 times faster,
                       until the provider's rate limit); the stored result does not
                       depend on W, and the database is only written from one thread.
+                      With --identifiers-file F (one document identifier per line) only
+                      those documents are extracted: a way to try a new key on a
+                      hand-picked set, e.g. one that has a hand-labelled ground truth.
     keys [--doc-type T]
                       List the catalog's keys with their status. A key the extractor
                       proposed stays 'proposed' (unusable in queries) until approved.
@@ -90,6 +93,7 @@ from metadata.catalog import KeyCatalog, load_catalog_seed
 from metadata.classification_runner import ClassificationRunner
 from metadata.classifier import LLMTypeClassifier
 from metadata.evidence import EvidenceSelector
+from metadata.identifier_resolver import IdentifierResolver
 from metadata.runner import MetaExtractionRunner
 from metadata.sources import ChunkMetadataSource, LLMMetaSource
 from models import KeyStatus, TypeStatus
@@ -150,6 +154,7 @@ def _parse(
     description: str,
     with_limit: bool,
     with_workers: bool = False,
+    with_identifiers: bool = False,
 ) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="meta_cli.py", description=description)
     parser.add_argument(
@@ -166,6 +171,13 @@ def _parse(
             type=int,
             default=None,
             help="with --limit: a random sample fixed by this seed (default: the first N by file name)",
+        )
+    if with_identifiers:
+        parser.add_argument(
+            "--identifiers-file",
+            type=Path,
+            default=None,
+            help="only the documents named by the identifiers in this file (one per line)",
         )
     if with_workers:
         parser.add_argument(
@@ -188,6 +200,31 @@ def _types_with_keys(store: DocumentStore, only: str | None) -> list[str]:
     ]
 
 
+def _documents_named_in(store: DocumentStore, path: Path) -> tuple[int, ...] | None:
+    """The ids of the documents whose identifiers are listed in ``path``, or ``None``.
+
+    Prints what it could not resolve or resolved to several documents, and returns
+    ``None`` (so nothing is extracted) if the file is unusable or names no document.
+    """
+    if not path.is_file():
+        print(f"No such file: {path}")
+        return None
+    identifiers = [line.strip() for line in path.read_text().splitlines()]
+    identifiers = [i for i in identifiers if i]
+    resolved = IdentifierResolver(store).resolve(identifiers)
+    for identifier in resolved.unresolved:
+        print(f"{_RED}no document carries the identifier {identifier!r}{_RESET}")
+    for identifier in resolved.ambiguous:
+        print(
+            f"{_RED}the identifier {identifier!r} names more than one document{_RESET}"
+        )
+    if not resolved.document_ids:
+        print("The file names no document; nothing to extract.")
+        return None
+    print(f"{len(resolved.document_ids)} document(s) selected from {path}.")
+    return resolved.document_ids
+
+
 def cmd_extract_meta(args: list[str]) -> int:
     """Run the extraction for the pending keys of the documents that need it.
 
@@ -199,11 +236,17 @@ def cmd_extract_meta(args: list[str]) -> int:
         "Extract the catalog's keys from the documents.",
         with_limit=True,
         with_workers=True,
+        with_identifiers=True,
     )
     if options.workers < 1:
         print("--workers must be at least 1.")
         return 1
     store = DocumentStore()
+    document_ids = None
+    if options.identifiers_file is not None:
+        document_ids = _documents_named_in(store, options.identifiers_file)
+        if document_ids is None:
+            return 1
     doc_types = _types_with_keys(store, options.doc_type)
     if not doc_types:
         print("No document type has approved keys. Run load-catalog first.")
@@ -228,7 +271,12 @@ def cmd_extract_meta(args: list[str]) -> int:
             print(f"No catalog for document type {doc_type!r}. Run load-catalog first.")
             return 1
         print(f"\n== {doc_type}")
-        report = runner.run(doc_type, limit=options.limit, seed=options.seed)
+        report = runner.run(
+            doc_type,
+            limit=options.limit,
+            seed=options.seed,
+            document_ids=document_ids,
+        )
         print(
             f"extracted for {report.documents} document(s): {report.present} values present, "
             f"{report.confirmed_absent} confirmed absent, {report.unverified} unverified, "

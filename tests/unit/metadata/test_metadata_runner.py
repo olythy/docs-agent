@@ -69,7 +69,10 @@ class FakeDocuments:
     def list_keys(self, doc_type, status=None):
         return [k for k in self.keys.values() if status is None or k.status == status]
 
-    def documents_needing(self, keys, doc_type, limit=None, seed=None):
+    def documents_needing(
+        self, keys, doc_type, limit=None, seed=None, document_ids=None
+    ):
+        self.asked_document_ids = document_ids
         out = [
             d
             for d in self.documents
@@ -448,3 +451,21 @@ def test_the_edges_can_be_switched_off():
     ).select(chunks, [_key("court")])
 
     assert [c.metadata.chunk_index for c in picked] == [4, 5]
+
+
+def test_the_run_can_be_restricted_to_a_hand_picked_set_of_documents():
+    docs = FakeDocuments([_key("court")])
+
+    _runner(docs, BODY, [ScriptedSource(SourceResult())]).run(
+        "court_decision", document_ids=(5, 9)
+    )
+
+    assert docs.asked_document_ids == (5, 9)
+
+
+def test_without_a_set_the_run_asks_for_every_pending_document():
+    docs = FakeDocuments([_key("court")])
+
+    _runner(docs, BODY, [ScriptedSource(SourceResult())]).run("court_decision")
+
+    assert docs.asked_document_ids is None
