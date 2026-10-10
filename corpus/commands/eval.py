@@ -63,8 +63,10 @@ def load_personas() -> dict[str, dict]:
     return {p["id"]: p for p in personas}
 
 
-def load_verified_questions(persona_filter: str | None = None) -> list[dict]:
-    """Load corpus/data/questions.json, keeping only trustworthy entries.
+def load_verified_questions(
+    persona_filter: str | None = None, path: Path = QUESTIONS_PATH
+) -> list[dict]:
+    """Load corpus/data/questions.json (or ``path``), keeping only trustworthy entries.
 
     Only requires verification_status="verified" -- the two-tier pipeline
     (citation existence + a separate content-support/citation-verbatim
@@ -76,12 +78,13 @@ def load_verified_questions(persona_filter: str | None = None) -> list[dict]:
 
     Args:
         persona_filter: If given, only questions for this persona_id.
+        path: The questions file (default: the main golden set).
 
     Returns:
         Questions with verification_status="verified" -- anything still
         "needs_review"/"unverified" isn't a trustworthy yardstick yet.
     """
-    questions = json.loads(QUESTIONS_PATH.read_text())
+    questions = json.loads(path.read_text())
     questions = [q for q in questions if q.get("verification_status") == "verified"]
     if persona_filter:
         questions = [q for q in questions if q["persona_id"] == persona_filter]
@@ -600,6 +603,7 @@ def evaluate_one(
         ``{strategy_name: grade_dict}``, one entry per strategy the
         persona configures in ``grading_strategies``.
     """
+    from corpus.decline_grader import grade_decline, llm_decline_judge
     from query.decline_detection import looks_like_a_decline
 
     full = _answer(question["question"], profile)
@@ -618,7 +622,17 @@ def evaluate_one(
     }
 
     if question["persona_id"] == "adversarial":
-        result["is_decline"] = looks_like_a_decline(answer)
+        result["decline_keywords"] = looks_like_a_decline(answer)
+        grade = grade_decline(question["question"], answer, llm_decline_judge)
+        result["decline_grade"] = (
+            None
+            if grade is None
+            else {"declined": grade.declined, "asserted": grade.asserted}
+        )
+        # The model's reading decides; the keyword check is the fallback when it gave none.
+        result["is_decline"] = (
+            result["decline_keywords"] if grade is None else grade.correct
+        )
         return result
 
     result["citation_support"] = _citation_support(full)
@@ -646,6 +660,43 @@ def _rate(results: list[dict], key: str) -> float | None:
     if not applicable:
         return None
     return sum(applicable) / len(applicable)
+
+
+def _question_passed(runs: list[dict]) -> bool | None:
+    """Whether every run of one question was right (decline for adversarial, answer else)."""
+    flags = []
+    for r in runs:
+        if "is_decline" in r:
+            flags.append(bool(r["is_decline"]))
+        elif r.get("grades"):
+            flags.append(all(g["answer_correct"] for g in r["grades"].values()))
+    return all(flags) if flags else None
+
+
+def _print_question_level(results: list[dict]) -> None:
+    """Per profile: how many QUESTIONS were right in every run, with a Wilson lower bound.
+
+    Repeats of one question are not independent, so the table above (rates over runs)
+    overstates the certainty; this counts questions.
+    """
+    from corpus.stats import wilson_lower
+
+    by_question: dict[str, list[dict]] = {}
+    for r in results:
+        by_question.setdefault(r["question_id"], []).append(r)
+    by_persona: dict[str, list[bool]] = {}
+    for runs in by_question.values():
+        passed = _question_passed(runs)
+        if passed is not None:
+            by_persona.setdefault(runs[0]["persona_id"], []).append(passed)
+    print("\nPer question (right in EVERY run; 95% lower bound over questions):")
+    for persona_id in sorted(by_persona):
+        flags = by_persona[persona_id]
+        lower = wilson_lower(sum(flags), len(flags))
+        print(
+            f"  {persona_id:<22}{sum(flags):>3}/{len(flags):<3}"
+            f"  lower bound {'-' if lower is None else f'{lower:.0%}'}"
+        )
 
 
 def print_report(results: list[dict]) -> None:
@@ -712,6 +763,7 @@ def print_report(results: list[dict]) -> None:
             f"{fmt(_rate(sections, 'retrieved')):>8}  {fmt(_rate(sections, 'cited')):>8}{flag}"
         )
 
+    _print_question_level(results)
     _print_report_legend()
     _print_retrieval_miss_diagnostics(graded)
 
@@ -969,6 +1021,12 @@ def eval(
             ),
         ),
     ] = False,
+    questions_file: Annotated[
+        Path,
+        typer.Option(
+            help="The golden questions file (default: corpus/data/questions.json)."
+        ),
+    ] = QUESTIONS_PATH,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -992,7 +1050,7 @@ def eval(
     if profile is not None and profile not in PROFILES:
         raise typer.BadParameter(f"--profile must be one of {sorted(PROFILES)}")
 
-    questions = load_verified_questions(persona_filter=persona)
+    questions = load_verified_questions(persona_filter=persona, path=questions_file)
     if not questions:
         print("No verified questions to evaluate. Run `generate-questions` first.")
         raise typer.Exit(code=1)
