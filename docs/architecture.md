@@ -102,7 +102,7 @@ Defaults are `config.py`'s (this project's own `.env` overrides some, e.g. Verte
 
 | Setting | Default | What it does | Measured effect / status |
 |---|---|---|---|
-| `RETRIEVAL_TOP_K` | 4 | How many **chunks** the LLM sees. | k = 4 / 6 / 8: exact-document hit did not move; the loose "any cited document" proxy rose slowly (synthesizer 21 / 29 / 36%). Full eval k=6 vs k=4: 14 vs 15 questions correct -- within noise (2026-10-04). |
+| `RETRIEVAL_TOP_K` | 8 (was 4 until 2026-10-10) | How many **chunks** the LLM sees. | 2026-10-10, 35 documents described by court/year/subject (no case number): supporting passage in the context 20 -> 27 -> 28 of 35 at k = 4 / 8 / 12; full eval k=8 vs 4: adversarial declines 94 -> 99%, practical_procedural answer 47 -> 50%, retrieval 81 -> 85% (see `docs/decisions.md`). Earlier, k = 4 / 6 / 8: exact-document hit did not move; the loose "any cited document" proxy rose slowly (synthesizer 21 / 29 / 36%). Full eval k=6 vs k=4: 14 vs 15 questions correct -- within noise (2026-10-04). |
 | `RETRIEVAL_MIN_SCORE` | 0.25 | Relevance gate on raw cosine similarity; below it, no LLM call. | Deliberately independent of the strategy (see above). |
 | `RETRIEVAL_CANDIDATE_POOL_SIZE` | 20 | Candidates per search leg, in **chunks**. | Expected (not measured) to add more chunks of the same documents rather than more documents, because a document's chunks cluster. |
 | `HNSW_EF_SEARCH` | 400 | pgvector's neighbour-exploration depth. | The default (40) silently truncated search as the corpus grew (2026-10-02). Year-restricted queries additionally enable iterative scan, or the filter is applied after those neighbours and leaves ~1 row. |

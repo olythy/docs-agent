@@ -261,7 +261,9 @@ class Settings:
                               use case genuinely needs multi-step reasoning.
 
     Retrieval:
-        RETRIEVAL_TOP_K       Number of chunks to retrieve per query (default: 4).
+        RETRIEVAL_TOP_K       Number of chunks to retrieve per query (default: 8; 4 left the
+                              supporting passage out of the context for 15 of 35 described
+                              questions, see docs/decisions.md).
         SINGLE_DOCUMENT_TOP_K Number of chunks to read when the question names one
                               document or its filters select exactly one (default:
                               8): one decision is read in more depth than a search
@@ -317,7 +319,7 @@ class Settings:
                               searches feeding RRF fusion (and, if enabled,
                               reranking) — always at least RETRIEVAL_TOP_K,
                               but wider by default so fusion/reranking has
-                              something to actually reorder (default: 20).
+                              something to actually reorder (default: 40).
                               See ``query/retrieval/profiles.py``.
         HUB_SCORE_NEIGHBOR_SAMPLE_SIZE
                               How many nearest neighbors (in the whole
@@ -506,7 +508,7 @@ class Settings:
     )
 
     # --- Retrieval ---
-    RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "4"))
+    RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "8"))
     SINGLE_DOCUMENT_TOP_K: int = int(os.getenv("SINGLE_DOCUMENT_TOP_K", "8"))
     RETRIEVAL_MIN_SCORE: float = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.25"))
     RERANKER_DRIVER: str = os.getenv("RERANKER_DRIVER", "cross_encoder")
@@ -516,7 +518,7 @@ class Settings:
     RERANKER_MIN_SCORE: float = float(os.getenv("RERANKER_MIN_SCORE", "-2.0"))
     RERANKER_API_KEY: str = os.getenv("RERANKER_API_KEY", "")
     RETRIEVAL_CANDIDATE_POOL_SIZE: int = int(
-        os.getenv("RETRIEVAL_CANDIDATE_POOL_SIZE", "20")
+        os.getenv("RETRIEVAL_CANDIDATE_POOL_SIZE", "40")
     )
     HUB_SCORE_NEIGHBOR_SAMPLE_SIZE: int = int(
         os.getenv("HUB_SCORE_NEIGHBOR_SAMPLE_SIZE", "20")
