@@ -14,3 +14,4 @@ corpus/meta.csv
 
 # Database dumps (large, and they hold the paid-for embeddings; restore with pg_restore)
 *.dump
+corpus/data/*.lock

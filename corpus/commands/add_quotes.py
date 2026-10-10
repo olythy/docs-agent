@@ -28,12 +28,16 @@ def add_quotes_command(
     question_id: Annotated[
         list[str] | None, typer.Option("-q", help="Only this question id (repeatable).")
     ] = None,
+    questions_file: Annotated[
+        Path,
+        typer.Option(help="The questions file (default: corpus/data/questions.json)."),
+    ] = QUESTIONS,
 ) -> None:
     """Add a verified supporting quote to every golden citation that has none."""
     from corpus.golden_quotes import add_quotes, llm_ask
     from corpus.verification import fetch_chunk_bodies
 
-    questions = json.loads(QUESTIONS.read_text(encoding="utf-8"))
+    questions = json.loads(questions_file.read_text(encoding="utf-8"))
     wanted = set(question_id or [])
 
     def only(question: dict) -> bool:
@@ -42,7 +46,7 @@ def add_quotes_command(
         )
 
     report = add_quotes(questions, fetch_chunk_bodies, llm_ask, only)
-    QUESTIONS.write_text(
+    questions_file.write_text(
         json.dumps(questions, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print(

@@ -14,9 +14,14 @@ only the pure, non-prompt pieces live here.
 Key exports:
     extract_json           -- Parse the first JSON object out of an LLM response.
     verify_citation_exists -- Tier 1: does this source_file exist in document_chunks?
+    case_numbers_in        -- The case numbers written in a text.
+    other_document_with_number -- A different document whose own case number this is.
+    case_number_in_corpus  -- Does a case number occur in any stored document text?
     fetch_chunk_bodies     -- Every chunk of one source_file as (chunk_index, own text).
     fetch_full_content     -- The document's own text, chunk by chunk, in order.
 """
+
+import re
 
 from llm_json import extract_json  # noqa: F401  (re-exported: the existing import path)
 
@@ -42,6 +47,79 @@ def verify_citation_exists(citation: dict) -> bool:
             cur.execute(
                 "SELECT 1 FROM document_chunks WHERE metadata->>'source_file' = %s LIMIT 1;",
                 (citation["source_file"],),
+            )
+            return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
+#: A Hungarian case number as it is written in running text, e.g. ``9.G.40.230/2020/32``.
+_CASE_NUMBER = re.compile(r"\b\d+\.[A-Za-z]+\.(?:[IVX]+\.)?[\d.]+/\d{4}(?:/\d+)?")
+
+
+def case_numbers_in(text: str) -> list[str]:
+    """The case numbers written in ``text``, in order."""
+    return _CASE_NUMBER.findall(text)
+
+
+def other_document_with_number(case_number: str, source_file: str) -> str | None:
+    """A document other than ``source_file`` that carries ``case_number`` as its own number.
+
+    A decision often names the case number of the decision it reviews, so a question that
+    cites an appellate decision by the first-instance number is really about the other
+    document. A file name ends in the document's own case number without the collegium
+    prefix (``Fovarosi_Itelotabla__Gf_40282_2021_4.docx`` for ``14.Gf.40.282/2021/4``), so
+    that tail is looked for at the end of the (punctuation-free) number.
+
+    Returns:
+        The other document's ``source_file``, or ``None``.
+    """
+    from db import get_connection
+
+    wanted = "".join(ch for ch in case_number if ch.isalnum()).casefold()
+    if not wanted:
+        return None
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT source_file FROM documents
+                WHERE source_file <> %s
+                  AND length(regexp_replace(split_part(source_file, '__', 2), '[^[:alnum:]]', '', 'g'))
+                      > 8
+                  AND %s LIKE '%%' || lower(regexp_replace(
+                      regexp_replace(split_part(source_file, '__', 2), '\\.docx$', ''),
+                      '[^[:alnum:]]', '', 'g'))
+                LIMIT 1;
+                """,
+                (source_file, wanted),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    return row[0] if row else None
+
+
+def case_number_in_corpus(case_number: str) -> bool:
+    """Whether ``case_number`` occurs in the text of any stored chunk.
+
+    Punctuation and spacing are ignored ("17.P.20.877/2020/27" matches
+    "17. P. 20. 877/2020/27."), so a trap number that only differs in formatting from
+    a real one is not mistaken for an invented one.
+    """
+    from db import get_connection
+
+    wanted = "".join(ch for ch in case_number if ch.isalnum())
+    if not wanted:
+        return False
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM document_chunks "
+                "WHERE regexp_replace(content, '[^[:alnum:]]', '', 'g') ILIKE %s LIMIT 1;",
+                (f"%{wanted}%",),
             )
             return cur.fetchone() is not None
     finally:

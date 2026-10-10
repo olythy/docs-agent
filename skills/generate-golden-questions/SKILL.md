@@ -100,13 +100,38 @@ not just *a* plausible one? If not, rewrite the question to include it.
 
 **Never phrase a question as if the reader can already see the document(s) you were given.** You see the source chunks/sample while drafting; a real user asking the deployed system never does. Confirmed live: a drafted `precedent_seeker` question read "...Törvényszék 2022-ben *az alábbi esetekben*..." — "the following cases" — a phrase that only makes sense if the reader is looking at the same document list you were, which no real user is. The same leak shows up as "a megadott korpuszban/dokumentumokban" ("in the given corpus/documents") or "a fentebb említett ügyekben" ("in the above-mentioned cases"). Any such phrase makes the question under-specified for retrieval (it points at "whatever I was shown," not at a findable fact) and unrealistic as a user query. Before finalizing, check the question for "alábbi", "megadott", "fenti"/"fentebb", "ezen/ezek az esetek" or any other wording that implicitly points back at your own drafting context, and rewrite using only self-contained facts (court, year, topic, outcome, etc.) that *name* what you mean instead of pointing at it.
 
-For the `adversarial` persona specifically: you will *not* be given real
-content to ground it in — instead, invent a case number/court combination
-that is clearly fabricated (e.g. an implausible year or collegium code), or
-ask about a real-sounding fact that the given content does not actually
-contain. The correct `expected_answer` for this persona is always an
-explicit statement that the information isn't available — never a
-plausible-sounding fabricated answer.
+For the `practical_procedural` persona specifically: you are given ONE decision (its
+whole text, with the court, year and subject the metadata layer holds for it, which no
+other decision shares) and a `procedural topic`. Ask about that topic in this decision,
+NOT about the costs of the proceedings unless the topic says so. Identify the decision
+the way a person who does not know its case number would: name the court, the YEAR (as a
+number, e.g. "2023-as"; a question without it is rejected) and what the lawsuit is
+about, in natural words. Do NOT write the case number (or any part of
+it) in the question. The `citations` entry still carries the real `case_number` read from
+the content, as always.
+
+For the `adversarial` persona specifically: the question must be a PLAUSIBLE
+trap, not an absurd one. A question about the "Galactic Federation" or a
+ruling from 2050 is refused by any model and measures nothing. You are given
+one real decision and a `trap_kind`:
+
+- `invented_case_number`: ask about a decision of the REAL court of the given
+  sample, with a case number that is invented but follows that court's format
+  (same collegium code pattern, a plausible year and serial) and is NOT the
+  given sample's own number. Put the invented number, exactly as written in the
+  question, into `trap_case_number`. Code checks that it occurs in no document.
+- `missing_fact`: ask about the REAL case of the given sample (by its real case
+  number as written in the content), for something a decision never states
+  because it lies outside it: what happened AFTER the decision (was the amount
+  paid, was it enforced, what the parties did next), what a party or the judge privately
+  thought, facts about people who are not in the case. NEVER ask for a date, an
+  amount, a name, an outcome or whether an appeal is possible or was filed: decisions routinely state those, and a close
+  variant in the text makes the question answerable. A separate call checks that
+  the detail is absent.
+
+The correct `expected_answer` for this persona is always an explicit statement
+that the information isn't available — never a plausible-sounding fabricated
+answer. Leave `citations` empty.
 
 Output **exactly** this JSON shape (no surrounding prose):
 
@@ -118,6 +143,7 @@ Output **exactly** this JSON shape (no surrounding prose):
     {"court": "...", "case_number": "...", "source_file": "..."}
   ],
   "difficulty": "easy | medium | hard",
+  "trap_case_number": "only for adversarial + invented_case_number, else omit",
   "notes": "one sentence on how this was grounded, or why it's a deliberate trap"
 }
 ```
