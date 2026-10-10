@@ -86,7 +86,8 @@ def test_build_prompt_asks_for_label_citations_and_forbids_file_names_and_pages(
     system_prompt, _ = _build_prompt("q", [])
 
     assert "label of the excerpt" in system_prompt
-    assert "never write a file name or a page number" in system_prompt
+    assert "never write a file name, a page number" in system_prompt
+    assert "paragraph number of the decision" in system_prompt
     assert "cite the source file and page number" not in system_prompt.lower()
 
 
@@ -833,3 +834,18 @@ def test_build_prompt_refuses_only_when_the_answer_cannot_be_found_at_all():
     assert f"'{REFUSAL_SENTENCE}'" in system
     assert "sample selected from a much larger collection" not in system
     assert "A partial answer is always better" not in system
+
+
+def test_a_decisions_paragraph_numbers_cannot_be_read_as_excerpt_labels():
+    from drivers.llm import _build_prompt
+    from metadata.verification import EvidenceVerifier
+
+    body = "[41] A bíróság a keresetet elutasítja. [42, 43] Az indoklás szerint ..."
+    chunk = _chunk(body, source_file="a.docx")
+
+    _, user = _build_prompt("q", [chunk])
+
+    assert "[41]" not in user and "(41) A bíróság" in user and "(42, 43)" in user
+    assert user.count("[1] Source:") == 1  # the excerpt's own label is untouched
+    # the model's quote keeps the parentheses; it still matches the stored text
+    assert EvidenceVerifier(body).contains("(41) A bíróság a keresetet elutasítja.")

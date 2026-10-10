@@ -7,9 +7,11 @@ every (sentence, cited chunk) pair a separate model call says whether the chunk 
 the sentence claims. It is evaluation-side, like the other graders: the model that wrote the
 answer never grades it.
 
-A citation counts as wrong when the chunk does not support the sentence, or when the label
-named no excerpt at all. An answer that is not a refusal and cites nothing is reported as
-uncited.
+A citation counts as wrong when the chunk does not support the sentence it is shown with.
+A label that named no excerpt (the model copying a paragraph number of the decision, for
+example) is removed from the shown answer by the system, so no reader sees it: it is
+counted separately as *stray* and reported, but it is not a wrong citation. An answer that
+is not a refusal and cites nothing is reported as uncited.
 
 Key exports:
     CitationSupport      -- The result for one answer.
@@ -59,7 +61,7 @@ class CitationSupport:
 
     Attributes:
         pairs: Every (sentence, cited chunk) pair judged.
-        unknown_labels: Labels that named no excerpt (wrong citations).
+        unknown_labels: Labels that named no excerpt (stray; removed from the shown answer).
         uncited: The answer states something but cites nothing.
     """
 
@@ -83,9 +85,14 @@ class CitationSupport:
         return sum(1 for p in self.pairs if p.supported is None)
 
     @property
+    def stray(self) -> int:
+        """Labels the model wrote that named no excerpt; the shown answer has them removed."""
+        return len(self.unknown_labels)
+
+    @property
     def wrong(self) -> int:
-        """Wrong citations: unsupported pairs plus labels naming no excerpt."""
-        return self.unsupported + len(self.unknown_labels)
+        """Wrong citations: the pairs shown whose chunk does not support the sentence."""
+        return self.unsupported
 
     def to_dict(self) -> dict:
         """A plain dict for the evaluation's result record."""
@@ -96,6 +103,7 @@ class CitationSupport:
             "unjudged": self.unjudged,
             "unknown_labels": list(self.unknown_labels),
             "wrong": self.wrong,
+            "stray": self.stray,
             "uncited": self.uncited,
             "unsupported_claims": [
                 {"label": p.label, "sentence": p.sentence}

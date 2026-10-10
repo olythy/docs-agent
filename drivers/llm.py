@@ -33,6 +33,7 @@ Usage::
 """
 
 import json
+import re
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -321,8 +322,10 @@ _SYSTEM_PROMPT_HEAD = (
     "in square brackets, like [2] or [1][3]. Cite only the excerpt(s) that "
     "actually contain that fact: do not list excerpts that merely concern "
     "the same case, and do not put every label after every sentence. Use "
-    "only the labels shown in the excerpts: never write a file name or a "
-    "page number. After the answer, on a new line, write QUOTES: and then "
+    "only the labels shown in the excerpts: never write a file name, a "
+    "page number or a paragraph number of the decision (those appear in "
+    "parentheses inside the excerpts) in square brackets. After the answer, "
+    "on a new line, write QUOTES: and then "
     "one line each time you cite a label, in the order of your citations, in "
     'this form: [2] "a passage of at most 200 characters copied word for '
     "word from the Excerpt part of excerpt 2 (never from the document "
@@ -346,6 +349,24 @@ _REFUSAL_CLAUSE_STRICT = (
     "exactly: 'I could not find this information in the provided "
     "documents.'"
 )
+
+
+#: A bracketed number as court decisions number their paragraphs ("[41] A bíróság ..."), in
+#: the same shape as an excerpt label.
+_PARAGRAPH_MARK = re.compile(r"\[\s*(\d{1,2}(?:\s*[,;]\s*\d{1,2})*)\s*\]")
+
+
+def shield_paragraph_marks(text: str) -> str:
+    """``text`` with its bracketed numbers in parentheses.
+
+    The answer cites an excerpt as ``[3]``. A decision numbers its paragraphs the same
+    way, and the model copies them into its answer (``[19]``, ``[22]``): the system then
+    reads a paragraph number as a label, which is either an unknown label or, when the
+    number happens to be one of the labels, a citation of the wrong excerpt. In the
+    prompt the paragraph marks are therefore ``(19)``. The citation check ignores
+    punctuation, so a quote that keeps them still matches the stored text.
+    """
+    return _PARAGRAPH_MARK.sub(lambda m: f"({m.group(1)})", text)
 
 
 def labelled_chunks(context_chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
@@ -415,7 +436,7 @@ def _build_prompt(
             context.append(
                 f"Section heading (not to be quoted): {chunk.metadata.header_path}"
             )
-        text = (
+        text = shield_paragraph_marks(
             "\n".join([*context, f"Excerpt: {chunk.body}"]) if context else chunk.body
         )
         context_parts.append(

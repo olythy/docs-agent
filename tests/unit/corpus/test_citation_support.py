@@ -53,13 +53,13 @@ def test_citing_all_labels_after_one_claim_makes_a_pair_for_each():
     assert result.wrong == 1  # over-citation: the second chunk does not state it
 
 
-def test_an_unknown_label_is_a_wrong_citation_even_with_nothing_to_judge():
+def test_an_unknown_label_is_stray_not_a_wrong_citation_since_it_is_not_shown():
     judge = Judge([])
 
     result = check("It says so [9].", [], judge, unknown=(9,))
 
     assert result.pairs == () and judge.asked == []
-    assert result.wrong == 1 and result.unknown_labels == (9,)
+    assert result.wrong == 0 and result.stray == 1 and result.unknown_labels == (9,)
 
 
 def test_the_sources_block_and_what_follows_are_not_read_as_claims():
@@ -151,7 +151,8 @@ def test_the_dict_for_the_evaluation_record_lists_the_unsupported_claims():
     assert (
         record["pairs"] == 2 and record["supported"] == 1 and record["unsupported"] == 1
     )
-    assert record["wrong"] == 2 and record["unknown_labels"] == [7]
+    assert record["wrong"] == 1 and record["stray"] == 1
+    assert record["unknown_labels"] == [7]
     assert record["unsupported_claims"] == [
         {"label": 2, "sentence": "The second claim is true."}
     ]

@@ -855,8 +855,9 @@ How to read this table:
   cite_prec   of the (sentence, cited chunk) pairs, the share whose chunk really states
               the sentence (a separate model call judges every pair); this is the strict
               reading of "points exactly at the section that supports the claim".
-  wrong       wrong citations: pairs whose chunk does not support the sentence, plus
-              labels that named no excerpt. The goal is zero.
+  wrong       wrong citations: shown pairs whose chunk does not support the sentence.
+              The goal is zero. (Labels that named no excerpt are removed from the shown
+              answer and counted apart as "unknown label(s)" in --verbose.)
   sec_ret     of the questions whose golden citations carry a quote: the share where the
               supporting passage of EVERY expected document was among the chunks the model
               read (the quote is looked up in the chunks as they are now).
