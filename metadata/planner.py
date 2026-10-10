@@ -155,9 +155,18 @@ class LLMQueryPlanner(QueryPlanner):
             compiles it, so a plan that passes here cannot fail there).
         clock: Today's date, given to the model so it can tell what "now" is
             (the date arithmetic itself is done by the resolver, not the model).
+        temperature: Sampling temperature (0: the same question should give the same
+            plan; a plan that changes between runs changes which documents are read).
     """
 
-    def __init__(self, llm: AnswerDriver, compiler: PlanCompiler, clock: Clock) -> None:
+    def __init__(
+        self,
+        llm: AnswerDriver,
+        compiler: PlanCompiler,
+        clock: Clock,
+        temperature: float = 0.0,
+    ) -> None:
+        self._temperature = temperature
         self._llm = llm
         self._compiler = compiler
         self._clock = clock
@@ -178,7 +187,12 @@ class LLMQueryPlanner(QueryPlanner):
         keys = [k for c in catalogs for k in c.keys]
         error, reply = "", ""
         for attempt in range(2):
-            reply = self._llm.run_tool_calling_turn(messages).content or ""
+            reply = (
+                self._llm.run_tool_calling_turn(
+                    messages, temperature=self._temperature
+                ).content
+                or ""
+            )
             try:
                 plan = parse_plan(
                     extract_json(reply, reject_duplicate_keys=True), type_names

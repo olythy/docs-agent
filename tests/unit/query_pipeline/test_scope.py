@@ -364,3 +364,20 @@ def test_a_scope_names_one_document_only_with_exactly_one_resolved_identifier():
     assert scope_of(7).names_one_document is True
     assert scope_of(7, 8).names_one_document is False
     assert scope_of(7).names_several_documents is False
+
+
+def test_filters_that_select_few_documents_count_like_named_documents():
+    assert Scope(document_count=1).names_one_document is True
+    assert Scope(document_count=1).names_several_documents is False
+    assert Scope(document_count=2).names_several_documents is True
+    assert Scope(document_count=4).names_several_documents is True
+    assert Scope(document_count=5).names_several_documents is False
+    assert Scope(document_count=5).names_one_document is False
+    assert Scope().names_several_documents is False
+
+
+def test_a_filtered_scope_remembers_how_many_documents_the_filters_select():
+    scope = resolver(FakePlans(count=3)).resolve(lookup())
+
+    assert isinstance(scope, Scope) and scope.document_count == 3
+    assert scope.names_several_documents is True

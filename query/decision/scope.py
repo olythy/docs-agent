@@ -45,6 +45,11 @@ from query.outcome import Declined, DeclineReason
 logger = logging.getLogger(__name__)
 
 
+#: The most documents a filter-selected scope may hold to be treated like a list of named
+#: documents (each represented in the context) rather than a pool to search.
+MAX_SPREAD_DOCUMENTS = 4
+
+
 @dataclass(frozen=True)
 class Scope:
     """Which documents the retrieval may look at.
@@ -55,6 +60,9 @@ class Scope:
             could not be checked against it).
         identifiers: What the question's identifiers resolved to (kept for the explain
             record: which resolved, which did not).
+        document_count: How many documents the selection holds, when it is known. A
+            description by court, year and subject that selects 1 document is as good as
+            naming it, and one that selects a few is as good as naming those few.
     """
 
     selection: DocumentSelection | None = None
@@ -62,16 +70,26 @@ class Scope:
     identifiers: ResolvedIdentifiers = field(
         default_factory=lambda: ResolvedIdentifiers({})
     )
+    document_count: int | None = None
 
     @property
     def names_one_document(self) -> bool:
-        """The question names exactly one document."""
-        return len(self.identifiers.document_ids) == 1
+        """The question names, or its filters select, exactly one document."""
+        return len(self.identifiers.document_ids) == 1 or self.document_count == 1
 
     @property
     def names_several_documents(self) -> bool:
-        """The question names more than one document (so each must be represented)."""
-        return len(self.identifiers.document_ids) > 1
+        """The question names or selects a few documents (so each must be represented).
+
+        More than :data:`MAX_SPREAD_DOCUMENTS` selected documents are a search space, not
+        a list of documents the answer must each draw on.
+        """
+        if len(self.identifiers.document_ids) > 1:
+            return True
+        return (
+            self.document_count is not None
+            and 2 <= self.document_count <= MAX_SPREAD_DOCUMENTS
+        )
 
 
 def scope_of_source_file(source_file: str) -> Scope:
@@ -205,7 +223,12 @@ class ScopeResolver:
                 detail=result.explanation,
                 note=note,
             )
-        return Scope(selection=result.selection, note=note, identifiers=resolved)
+        return Scope(
+            selection=result.selection,
+            note=note,
+            identifiers=resolved,
+            document_count=result.count,
+        )
 
 
 # ------------------------------------------------------------------------ the decision

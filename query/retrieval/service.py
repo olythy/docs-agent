@@ -74,6 +74,9 @@ class RetrievalService:
         resolver: Turns a profile name and settings into numbers.
         factory: Builds the pipeline.
         embedding: The embedding driver (its dimension is checked against the store).
+        single_document_top_k: How many chunks to read when the scope is one document,
+            unless the request sets ``top_k``: one decision is read in more depth than a
+            search over many. ``None`` keeps the profile's number.
         observers: Told after every step (progress and audit logging); the trace is
             always recorded.
     """
@@ -85,7 +88,9 @@ class RetrievalService:
         factory: PipelineFactory,
         embedding: EmbeddingDriver,
         observers: Sequence[StepObserver] = (),
+        single_document_top_k: int | None = None,
     ) -> None:
+        self._single_document_top_k = single_document_top_k
         self._facts_reader = facts_reader
         self._resolver = resolver
         self._factory = factory
@@ -108,8 +113,11 @@ class RetrievalService:
         scope = request.scope if request.scope is not None else Scope()
         if scope.selection is not None:
             store = store.restricted_to(scope.selection)
+        top_k = request.top_k
+        if top_k is None and scope.names_one_document:
+            top_k = self._single_document_top_k
         profile = self._resolver.resolve(
-            request.profile, top_k=request.top_k, min_score=request.min_score
+            request.profile, top_k=top_k, min_score=request.min_score
         )
         context = RetrievalContext(
             facts=facts,

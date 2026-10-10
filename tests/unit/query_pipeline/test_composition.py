@@ -92,6 +92,14 @@ class TestOverrides:
         assert [c.id for c in retrieve(env, top_k=2)] == [1, 3]
         assert retrieve(env, min_score=0.95) == []
 
+    def test_a_scope_of_one_document_reads_the_single_document_chunk_count(self, wired):
+        env = wired(SINGLE_DOCUMENT_TOP_K=1)
+
+        chunks = retrieve(env, scope=Scope(document_count=1))
+
+        # 1 chunk, plus the opening chunk; without the setting the profile's 3 would come
+        assert len(chunks) <= 2
+
     def test_a_precomputed_query_vector_means_no_embedding_call(
         self, wired, monkeypatch
     ):

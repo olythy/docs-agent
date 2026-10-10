@@ -72,9 +72,11 @@ class ScriptedLLM:
     def __init__(self, *replies):
         self._replies = list(replies)
         self.calls: list[list[dict]] = []
+        self.temperatures: list[float | None] = []
 
     def run_tool_calling_turn(self, messages, *args, **kwargs):
         self.calls.append([dict(m) for m in messages])
+        self.temperatures.append(kwargs.get("temperature"))
         return SimpleNamespace(content=self._replies.pop(0))
 
 
@@ -89,6 +91,14 @@ def test_a_valid_reply_becomes_a_plan_in_one_call():
 
     assert plan.operation is Operation.COUNT and plan.filters[0].key == "document_kind"
     assert len(llm.calls) == 1
+
+
+def test_the_planner_asks_at_temperature_zero_so_a_question_gets_one_plan():
+    llm = ScriptedLLM(GOOD)
+
+    _planner(llm).plan("how many judgments?", CATALOGS)
+
+    assert llm.temperatures == [0.0]
 
 
 def test_the_model_chooses_the_document_type_and_the_plan_carries_it():

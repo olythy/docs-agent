@@ -262,6 +262,10 @@ class Settings:
 
     Retrieval:
         RETRIEVAL_TOP_K       Number of chunks to retrieve per query (default: 4).
+        SINGLE_DOCUMENT_TOP_K Number of chunks to read when the question names one
+                              document or its filters select exactly one (default:
+                              8): one decision is read in more depth than a search
+                              over many. RETRIEVAL_TOP_K still applies otherwise.
         RETRIEVAL_MIN_SCORE   Cosine similarity threshold (0–1). Chunks below this
                               score are considered too distant and ignored
                               (default: 0.25).
@@ -503,6 +507,7 @@ class Settings:
 
     # --- Retrieval ---
     RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "4"))
+    SINGLE_DOCUMENT_TOP_K: int = int(os.getenv("SINGLE_DOCUMENT_TOP_K", "8"))
     RETRIEVAL_MIN_SCORE: float = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.25"))
     RERANKER_DRIVER: str = os.getenv("RERANKER_DRIVER", "cross_encoder")
     RERANKER_MODEL: str = os.getenv(

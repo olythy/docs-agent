@@ -16,7 +16,7 @@ from query.retrieval.profiles import DEFAULT_PROFILE, PipelineFactory, ProfileRe
 from query.retrieval.service import RetrievalRequest, RetrievalService
 
 
-def service(settings_override, observers=()):
+def service(settings_override, observers=(), single_document_top_k=None):
     config = settings_override(
         RETRIEVAL_TOP_K=4,
         RETRIEVAL_CANDIDATE_POOL_SIZE=6,
@@ -33,6 +33,7 @@ def service(settings_override, observers=()):
         ),
         embedding,  # type: ignore[arg-type]
         observers,
+        single_document_top_k=single_document_top_k,
     )
 
 
@@ -237,3 +238,28 @@ class TestOneNamedDocumentGetsItsOpening:
         )
 
         assert watcher.single == {False}
+
+
+class TestSingleDocumentDepth:
+    @staticmethod
+    def count(settings_override, scope, top_k=None, single=2):
+        result = service(settings_override, single_document_top_k=single).retrieve(
+            RetrievalRequest(
+                "what about costs?", profile=DEFAULT_PROFILE, scope=scope, top_k=top_k
+            ),
+            FakeStore(),  # type: ignore[arg-type]
+        )
+        assert isinstance(result.outcome, Answerable)
+        return len(result.outcome.chunks)
+
+    def test_a_scope_of_one_document_uses_its_own_chunk_count(self, settings_override):
+        one = Scope(document_count=1)
+
+        assert self.count(settings_override, one) <= 3  # 2, plus the opening chunk
+
+    def test_any_other_scope_keeps_the_profile_chunk_count(self, settings_override):
+        assert self.count(settings_override, Scope(document_count=9)) == 4
+        assert self.count(settings_override, None) == 4
+
+    def test_an_explicit_top_k_in_the_request_wins(self, settings_override):
+        assert self.count(settings_override, Scope(document_count=1), top_k=4) >= 4

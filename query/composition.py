@@ -58,6 +58,7 @@ def build_retrieval_service(settings: Settings) -> RetrievalService:
             embedding, get_reranker_driver(settings.RERANKER_DRIVER), listwise
         ),
         embedding,
+        single_document_top_k=settings.SINGLE_DOCUMENT_TOP_K,
         observers=(
             ProgressLogObserver(),
             AuditLogObserver(get_logger(), settings.RERANKER_MODEL),
