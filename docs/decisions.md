@@ -2,6 +2,20 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-11 — Where the supporting passage is lost in retrieval (stage trace of the v2 questions)
+
+**Method.** For every verified fact_finder/practical question the retrieval records give the ranked list after each step; the golden passage (located by its quote) is looked for in the dense pool, the keyword pool, after RRF fusion, after the reranker and in the final cut. Retrieval only, so the orderings can be compared offline on one run.
+
+**Findings (passage within the first k chunks, 29 fact_finder / 35 practical questions).**
+| ordering | fact_finder k=8 | practical k=4 / 8 / 12 |
+|---|---|---|
+| reranker (current) | 24 | 19 / 26 / 27 |
+| RRF fusion only | 27 | 17 / 22 / 25 |
+| RRF and reranker rank fused (1/(60+r) each) | 26 | 21 / 24 / 26 |
+The Vertex reranker helps the described-by-content questions (26 vs 22 at k=8) and hurts the case-number ones (24 vs 27): it demotes passages that RRF had at rank 2 or 6 (q0112: 2 -> 50; q0110: 6 -> 12). No ordering of the candidates is a clear win, so none was adopted. About 8 of the 35 practical passages are in no candidate pool at all (q0102, q0122): the first stage did not find them, so a better ranking cannot help there; the pool is 40 dense + 40 keyword chunks.
+
+**Golden defect found on the way.** q0009 names `2.G.40.107/2014/173`, the document's own number is `23.G.40.107/2014/173`; the scope never narrowed to the document and the question was refused 3 of 3. Marked `needs_review`; the identifier check had flagged it earlier (the list printed then was not acted on).
+
 ## 2026-10-11 — The model states a STATUS; the system writes the refusal and pairs quotes to sentences by what they say
 
 **Why.** With the instruction "answer exactly 'I could not find ...' if it cannot be found", the model refused with the supporting passage in the excerpts (q0081: 2/2 refusals with the instruction, 2/2 correct answers without it; three softer wordings refused too). Removing the instruction alone is no fix: q0081's question had a false premise and the clause-less model accepted it, and the adversarial profile needs refusals. So the prompt now asks for a first line `STATUS: answered | partial | none` (`partial` must say what is not covered); `none`, or a reply in which no citation survives the checks, becomes the system's own refusal sentence (`GroundedAnswerer`).

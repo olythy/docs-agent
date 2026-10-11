@@ -175,8 +175,8 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "The cited case number '2.G.40.107/2014/173' and court name 'Budapest Környéki Törvényszék' are present verbatim in the document. The document explicitly states: 'A bíróság kötelezi a felperest, hogy 15 napon belül fizessen meg alperesnek 22.527.236,- (huszonkétmillió-ötszázhuszonhétezer-kétszázharminchat) Ft tőkét', directly supporting the expected answer that the plaintiff must pay 22,527,236 HUF capital to the defendant.",
+    "verification_status": "needs_review",
+    "verification_notes": "Hand check: the question names 2.G.40.107/2014/173 but the document's own number is 23.G.40.107/2014/173, so the scope never narrows to it (found by the stage trace of the v2 eval).",
     "notes": "A kérdés a megadott bírósági ítéletben szereplő, egyértelműen meghatározott tőkeösszegre vonatkozik."
   },
   {
