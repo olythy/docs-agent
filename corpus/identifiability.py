@@ -14,29 +14,19 @@ way: "identifiable" means "the best document for this description is the golden 
 which is what a person could also be expected to reach.
 
 Key exports:
-    document_ranking -- The documents of a ranked chunk list, best first.
+    document_ranking -- The same without the scores.
     gold_position    -- Where the golden document stands (0 is first), or ``None``.
 """
 
-from collections import defaultdict
 from collections.abc import Sequence
 
 from models import RetrievedChunk
-
-#: Dampens the first ranks so that one lucky chunk does not outweigh several good ones.
-_RANK_OFFSET = 10
+from query.retrieval.documents import document_scores
 
 
 def document_ranking(ranked: Sequence[RetrievedChunk]) -> list[str]:
-    """The ``source_file`` of every document in ``ranked``, best first.
-
-    A document scores the sum of ``1 / (10 + rank)`` over its chunks: a document with
-    several chunks near the top beats one with a single chunk at the very top.
-    """
-    scores: defaultdict[str, float] = defaultdict(float)
-    for rank, chunk in enumerate(ranked):
-        scores[chunk.metadata.source_file] += 1 / (_RANK_OFFSET + rank)
-    return sorted(scores, key=lambda source: -scores[source])
+    """The ``source_file`` of every document in ``ranked``, best first."""
+    return [source for source, _ in document_scores(ranked)]
 
 
 def gold_position(ranked: Sequence[RetrievedChunk], gold: str) -> int | None:

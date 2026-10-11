@@ -268,6 +268,16 @@ class Settings:
         RETRIEVAL_TOP_K       Number of chunks to retrieve per query (default: 8; 4 left the
                               supporting passage out of the context for 15 of 35 described
                               questions, see docs/decisions.md).
+        DOCUMENT_EXPANSION_MARGIN
+                              0 (default) switches the step off. A number above 0
+                              (e.g. 1.5) reads the WHOLE of the document that leads
+                              the ranking, when its score is at least that many
+                              times the second document's, instead of the best few
+                              chunks of several documents (see
+                              DOCUMENT_EXPANSION_MAX_CHUNKS).
+        DOCUMENT_EXPANSION_MAX_CHUNKS
+                              The most chunks of the leading document that step
+                              reads (default: 30; a decision has about 25).
         SINGLE_DOCUMENT_TOP_K Number of chunks to read when the question names one
                               document or its filters select exactly one (default:
                               8): one decision is read in more depth than a search
@@ -517,6 +527,12 @@ class Settings:
     # --- Retrieval ---
     RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "8"))
     SINGLE_DOCUMENT_TOP_K: int = int(os.getenv("SINGLE_DOCUMENT_TOP_K", "8"))
+    DOCUMENT_EXPANSION_MARGIN: float = float(
+        os.getenv("DOCUMENT_EXPANSION_MARGIN", "0")
+    )
+    DOCUMENT_EXPANSION_MAX_CHUNKS: int = int(
+        os.getenv("DOCUMENT_EXPANSION_MAX_CHUNKS", "30")
+    )
     RETRIEVAL_MIN_SCORE: float = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.25"))
     RERANKER_DRIVER: str = os.getenv("RERANKER_DRIVER", "cross_encoder")
     RERANKER_MODEL: str = os.getenv(

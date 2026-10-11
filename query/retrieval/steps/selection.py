@@ -2,11 +2,13 @@
 
 Key exports:
     TopKWithGuaranteesStep  -- The final cut of the ``best_chunks`` profile (with the year quota).
+    DocumentExpansionStep   -- Reads the whole of the one document that clearly leads.
     OpeningChunkStep        -- Adds the first chunk of the one document a question names.
 """
 
 from models import RetrievedChunk
 from query.retrieval.context import RetrievalContext, Slot
+from query.retrieval.documents import document_scores
 from query.retrieval.step import Continue, RetrievalStep, StepName, StepResult
 from store import VectorStore
 
@@ -101,6 +103,50 @@ class TopKWithGuaranteesStep(RetrievalStep):
         rest = [c for c in chunks if c.id not in picked]
         final = selected + rest[: max(0, top_k - len(selected))]
         return Continue(context.with_slots(selected=tuple(final)))
+
+
+class DocumentExpansionStep(RetrievalStep):
+    """Replaces the cut by the whole of the document that clearly leads the ranking.
+
+    A question that describes a decision (its court, year and subject) is answered from one
+    document, yet the final cut takes the best few chunks of several: the passage that
+    answers it is often a lower-ranked chunk of the right document (measured: for 75% of the
+    questions it was in the context). When one document leads the others by ``margin``
+    (its score is at least ``margin`` times the second's), its chunks are read in full
+    (up to ``max_chunks``), the best-ranked first; otherwise the cut stays as it is.
+
+    Args:
+        store: The chunk store (restricted to the scope).
+        margin: How many times the second document's score the leader must have.
+        max_chunks: The most chunks of the document to read.
+    """
+
+    name = StepName.DOCUMENT_EXPANSION
+    requires = frozenset({Slot.RANKED, Slot.SELECTED})
+    provides = frozenset({Slot.SELECTED})
+
+    def __init__(self, store: VectorStore, margin: float, max_chunks: int) -> None:
+        self._store = store
+        self._margin = margin
+        self._max_chunks = max_chunks
+
+    def run(self, context: RetrievalContext) -> StepResult:
+        scores = document_scores(context.ranked or ())
+        if not scores:
+            return Continue(context)
+        leader, leader_score = scores[0]
+        if len(scores) > 1 and leader_score < self._margin * scores[1][1]:
+            return Continue(context)
+        whole = self._store.chunks_of_source(leader, self._max_chunks)
+        if not whole:
+            return Continue(context)
+        by_id = {chunk.id: chunk for chunk in whole}
+        ranked_first = [c for c in (context.ranked or ()) if c.id in by_id]
+        seen = {c.id for c in ranked_first}
+        rest = [c for c in whole if c.id not in seen]
+        # best-ranked chunks first (the prompt puts the first ones last, nearest the question)
+        ordered = [by_id[c.id] for c in ranked_first] + rest
+        return Continue(context.with_slots(selected=tuple(ordered[: self._max_chunks])))
 
 
 class OpeningChunkStep(RetrievalStep):

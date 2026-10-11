@@ -89,4 +89,8 @@ def test_with_nothing_selected_there_is_nothing_to_add_to():
 def test_the_step_is_part_of_the_default_profile_after_the_final_cut():
     kinds = [spec.kind for spec in PROFILES["best_chunks"].steps]
 
-    assert kinds[-2:] == [StepName.TOP_K_SELECTION, StepName.OPENING_CHUNK]
+    assert kinds[-3:] == [
+        StepName.TOP_K_SELECTION,
+        StepName.DOCUMENT_EXPANSION,
+        StepName.OPENING_CHUNK,
+    ]
