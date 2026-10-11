@@ -82,7 +82,9 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   ├── outcome.py            # Answerable / Declined(reason, stage) (a refusal is a value, not an empty list), RefusalRenderer and the wording of every refusal, in one place
 │   ├── decline_detection.py  # Shared "did the model honestly decline" heuristic (the golden eval)
 │   │   # Answering
-│   ├── answering.py          # GroundedAnswerer (+AnswerPolicy, AnswerObserver) writes an answer from the chunks read, ExactAnswerer runs an exact plan; ResultPhraser/render_result word the result
+│   ├── answering.py          # GroundedAnswerer (+AnswerPolicy, AnswerObserver) writes an answer from the chunks read and resolves its citations (labels -> chunks, quote check, status line, left-out sentences), ExactAnswerer runs an exact plan; ResultPhraser/render_result word the result
+│   ├── claims.py             # the sentences of an answer and the labels each cites
+│   ├── claim_judge.py        # LLMClaimJudge: does a quoted passage state the sentence it is cited for?
 │   ├── decision/             # "which way does the question go, over which documents?"
 │   │   ├── decider.py        # Decision (ReadDocuments | AnswerExactly | Refuse), PlanningDecider, ProfileSelector
 │   │   └── scope.py          # Scope / ScopeResolver: which documents a question may read, and the rules that build it
@@ -97,6 +99,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │       ├── profiles.py       # the registered retrieval profile (best_chunks), ProfileResolver, PipelineFactory (built per query)
 │       ├── runner.py         # RetrievalPipeline: validates the chain, runs it, tells observers; TraceRecorder
 │       ├── service.py        # RetrievalService.retrieve: one entry, owns the store session
+│       ├── documents.py      # document_scores: a ranking of documents from a ranking of chunks (the identifiability gate uses it)
 │       ├── hybrid.py         # reciprocal_rank_fusion: pure RRF fusion logic
 │       └── listwise_rerank.py # Optional final LLM disambiguation pass over near-duplicate candidates
 ├── migrations/              # Python migrations (Laravel-artisan-style runner)
@@ -131,6 +134,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   │   ├── download.py        # `download` command (thin wrapper around download_court_decisions.py)
 │   │   ├── generate_questions.py  # `generate-questions` command (draft + two-tier-verify golden questions)
 │   │   ├── add_quotes.py      # `add-quotes` command: gives every golden citation a code-verified supporting quote
+│   │   ├── mark_identifiable.py  # `mark-identifiable` command: sets practical questions whose described document is not the first candidate to ambiguous
 │   │   ├── eval.py            # `eval` command: persona-bucketed golden-set accuracy + citation correctness
 │   │   ├── compute_hub_scores.py  # `compute-hub-scores` command (CSLS hub_score batch pass)
 │   │   ├── coverage.py        # `coverage` command: how much of the golden set is answerable now; flags missing hub scores
@@ -141,6 +145,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 │   │   ├── routing_eval.py    # `routing-eval` command: does the decider pick the right flow (read / exact / not supported yet), and does a restriction select any document? decider only, no retrieval, no answer
 │   ├── decline_grader.py     # Grades an adversarial answer: declined, and did not assert the missing fact
 │   ├── stats.py              # Wilson lower bound for per-question pass counts
+│   ├── identifiability.py    # Where the golden document stands among the candidates of the system's own search
 │   ├── golden_quotes.py      # Locates a golden citation's quote in the current chunks (stable across re-ingest); section-level hit check
 │   ├── verification.py       # Shared extract_json/verify_citation_exists/fetch_full_content (generate_questions + eval)
 │   ├── download_court_decisions.py  # Downloading internals (argparse, unchanged) -- called by commands/download.py (raw/ + meta.csv are gitignored)
@@ -448,6 +453,7 @@ Retrieval and answers are measured on the golden set (`corpus/`), not on a toy c
 
 - `eval [-q ID ...] [--repeat N] [--profile NAME]` — runs the questions through the real `QueryService` and grades answer, retrieval hit and citation per persona; `--repeat` because the model is not deterministic. `--questions-file F` evaluates another golden file (`corpus/data/questions_v2.json` is the larger, hand-reviewed-in-part set). Adversarial answers are graded by a model call that checks the answer declined *and* did not assert the missing fact (`corpus/decline_grader.py`); the report ends with a per-question count and a 95% Wilson lower bound, because the repeats of one question are not independent samples.
 - `add-quotes [--persona ID] [-q ID ...]` — gives every golden citation a word-for-word `quote` of the decision's own text, proposed by the model and accepted only if the code finds it in a stored chunk. `eval` then reports, per persona, `sec_ret` (the supporting passage of every expected document was among the chunks read) and `sec_cit` (the answer also cites it), looked up in the chunks as they are now, so the numbers survive a re-ingest.
+- `mark-identifiable` — sets practical questions whose described document is not the first candidate of the system's own search to `ambiguous`: the description fits several decisions, so answering is not a test of anything. `eval --results-file F` saves every run and resumes an interrupted evaluation.
 - `retrieval-snapshot --out F` / `--compare F` — records the chunk ids every retrieval step left for the questions and compares a fresh run with such a file, so a change to the retrieval shows up as exactly the questions it changed.
 - `funnel` — per question, step by step: how many chunks went in and out, how long each took, and which step dropped a golden document.
 - `routing-eval` — does the decider choose the right flow (read documents / answer exactly / not supported yet) on a list of questions, and does a restriction it builds select any document at all.
@@ -462,7 +468,36 @@ Two independent layers, not one:
 2. **Cross-encoder reranking gate** (`RERANKER_DRIVER=cross_encoder`, the default): when enabled, `CrossEncoderRerankerDriver` scores each `(question, chunk)` pair jointly and discards any chunk scoring below `RERANKER_MIN_SCORE=-2.0` on the logit scale. This is a *second* gate that fires *after* the cosine gate — it operates on the already-filtered candidate pool, not the raw corpus. Its logit scale (unbounded, centered around 0) has a natural "irrelevant" region confirmed empirically: relevant chunks score +2 to +6, clearly irrelevant ones score -3.5 to -9. With `cross_encoder` enabled, the measured `Fallback = 1.00` (6/6 unanswerable queries correctly rejected at the retrieval layer, zero reaching the LLM), vs. `Fallback = 0.00` without it — a 6-chunk saving per irrelevant query with no LLM call at all.
 
   **Caveat:** `-2.0` was calibrated on the same 6 unanswerable questions that the `Fallback = 1.00` number above is then measured against — that's training-set accuracy, not a demonstrated generalization to unseen questions. Validating it properly needs a larger, independent eval set that wasn't used for tuning.
-3. **Prompt-level grounding instruction** (`drivers/llm.py`'s `_build_prompt`): the system prompt explicitly instructs the model to answer strictly from the provided excerpts and respond with an exact "I could not find this information in the provided documents" if the excerpts don't answer the question. This catches the case the eval script's fallback-rate finding demonstrated above — a topically-relevant chunk that still doesn't contain the specific fact asked for — which a similarity threshold structurally cannot distinguish from a genuine answer.
+3. **The answer layer** (`query/answering.py`, `drivers/llm.py`): the model opens its reply with `STATUS: answered | partial | none`, and the **system** writes the refusal ("I could not find this information in the provided documents.") for `none` or for any reply in which no citation holds. An instruction to answer with that exact sentence was tried first and made the model refuse even with the passage in the excerpts (`docs/decisions.md`, 2026-10-11). See "Answers and citations" below.
+
+### Answers and citations
+
+An answer is only as good as the evidence it can point at, so the system, not the model, makes the citations:
+
+1. The prompt labels the excerpts `[1] ... [8]` (the best last, nearest the question) and asks for short sentences that each state one fact, cited with a label.
+2. After the answer the model lists, per citation, a quote of at most 200 characters copied from that excerpt (`QUOTES:`). The code looks the quote up in the chunk's **own text** (the stored chunk is summary + identifiers + heading + text; only the text counts). A quote that is not there is no citation.
+3. A second, narrow model call judges each (sentence, quote) pair: does the quote state the sentence? Every quote the model wrote for a label is tried against the sentence; the first the judge accepts becomes its citation.
+4. A sentence all of whose citations failed is left out of the visible answer (`ANSWER_OMIT_UNBACKED`, on by default; the answer says how many were left out). A reply in which no citation survives is a refusal written by the system.
+5. A decision numbers its paragraphs `[19]`, the same shape as a label, and the model copied them; the prompt therefore shows them as `(19)`.
+
+The answer then carries a `Sources:` block with the chunk ids, the file, the section and the quote. The evaluation checks the same citations from outside, against the whole chunk, with its own judge (`corpus/citation_support.py`), and counts a shown citation the chunk does not support as wrong.
+
+### Where the system stands (2026-10-11)
+
+Measured on the golden set `corpus/data/questions_v2.json` (64 fact_finder, 53 practical_procedural, 68 adversarial questions that passed the generation checks; 2 runs each; **a sample of the new questions was read by hand, the rest was verified by model calls, so treat the numbers as an upper bound on how right the questions are**). Target: 95% per profile, zero wrong citations.
+
+| Profile | What it asks | Retrieval | Correct answer | Right in every run (lower bound) |
+|---|---|---|---|---|
+| fact_finder | A fact of a decision named by its case number | 99% | 85-89% | 57/68 (about 73%) |
+| practical_procedural | A procedural point of a decision described by court, year and subject (no case number) | 91% | 68% | 31/53 (about 46%) |
+| adversarial | An invented case number, or a detail no decision contains | | 91-94% declined without asserting the fact | 60/68 |
+
+Wrong citations (a shown citation the chunk does not support): 4-5 of 136 runs for fact_finder, 6-13 of 130 for practical. What the numbers do and do not say:
+
+- **fact_finder** is close: retrieval is 99%; most of the gap is the grader wanting details of the expected answer that the question did not ask for, and a few golden errors found by the failure analysis.
+- **practical_procedural** is limited by retrieval: the passage is in the context for about 75% of the runs; a correct answer then follows 80% of the time. Ranking tricks (reranker on own text, larger pool, a hypothetical-answer rewrite, reading the whole leading document) were each measured and none helped (`docs/decisions.md`, 2026-10-11).
+- **adversarial** failures are mostly "what happened after the ruling" questions, which the system answers with what the ruling orders.
+- The runs of one question are not independent samples; the report counts questions right in every run and gives a 95% Wilson lower bound. 60 questions per profile, all right, are needed to show 95%.
 
 ## Local Diagnostic Scripts
 
@@ -519,6 +554,7 @@ An **HNSW index** (`vector_cosine_ops`) is created on `embedding` for fast appro
 
 A snapshot of major completed phases, newest first. Each phase's specific decisions/numbers live in `docs/decisions.md`; this list is just "what's done," not "why."
 
+- [x] **Grounded answers and a measurement that can be believed** — citations made by the system (label resolved to a chunk, quote verified in the chunk's own text, per-sentence judge, `STATUS:` line, refusal written by the system), a golden set of 185 questions across three profiles with verified quotes instead of chunk indexes, question-level reporting with confidence bounds, an LLM decline grader, generation-time checks (answer fits the question, no false premise, no absence-only answer, description identifies one document), and a failure analysis per retrieval stage. Honest outcome: fact_finder 85-89%, practical 68%, adversarial 91-94% against a 95% target; see "Where the system stands" above and `docs/decisions.md`, 2026-10-10/11.
 - [x] **Query pipeline rewrite** — decision, retrieval and answering rebuilt as small classes with one responsibility each (a decider that returns `ReadDocuments | AnswerExactly | Refuse`, a scope that says which documents may be read, a retrieval of named steps over one frozen context, a grounded answerer and an exact answerer, an `Explain` with every answer). Proven equal to the original on the characterization scenarios, on live snapshots and on the golden questions, then the original (`retrieve_chunks`, `QueryRouter`, the identifier pin) and the `QUERY_ROUTER` / `QUERY_ENGINE` / `ANSWER_PARTIAL_COVERAGE` switches were deleted. See `docs/query-pipeline-design.md` and `docs/decisions.md`.
 - [x] **Step-based retrieval beside the original** — the path from question to chunks rewritten as small classes (one frozen context, steps that declare what they read and provide, registered profiles, an explicit `Declined` result, observers for logging), reachable with `QUERY_ENGINE=v2` and proven identical to the original on every characterization scenario and on live snapshots under five settings; the funnel reads its per-step records (the first stage of the rewrite above).
 - [x] **Structured metadata and a query planner/router** — typed, verified, per-document metadata (document types, a key catalog, extraction with quoted evidence and statuses, an `identifier` type with one normalised comparison rule), and a planner that decides how every question is answered: count / list / sum / overview questions are answered exactly from SQL, content questions are read inside the documents the filters select, and a request that cannot be done yet (documents *similar* to a named one) is said so plainly.
