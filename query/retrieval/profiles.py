@@ -39,11 +39,7 @@ from query.retrieval.steps.ranking import (
     RerankStep,
     RrfFusionStep,
 )
-from query.retrieval.steps.selection import (
-    DocumentExpansionStep,
-    OpeningChunkStep,
-    TopKWithGuaranteesStep,
-)
+from query.retrieval.steps.selection import OpeningChunkStep, TopKWithGuaranteesStep
 from store import VectorStore
 
 
@@ -53,7 +49,6 @@ class Condition(StrEnum):
     PERIOD_FILTER = "period_filter"  # RETRIEVAL_PERIOD_FILTER
     CROSS_ENCODER = "cross_encoder"  # the reranker's scores are calibrated logits
     LISTWISE = "listwise"  # LISTWISE_RERANK_ENABLED
-    DOCUMENT_EXPANSION = "document_expansion"  # DOCUMENT_EXPANSION_MARGIN > 0
 
 
 @dataclass(frozen=True)
@@ -102,7 +97,6 @@ PROFILES: dict[str, ProfileSpec] = {
             StepSpec(StepName.RERANK_SCORE_GATE, Condition.CROSS_ENCODER),
             StepSpec(StepName.LISTWISE_RERANK, Condition.LISTWISE),
             StepSpec(StepName.TOP_K_SELECTION),
-            StepSpec(StepName.DOCUMENT_EXPANSION, Condition.DOCUMENT_EXPANSION),
             StepSpec(StepName.OPENING_CHUNK),
         ),
         measured=(
@@ -136,8 +130,6 @@ class RetrievalParams:
     diversify: bool = True
     rerank_min_score: float = 0.0
     period_filter: bool = False
-    expansion_margin: float = 0.0
-    expansion_max_chunks: int = 30
 
 
 @dataclass(frozen=True)
@@ -193,7 +185,6 @@ class ProfileResolver:
             Condition.PERIOD_FILTER: s.RETRIEVAL_PERIOD_FILTER,
             Condition.CROSS_ENCODER: s.RERANKER_DRIVER.lower() == "cross_encoder",
             Condition.LISTWISE: s.LISTWISE_RERANK_ENABLED,
-            Condition.DOCUMENT_EXPANSION: s.DOCUMENT_EXPANSION_MARGIN > 0,
         }
         return ResolvedProfile(
             spec=spec,
@@ -204,8 +195,6 @@ class ProfileResolver:
                 diversify=s.RETRIEVAL_DIVERSIFY_GUARANTEES,
                 rerank_min_score=s.RERANKER_MIN_SCORE,
                 period_filter=s.RETRIEVAL_PERIOD_FILTER,
-                expansion_margin=s.DOCUMENT_EXPANSION_MARGIN,
-                expansion_max_chunks=s.DOCUMENT_EXPANSION_MAX_CHUNKS,
             ),
             steps=tuple(
                 step.kind
@@ -247,9 +236,6 @@ _BUILDERS: dict[StepName, Callable[[StepDeps], RetrievalStep]] = {
     ),
     StepName.TOP_K_SELECTION: lambda d: TopKWithGuaranteesStep(
         d.params.top_k, d.params.diversify, d.params.period_filter
-    ),
-    StepName.DOCUMENT_EXPANSION: lambda d: DocumentExpansionStep(
-        d.store, d.params.expansion_margin, d.params.expansion_max_chunks
     ),
     StepName.OPENING_CHUNK: lambda d: OpeningChunkStep(d.store),
 }

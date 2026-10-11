@@ -483,40 +483,6 @@ class VectorStore:
             for row in rows
         ]
 
-    def chunks_of_source(
-        self, source_file: str, limit: int = 50
-    ) -> list[RetrievedChunk]:
-        """The chunks of one document in reading order (``chunk_index``), as a lookup.
-
-        Args:
-            source_file: The document's file name as ingested.
-            limit: The most chunks to return.
-
-        Returns:
-            The chunks, each with a placeholder ``score`` of 0.0 (this is a lookup, not a
-            search). Within the scope this store is restricted to.
-        """
-        scope_sql, scope_params = self._scope_condition()
-        sql = f"""
-            SELECT id, content, metadata
-            FROM document_chunks
-            WHERE metadata->>'source_file' = %s{scope_sql}
-            ORDER BY (metadata->>'chunk_index')::int
-            LIMIT %s;
-        """
-        with self._connection() as conn, conn.cursor() as cur:
-            cur.execute(sql, (source_file, *scope_params, limit))
-            rows = cur.fetchall()
-        return [
-            RetrievedChunk(
-                id=row[0],
-                content=row[1],
-                metadata=ChunkMetadata.from_dict(row[2]),
-                score=0.0,
-            )
-            for row in rows
-        ]
-
     def delete_chunks_by_hash(self, content_hash: str) -> int:
         """Delete all document_chunks rows matching the given SHA-256 content hash.
 
