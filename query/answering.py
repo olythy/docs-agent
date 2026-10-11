@@ -27,7 +27,7 @@ Key exports:
 import logging
 import re
 import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Protocol
@@ -64,7 +64,30 @@ class AnswerPolicy:
 
 #: The line before the quotes of an answer, and one quote line: ``[2] "a passage"``.
 _QUOTES_MARK = re.compile(r"(?:^|\n)[ \t]*QUOTES:[ \t]*\n?")
+#: How many of the quotes written for one label are tried against one sentence.
+MAX_QUOTES_PER_LABEL = 4
+
+_STATUS_LINE = re.compile(
+    r"^\s*[*_`]*STATUS[*_`]*\s*:\s*[*_`]*(answered|partial|none)[*_`]*[^\n]*(?:\n|$)",
+    re.IGNORECASE,
+)
 _QUOTE_LINE = re.compile(r'^\s*\[(\d{1,2})\]\s*["“„»«]?(.*?)["”»«]?\s*$')
+
+
+def split_status(text: str) -> tuple[str | None, str]:
+    """The status line a reply opens with, and the reply without it.
+
+    Args:
+        text: The model's reply.
+
+    Returns:
+        ``("answered" | "partial" | "none", the rest)``, or ``(None, text)`` when the reply
+        does not open with a status line.
+    """
+    found = _STATUS_LINE.match(text)
+    if found is None:
+        return None, text
+    return found.group(1).lower(), text[found.end() :].lstrip("\n")
 
 
 def split_quotes(text: str) -> tuple[str, list[tuple[int, str]]]:
@@ -106,6 +129,8 @@ class GroundedAnswer:
         unverified_labels: Labels that never got a citation that held: no quote, a quote
             that is not in the chunk, or a passage that does not state the sentence. They
             are taken out of the visible answer.
+        status: The status line the model opened with (``answered``, ``partial``, ``none``),
+            or ``None`` when it wrote none.
         rejected: ``(label, sentence)`` for each citation whose passage is in the chunk but
             was judged not to state the sentence, so it was taken out of that sentence.
         visible_text: The answer as shown: without the quotes block and without the labels
@@ -119,6 +144,7 @@ class GroundedAnswer:
     unverified_labels: tuple[int, ...] = ()
     rejected: tuple[tuple[int, str], ...] = ()
     visible_text: str | None = None
+    status: str | None = None
 
     @property
     def visible(self) -> str:
@@ -183,10 +209,21 @@ class GroundedAnswerer:
         started = self._clock()
         text = self._driver.generate(system_prompt, user_message, self._max_tokens)
         seconds = self._clock() - started
-        refused = text.strip().strip("'\"").lower().startswith(REFUSAL_SENTENCE.lower())
-        answer = GroundedAnswer(text, refused)
+        status, text = split_status(text)
+        refused = status == "none" or (
+            text.strip().strip("'\"").lower().startswith(REFUSAL_SENTENCE.lower())
+        )
+        if status == "none":
+            text = REFUSAL_SENTENCE
+        answer = GroundedAnswer(text, refused, status=status)
         if not refused:
             answer = self._with_citations(answer, chunks, self._judge)
+            if not answer.citations:
+                # Nothing the model said is backed by a passage of an excerpt: the refusal
+                # is the system's, not a reply that looks like an answer but rests on nothing.
+                answer = replace(
+                    answer, text=REFUSAL_SENTENCE, refused=True, visible_text=None
+                )
         for observer in self._observers:
             observer.on_answer(question, chunks, answer, seconds)
         return answer
@@ -199,22 +236,23 @@ class GroundedAnswerer:
     ) -> GroundedAnswer:
         """``answer`` with each citation resolved, its quote found in the chunk and judged.
 
-        A citation is one label in one sentence, with the passage the model quoted for it
-        (the n-th time a label is cited takes the n-th quote written for it, the last one
-        again if there are fewer). It holds only if the passage is in the chunk shown under
-        the label (the check the metadata layer uses for its evidence quotes) and, when a
-        judge is given, the passage states the sentence. What does not hold is taken out of
-        that sentence of the visible answer.
+        A citation is one label in one sentence. The model writes quotes per label, not per
+        sentence, and does not always write one per citation (a quote for the case number,
+        two sentences citing one label), so pairing them by position misassigned them and
+        rejected sound citations. Every quote written for the label that is in its chunk
+        (the check the metadata layer uses for its evidence quotes) is a candidate for the
+        sentence; the citation holds when, with a judge, one of them states the sentence
+        (the first that does becomes its quote), or, without a judge, as soon as one is in
+        the chunk. What does not hold is taken out of that sentence of the visible answer.
         """
         body, quotes = split_quotes(answer.text)
         shown = labelled_chunks(list(chunks))
-        waiting: dict[int, deque[str]] = defaultdict(deque)
+        written: dict[int, list[str]] = defaultdict(list)
         for label, quote in quotes:
-            waiting[label].append(quote)
-        last: dict[int, str] = {}
-        candidates: list[
-            tuple[int, int, str, str]
-        ] = []  # (span, label, sentence, quote)
+            if quote not in written[label]:
+                written[label].append(quote)
+        # (span, label, sentence, the label's quotes that are in its chunk)
+        candidates: list[tuple[int, int, str, list[str]]] = []
         unknown: list[int] = []
         failed: list[tuple[int, int]] = []  # (span, label): no usable quote
         spans = sentence_spans(body)
@@ -225,26 +263,39 @@ class GroundedAnswerer:
                     if label not in unknown:
                         unknown.append(label)
                     continue
-                if waiting[label]:
-                    last[label] = waiting[label].popleft()
-                quote = last.get(label)
-                if quote and EvidenceVerifier(shown[label - 1].body).contains(quote):
-                    candidates.append((index, label, plain_sentence(sentence), quote))
+                verifier = EvidenceVerifier(shown[label - 1].body)
+                in_chunk = [
+                    quote
+                    for quote in written[label][:MAX_QUOTES_PER_LABEL]
+                    if verifier.contains(quote)
+                ]
+                if in_chunk:
+                    candidates.append(
+                        (index, label, plain_sentence(sentence), in_chunk)
+                    )
                 else:
                     failed.append((index, label))
-        verdicts = judge.supports([(c[2], c[3]) for c in candidates]) if judge else None
-        if judge is not None and verdicts is None and candidates:
+        pairs = [(c[2], quote) for c in candidates for quote in c[3]]
+        verdicts = judge.supports(pairs) if judge else None
+        if judge is not None and verdicts is None and pairs:
             logger.warning(
                 "[cite] No verdicts from the claim judge; quotes alone are kept."
             )
         kept: list[tuple[int, int, str, str]] = []
         rejected: list[tuple[int, str]] = []
-        for number, candidate in enumerate(candidates):
-            if verdicts is not None and not verdicts[number]:
-                failed.append((candidate[0], candidate[1]))
-                rejected.append((candidate[1], candidate[2]))
+        cursor = 0
+        for index, label, sentence, in_chunk in candidates:
+            mine = (
+                None if verdicts is None else verdicts[cursor : cursor + len(in_chunk)]
+            )
+            cursor += len(in_chunk)
+            if mine is None:
+                kept.append((index, label, sentence, in_chunk[0]))
+            elif any(mine):
+                kept.append((index, label, sentence, in_chunk[mine.index(True)]))
             else:
-                kept.append(candidate)
+                failed.append((index, label))
+                rejected.append((label, sentence))
         citations: list[Citation] = []
         for _, label, _, quote in kept:
             if all(c.label != label for c in citations):

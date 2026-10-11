@@ -59,7 +59,10 @@ class LLMClaimJudge:
             "decide whether the PASSAGE itself states the fact(s) the CLAIM says. "
             "'supported' is true only if the passage contains those facts; it is false if "
             "the passage is only about the same case or topic, lacks the fact, or "
-            "contradicts it. Judge each item on its own passage only.\n\n"
+            "contradicts it. A claim often opens by naming the court, the case number or "
+            "the parties, which the question already stated and the passage need not "
+            "repeat: judge the fact the claim reports (an amount, a ruling, a reason, a "
+            "date), not those words. Judge each item on its own passage only.\n\n"
             f"{json.dumps(items, ensure_ascii=False)}\n\n"
             'Output ONLY this JSON, one entry per item in the same order: {"supported": '
             "[true, false, ...]}"

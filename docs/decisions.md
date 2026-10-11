@@ -2,6 +2,20 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-11 — The model states a STATUS; the system writes the refusal and pairs quotes to sentences by what they say
+
+**Why.** With the instruction "answer exactly 'I could not find ...' if it cannot be found", the model refused with the supporting passage in the excerpts (q0081: 2/2 refusals with the instruction, 2/2 correct answers without it; three softer wordings refused too). Removing the instruction alone is no fix: q0081's question had a false premise and the clause-less model accepted it, and the adversarial profile needs refusals. So the prompt now asks for a first line `STATUS: answered | partial | none` (`partial` must say what is not covered); `none`, or a reply in which no citation survives the checks, becomes the system's own refusal sentence (`GroundedAnswerer`).
+
+**What broke on the first try, and the fix.** The first measurement (status line + position-based quote pairing) made fact_finder worse (answer 96 -> 87%, 11 refusals, 8 with the passage in the context). The reply of such a refusal looked right; the claim judge had rejected both citations. Cause: the model writes quotes per label, not per sentence, and often one more than there are citations (q0002: a quote for the case number first), so "the n-th quote for the label goes with the n-th citation" paired a sentence with another sentence's quote, and the judge was right to reject. Before, a rejected citation only lost its label and the answer stayed; with the new "no citation, no answer" rule it became a refusal. Now every quote written for a label that is in its chunk (at most 4) is tried against the sentence and the first that the judge accepts becomes its quote. The runtime judge also no longer requires the passage to repeat the court and case number that the question named.
+
+**Result (v2 set, 3 runs, top_k 8; the three configurations are not independent samples of one thing, small n).**
+| | before (exact sentence) | status + position pairing | status + any-quote pairing |
+|---|---|---|---|
+| practical answer | 50% | 63% | **64%** |
+| fact_finder answer | 96% | 87% | 92% |
+| adversarial declined | 99% | 94% | 94% |
+Per question (right in every run), last column: fact_finder 26/30, practical 17/35, adversarial 27/29. fact_finder and adversarial are below where they were before the change; practical gained 14 points. Refusals that remain in practical: 38 of 105 runs, 20 of them with the passage in the context. Not understood yet: why adversarial went from 99 to 94% (q0042, q0045 are answered with a partial answer the grader counts as asserting the missing fact) and why q0009 (fact_finder) is refused 3/3 with no supporting passage retrieved.
+
 ## 2026-10-10 — Paragraph numbers of the decisions were read as excerpt labels; "wrong citations" now means a wrong *shown* citation
 
 **Found by** a verbose eval at `RETRIEVAL_TOP_K=8`, where wrong citations rose from 4 to 10 (fact_finder). Court decisions number their paragraphs in square brackets (`[41] A bíróság ...`), the same shape as an excerpt label (`[3]`). The model copied them into its answer (q0142: `[5][19]`, `[6][20][21]`, with a QUOTES line for each, quoting the paragraph). A number above the excerpt count was an *unknown label*; one at or below it silently cited the wrong excerpt, which only the per-sentence judge could catch.

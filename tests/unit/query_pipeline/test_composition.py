@@ -173,8 +173,15 @@ class TestWiring:
 class FakeAnswerDriver:
     """Stands for the language model: records the prompt, replies with a fixed text."""
 
-    def __init__(self, reply="THE ANSWER"):
+    #: An answer that cites label 3 (the best-ranked chunk) with a passage of that chunk.
+    CITED = 'STATUS: answered\nTHE ANSWER [3]\n\nQUOTES:\n[3] "the costs of the proceedings were awarded"'
+
+    def __init__(self, reply=CITED):
         self.reply, self.calls = reply, []
+
+    def run_tool_calling_turn(self, messages, *args, **kwargs):
+        """The claim judge's call: every sentence is supported."""
+        return SimpleNamespace(content='{"supported": [true, true, true]}')
 
     def generate(self, system_prompt, user_message, max_tokens=1024):
         self.calls.append((system_prompt, user_message, max_tokens))
@@ -215,7 +222,7 @@ class TestQueryService:
             store=FakeStore(),  # type: ignore[arg-type]
         )
 
-        assert answer.text == "THE ANSWER"
+        assert answer.text.startswith("THE ANSWER")
         assert driver.calls[0][1].endswith(f"Question: {QUESTION}")
 
     def test_the_answer_is_written_to_the_audit_log(self, wired, monkeypatch):

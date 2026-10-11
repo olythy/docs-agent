@@ -823,15 +823,17 @@ def _prompt_chunks():
     ]
 
 
-def test_build_prompt_refuses_only_when_the_answer_cannot_be_found_at_all():
-    """The refusal rule is the strict one, with the exact sentence the decline detection
-    and the adversarial questions depend on."""
+def test_build_prompt_asks_for_a_status_instead_of_an_exact_refusal_sentence():
+    """The model says how far the excerpts answer; the system writes the refusal (the exact
+    sentence the decline detection depends on). With the instruction to answer with that
+    sentence the model refused even with the passage in the excerpts."""
     from drivers.llm import REFUSAL_SENTENCE, _build_prompt
 
     system, _ = _build_prompt("q?", _prompt_chunks())
 
-    assert "If the answer cannot be found in the excerpts at all" in system
-    assert f"'{REFUSAL_SENTENCE}'" in system
+    assert "Begin your reply with exactly one line: STATUS: answered" in system
+    assert "none = nothing in the excerpts bears on the question" in system
+    assert REFUSAL_SENTENCE not in system
     assert "sample selected from a much larger collection" not in system
     assert "A partial answer is always better" not in system
 

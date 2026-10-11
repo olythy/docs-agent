@@ -62,3 +62,15 @@ def test_a_reply_that_is_not_one_clean_verdict_per_pair_gives_none(reply):
     j, _ = judge(reply)
 
     assert j.supports(PAIRS) is None
+
+
+def test_the_prompt_tells_the_judge_not_to_require_the_questions_identifiers_in_the_passage():
+    """A claim that opens with the court and case number the question named was rejected
+    for a passage that only held the amount, which refused correct answers."""
+    j, llm = judge({"supported": [True, True]})
+
+    j.supports(PAIRS)
+
+    prompt = llm.calls[0][0]
+    assert "the court, the case number or the parties" in prompt
+    assert "judge the fact the claim reports" in prompt

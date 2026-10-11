@@ -96,23 +96,65 @@ def test_the_models_own_refusal_is_recognised(reply):
 
 
 @pytest.mark.parametrize(
+    "reply", ["STATUS: none", "status: NONE\n", "**STATUS: none**"]
+)
+def test_status_none_is_a_refusal_the_system_writes(reply):
+    answer = GroundedAnswerer(FakeDriver(reply), POLICIES[0]).answer("Q?", CHUNKS)
+
+    assert answer.refused and answer.text == REFUSAL_SENTENCE
+    assert answer.status == "none" and answer.visible == REFUSAL_SENTENCE
+
+
+@pytest.mark.parametrize(
     "reply",
     [
         "The court decided X.",
-        f"X was decided. {REFUSAL_SENTENCE}",  # an answer that mentions it is an answer
+        "STATUS: answered\nThe court decided X.",  # claims, nothing it can point at
+        f"X was decided. {REFUSAL_SENTENCE}",
         "",
     ],
 )
-def test_anything_else_is_an_answer(reply):
+def test_a_reply_without_one_citation_that_holds_is_refused_by_the_system(reply):
     answer = GroundedAnswerer(FakeDriver(reply), POLICIES[0]).answer("Q?", CHUNKS)
 
-    assert not answer.refused and answer.text == reply
+    assert answer.refused and answer.text == REFUSAL_SENTENCE and answer.citations == ()
 
 
-def test_the_refusal_clause_contains_the_sentence_that_is_recognised():
+def test_a_reply_with_a_citation_that_holds_is_an_answer_and_keeps_its_status():
+    reply = 'STATUS: partial\nThe court ruled [2]. Costs are not covered.\n\nQUOTES:\n[2] "first"'
+    answer = GroundedAnswerer(FakeDriver(reply), POLICIES[0]).answer("Q?", CHUNKS)
+
+    assert not answer.refused and answer.status == "partial"
+    assert [c.label for c in answer.citations] == [2]
+    assert answer.visible.startswith("The court ruled [2]. Costs are not covered.")
+
+
+def test_the_prompt_asks_for_a_status_line_and_not_for_the_exact_refusal_sentence():
     system, _ = _build_prompt("q", [])
 
-    assert f"'{REFUSAL_SENTENCE}'" in system
+    for status in ("STATUS: answered", "STATUS: partial", "STATUS: none"):
+        assert status in system
+    assert REFUSAL_SENTENCE not in system
+
+
+@pytest.mark.parametrize(
+    ("text", "status", "rest"),
+    [
+        ("STATUS: answered\nBody.", "answered", "Body."),
+        ("  status : Partial  (some)\n\nBody.", "partial", "Body."),
+        ("**STATUS: none**", "none", ""),
+        (
+            "Body. STATUS: none",
+            None,
+            "Body. STATUS: none",
+        ),  # only an opening line counts
+        ("STATUS: maybe\nBody.", None, "STATUS: maybe\nBody."),
+    ],
+)
+def test_the_status_line_is_read_only_when_it_opens_the_reply(text, status, rest):
+    from query.answering import split_status
+
+    assert split_status(text) == (status, rest)
 
 
 class RecordingObserver:
@@ -247,8 +289,9 @@ def test_a_quote_that_is_not_in_the_chunk_under_that_label_is_not_a_citation():
 
     answer = answer_with(text)
 
+    # no citation holds, so the system refuses instead of showing an uncited claim
     assert answer.citations == () and answer.unverified_labels == (2,)
-    assert answer.visible == "The court ruled."
+    assert answer.refused and answer.visible == REFUSAL_SENTENCE
 
 
 def test_a_quote_may_leave_text_out_with_an_ellipsis():
@@ -278,7 +321,7 @@ def test_an_answer_without_labels_has_no_citations():
     answer = answer_with("The court dismissed the claim (a.docx, page 2).")
 
     assert answer.citations == () and answer.unverified_labels == ()
-    assert answer.visible == "The court dismissed the claim (a.docx, page 2)."
+    assert answer.refused and answer.visible == REFUSAL_SENTENCE
 
 
 @pytest.mark.parametrize(
@@ -366,14 +409,14 @@ def test_a_line_starting_with_quotes_inside_the_answer_does_not_hide_the_real_bl
     assert body.endswith("in this answer [3].")  # the LAST mark ends the answer
 
 
-def test_the_system_prompt_asks_for_a_word_for_word_quote_per_label_and_none_when_refusing():
+def test_the_system_prompt_asks_for_a_word_for_word_quote_per_label_and_none_for_status_none():
     from drivers.llm import _build_prompt
 
     system_prompt, _ = _build_prompt("Q?", [])
 
     assert "QUOTES:" in system_prompt
     assert "copied word for word" in system_prompt
-    assert "do not write QUOTES: when you refuse" in system_prompt
+    assert "do not write QUOTES: when STATUS is none" in system_prompt
 
 
 # ---------------------------------------------------- one quote per citation, judged
@@ -404,7 +447,7 @@ TWO = (
 )
 
 
-def test_the_judge_is_asked_about_each_sentence_and_the_passage_quoted_for_that_citation():
+def test_the_judge_is_asked_about_each_sentence_and_every_verified_quote_of_its_label():
     judge = Judge(lambda pairs: [True] * len(pairs))
 
     judged(TWO, judge)
@@ -412,18 +455,17 @@ def test_the_judge_is_asked_about_each_sentence_and_the_passage_quoted_for_that_
     assert judge.asked == [
         [
             ("The court dismissed the claim.", "said text 10 about"),
-            (
-                "It ordered the costs.",
-                "The court said text 10",
-            ),  # the 2nd quote of label 3
+            ("The court dismissed the claim.", "The court said text 10"),
+            ("It ordered the costs.", "said text 10 about"),
+            ("It ordered the costs.", "The court said text 10"),
             ("It ordered the costs.", "said text 20 about"),
         ]
     ]
 
 
 def test_a_citation_the_judge_rejects_leaves_only_that_sentence_and_is_recorded():
-    # the quote of label 2 is in its chunk, but does not state the second sentence
-    judge = Judge([True, True, False])
+    # no quote of label 2 states the second sentence
+    judge = Judge([True, False, True, False, False])
 
     answer = judged(TWO, judge)
 
@@ -436,7 +478,7 @@ def test_a_citation_the_judge_rejects_leaves_only_that_sentence_and_is_recorded(
 
 
 def test_a_label_rejected_in_one_sentence_but_kept_in_another_is_still_a_citation():
-    judge = Judge([False, True, True])
+    judge = Judge([False, False, True, True, True])
 
     answer = judged(TWO, judge)
 
@@ -445,6 +487,30 @@ def test_a_label_rejected_in_one_sentence_but_kept_in_another_is_still_a_citatio
     )
     assert [c.label for c in answer.citations] == [3, 2]
     assert answer.unverified_labels == ()  # label 3 holds in the second sentence
+
+
+def test_a_quote_written_for_another_sentence_does_not_reject_a_sound_citation():
+    """The model wrote an extra quote for the label (one for the case number), so pairing
+    quotes with sentences by position gave the second sentence the wrong passage and the
+    judge rejected a correct citation. Any verified quote of the label may state it."""
+    text = (
+        "First claim is made here [3]. Second claim is made here [3].\n\nQUOTES:\n"
+        '[3] "The court said text 10"\n[3] "said text 10 about"\n'
+    )
+    states = {
+        "First claim is made here.": "The court said text 10",
+        "Second claim is made here.": "said text 10 about",
+    }
+    judge = Judge(lambda pairs: [states[claim] == quote for claim, quote in pairs])
+
+    answer = judged(text, judge)
+
+    assert (
+        answer.visible == "First claim is made here [3]. Second claim is made here [3]."
+    )
+    assert answer.rejected == () and [c.label for c in answer.citations] == [3]
+    # the quote shown for the label is the first one that stated a sentence
+    assert answer.citations[0].quote == "The court said text 10"
 
 
 def test_a_single_quote_for_a_label_cited_twice_is_reused_for_the_second_sentence():
@@ -642,3 +708,15 @@ def test_a_chunk_without_any_context_is_shown_as_it_is():
 def test_a_chunk_with_only_a_leading_summary_still_has_its_text_as_the_body():
     assert SUMMED[0].body == "The amount is 733910 forint."
     assert SUMMED[0].content.startswith(SUMMARY)
+
+
+def test_a_quote_the_model_repeats_for_a_label_is_asked_about_once():
+    text = (
+        "First claim is made here [3].\n\nQUOTES:\n"
+        '[3] "said text 10 about"\n[3] "said text 10 about"\n'
+    )
+    judge = Judge(lambda pairs: [True] * len(pairs))
+
+    judged(text, judge)
+
+    assert judge.asked == [[("First claim is made here.", "said text 10 about")]]

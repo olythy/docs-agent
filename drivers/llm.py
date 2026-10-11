@@ -331,23 +331,26 @@ _SYSTEM_PROMPT_HEAD = (
     "word from the Excerpt part of excerpt 2 (never from the document "
     'summary) that states the fact of the sentence you cited it for". '
     "Cite a label only if you can quote such a passage from that "
-    "excerpt; do not write QUOTES: when you refuse. If the excerpts only partially answer "
-    "the question, say exactly what they do and don't cover, rather "
+    "excerpt; do not write QUOTES: when STATUS is none. If the excerpts only partially "
+    "answer the question, say exactly what they do and don't cover, rather "
     "than completing the picture from outside knowledge. "
 )
 
 #: The sentence the model is told to give when it refuses (inside the refusal clause below).
 REFUSAL_SENTENCE = "I could not find this information in the provided documents."
 
-#: The refusal rule. Confirmed live that with a broad "how did the
-#: practice develop ..." question and two relevant (but partial) excerpts, the
-#: model read "cannot be found at all" as "the excerpts do not contain the
-#: whole answer" and gave this exact sentence every time (3/3), even when a
-#: reminder was appended after the question.
-_REFUSAL_CLAUSE_STRICT = (
-    "If the answer cannot be found in the excerpts at all, respond with "
-    "exactly: 'I could not find this information in the provided "
-    "documents.'"
+#: What the model says about how far the excerpts answer, as the first line of its reply. It
+#: replaces the instruction to answer with the exact refusal sentence: confirmed live that
+#: with that instruction the model gave the sentence even when the passage was in the
+#: excerpts (a two-part question it could answer only in part), and with every wording of
+#: the instruction tried. The refusal is now written by the system (see
+#: ``query.answering.GroundedAnswerer``) when the status is ``none`` or no citation holds.
+_STATUS_CLAUSE = (
+    "Begin your reply with exactly one line: STATUS: answered, STATUS: partial or "
+    "STATUS: none. answered = the excerpts answer everything the question asks. "
+    "partial = they answer only a part of it: give that part, then say in one sentence "
+    "what they do not cover. none = nothing in the excerpts bears on the question: "
+    "write only the STATUS line."
 )
 
 
@@ -444,7 +447,7 @@ def _build_prompt(
         )
     context_text = "\n\n".join(context_parts)
 
-    system_prompt = _SYSTEM_PROMPT_HEAD + _REFUSAL_CLAUSE_STRICT
+    system_prompt = _SYSTEM_PROMPT_HEAD + _STATUS_CLAUSE
 
     user_message = f"Document excerpts:\n\n{context_text}\n\nQuestion: {question}"
 
