@@ -21,6 +21,7 @@ Usage::
     uv run python corpus/cli.py compute-hub-scores
     uv run python corpus/cli.py coverage
     uv run python corpus/cli.py funnel -q ID [-q ID ...]
+    uv run python corpus/cli.py mark-identifiable [--questions-file F]
     uv run python corpus/cli.py meta-accuracy
     uv run python corpus/cli.py meta-plan-eval
     uv run python corpus/cli.py retrieval-snapshot [--out F] [--compare F]
@@ -44,6 +45,7 @@ from corpus.commands import (
     eval,
     funnel,
     generate_questions,
+    mark_identifiable,
     meta_accuracy,
     meta_plan_eval,
     retrieval_snapshot,
@@ -58,6 +60,7 @@ app.add_typer(eval.app)
 app.add_typer(compute_hub_scores.app)
 app.add_typer(coverage.app)
 app.add_typer(funnel.app)
+app.add_typer(mark_identifiable.app)
 app.add_typer(meta_accuracy.app)
 app.add_typer(meta_plan_eval.app)
 app.add_typer(retrieval_snapshot.app)
