@@ -129,6 +129,8 @@ class GroundedAnswer:
         unverified_labels: Labels that never got a citation that held: no quote, a quote
             that is not in the chunk, or a passage that does not state the sentence. They
             are taken out of the visible answer.
+        omitted: How many sentences were left out of the visible answer because every
+            citation they carried failed (the answer states only what a quote backs).
         status: The status line the model opened with (``answered``, ``partial``, ``none``),
             or ``None`` when it wrote none.
         rejected: ``(label, sentence)`` for each citation whose passage is in the chunk but
@@ -145,6 +147,7 @@ class GroundedAnswer:
     rejected: tuple[tuple[int, str], ...] = ()
     visible_text: str | None = None
     status: str | None = None
+    omitted: int = 0
 
     @property
     def visible(self) -> str:
@@ -318,9 +321,16 @@ class GroundedAnswerer:
         removed: dict[int, set[int]] = defaultdict(set)
         for index, label in failed:
             removed[index].add(label)
+        held = {index for index, _, _, _ in kept}
+        # A sentence that cited excerpts and none of its citations held states something
+        # nothing backs: it is left out, not shown with its labels removed.
+        dropped = {index for index in removed if index not in held}
         pieces: list[str] = []
         cursor = 0
         for index, (start, end) in enumerate(spans):
+            if index in dropped:
+                cursor = end
+                continue
             pieces.append(body[cursor:start])
             pieces.append(strip_labels(body[start:end], removed[index] | set(unknown)))
             cursor = end
@@ -331,7 +341,8 @@ class GroundedAnswerer:
             unknown_labels=tuple(unknown),
             unverified_labels=tuple(unverified),
             rejected=tuple(rejected),
-            visible_text="".join(pieces),
+            visible_text="".join(pieces).strip(),
+            omitted=len(dropped),
         )
 
 

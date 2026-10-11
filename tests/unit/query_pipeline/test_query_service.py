@@ -65,6 +65,7 @@ class FakeGrounded:
         unknown=(),
         unverified=(),
         visible=None,
+        omitted=0,
     ):
         self.reply = GroundedAnswer(
             text,
@@ -73,6 +74,7 @@ class FakeGrounded:
             unknown,
             unverified,
             visible_text=visible,
+            omitted=omitted,
         )
         self.calls = []
 
@@ -167,6 +169,26 @@ class TestRead:
         assert answer.citations == (citation,)
         assert answer.unknown_labels == (9,)
         assert answer.text == "Dismissed [1].\n\nSources:\n[1] a.pdf, section 3"
+
+    def test_left_out_statements_are_said_before_the_sources(self):
+        citation = Citation(1, 42, "a.pdf", 3)
+        qs, *_ = service(
+            read(),
+            grounded=FakeGrounded("Dismissed [1].", citations=(citation,), omitted=2),
+        )
+
+        answer = qs.answer("q", store=STORE)
+
+        assert answer.text == (
+            "Dismissed [1].\n\nNote: 2 statement(s) of the draft answer could not be "
+            "verified against the sources and were left out.\n\n"
+            "Sources:\n[1] a.pdf, section 3"
+        )
+
+    def test_nothing_is_said_when_nothing_was_left_out(self):
+        qs, *_ = service(read(), grounded=FakeGrounded("Fine."))
+
+        assert "Note:" not in qs.answer("q", store=STORE).text
 
     def test_the_visible_text_is_shown_not_the_raw_reply_and_the_dropped_labels_are_carried(
         self,

@@ -221,6 +221,11 @@ class QueryService:
             assert isinstance(outcome, Answerable)
             grounded = self._grounded.answer(question, outcome.chunks)
             text = grounded.visible
+            if grounded.omitted:
+                text = (
+                    f"{text}\n\nNote: {grounded.omitted} statement(s) of the draft "
+                    "answer could not be verified against the sources and were left out."
+                )
             sources = render_sources(grounded.citations)
             if sources:
                 text = f"{text}\n\n{sources}"

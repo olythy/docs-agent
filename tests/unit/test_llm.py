@@ -851,3 +851,13 @@ def test_a_decisions_paragraph_numbers_cannot_be_read_as_excerpt_labels():
     assert user.count("[1] Source:") == 1  # the excerpt's own label is untouched
     # the model's quote keeps the parentheses; it still matches the stored text
     assert EvidenceVerifier(body).contains("(41) A bíróság a keresetet elutasítja.")
+
+
+def test_the_prompt_asks_for_one_cited_fact_per_sentence():
+    """A sentence that bundled two facts was rejected whole when one passage stated only one."""
+    from drivers.llm import _build_prompt
+
+    system, _ = _build_prompt("q?", _prompt_chunks())
+
+    assert "short sentences that each state one fact" in system
+    assert "do not combine facts from different passages" in system

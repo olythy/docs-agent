@@ -370,13 +370,16 @@ def judge_answer_fits(question: str, answer: str, content: str) -> tuple[str, st
         "(not just something related to the topic)?\n"
         "2. GROUNDED: is EVERY statement of the expected answer stated in the decision "
         "itself? One statement that is not in the decision makes it false.\n"
+        "4. NOT_ABSENCE: is the expected answer more than the statement that something "
+        "did not happen or is not mentioned (e.g. that no expert was appointed)? A text that "
+        "is silent cannot show that, so such a question cannot be graded.\n"
         "3. PREMISES: does the question presuppose anything the decision does not say "
         "(e.g. that the court appointed an expert, ordered a measure or ruled on a point "
         "the decision never mentions)? A question built on a false premise is wrong even "
         "if the answer repeats it.\n\n"
         f"QUESTION\n{question}\n\nEXPECTED ANSWER\n{answer}\n\nDECISION\n{content}\n\n"
         'Output ONLY this JSON: {"answers": true | false, "grounded": true | false, '
-        '"premises_hold": true | false, '
+        '"premises_hold": true | false, "not_absence": true | false, '
         '"reason": "<one sentence naming what fails, if anything>"}'
     )
     response = get_answer_driver().run_tool_calling_turn(
@@ -387,6 +390,7 @@ def judge_answer_fits(question: str, answer: str, content: str) -> tuple[str, st
         result.get("answers") is True
         and result.get("grounded") is True
         and result.get("premises_hold") is True
+        and result.get("not_absence") is True
     ):
         return "SUPPORTED", str(result.get("reason", ""))
     return "NOT_SUPPORTED", f"answer fit: {result.get('reason', '')}"

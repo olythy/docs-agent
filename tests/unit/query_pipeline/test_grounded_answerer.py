@@ -280,7 +280,8 @@ def test_a_label_without_a_quote_is_not_a_citation_and_leaves_the_visible_answer
 
     assert [c.label for c in answer.citations] == [3]
     assert answer.unverified_labels == (2,)
-    assert answer.visible == "Claim one [3]. Claim two."
+    # the sentence whose only citation failed states what nothing backs: it is left out
+    assert answer.visible == "Claim one [3]." and answer.omitted == 1
 
 
 def test_a_quote_that_is_not_in_the_chunk_under_that_label_is_not_a_citation():
@@ -482,9 +483,8 @@ def test_a_label_rejected_in_one_sentence_but_kept_in_another_is_still_a_citatio
 
     answer = judged(TWO, judge)
 
-    assert (
-        answer.visible == "The court dismissed the claim. It ordered the costs [3][2]."
-    )
+    # the first sentence's only citation failed, so it is left out; the second holds
+    assert answer.visible == "It ordered the costs [3][2]." and answer.omitted == 1
     assert [c.label for c in answer.citations] == [3, 2]
     assert answer.unverified_labels == ()  # label 3 holds in the second sentence
 

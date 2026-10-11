@@ -330,6 +330,9 @@ _SYSTEM_PROMPT_HEAD = (
     'this form: [2] "a passage of at most 200 characters copied word for '
     "word from the Excerpt part of excerpt 2 (never from the document "
     'summary) that states the fact of the sentence you cited it for". '
+    "Write short sentences that each state one fact, cite each with the "
+    "excerpt that states it and quote that fact: do not combine facts from "
+    "different passages into one sentence. "
     "Cite a label only if you can quote such a passage from that "
     "excerpt; do not write QUOTES: when STATUS is none. If the excerpts only partially "
     "answer the question, say exactly what they do and don't cover, rather "

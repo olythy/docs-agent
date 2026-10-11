@@ -1168,8 +1168,8 @@
     "difficulty": "medium",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "The cited court name 'Debreceni Ítélőtábla' and case number 'Gf.IV.30.021/2023/18.' appear verbatim in the document. The content of paragraph [31] directly supports the expected answer regarding the burden of proof for unlawful use, stating that it is sufficient to establish that the possessor did not return the property to the owner, and that actual use by the unlawful possessor is irrelevant as it is at their discretion.",
+    "verification_status": "needs_review",
+    "verification_notes": "Generation-stage review: Question asks about the burden of proof; the cited passage is about what suffices to establish use without title (the grader and the model both read it as not answering).",
     "notes": "A kérdés a Debreceni Ítélőtábla 2023-as használati díj megfizetése iránti perben hozott döntésének a bizonyítási teherre vonatkozó részleteit kéri. Az \"expected_answer\" a dokumentum 31. bekezdéséből származó, a jogcím nélküli használat megállapításának feltételeire vonatkozó megállapítást tartalmazza."
   },
   {
@@ -1427,8 +1427,8 @@
     "difficulty": "medium",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "The document contains the exact case number '3.Pf.20.246/2021/4.' and the court name 'Fővárosi Ítélőtábla' verbatim. The content of the document (from section [1] to [28]) describes the legal proceedings, the arguments of the parties, and the court's decision, but there is no mention of an expert being appointed or any expert opinion being considered, which supports the 'expected_answer' that no expert was appointed.",
+    "verification_status": "needs_review",
+    "verification_notes": "Generation-stage review: Negative-existence question: the correct answer is that no expert was appointed, which a text that never mentions one cannot show; the system rightly says it finds nothing.",
     "notes": "A kérdés arra vonatkozik, hogy az adott döntésben történt-e szakértő kirendelés, és mi volt az eredménye. A dokumentumban nincs említés szakértői bizonyításról, ami azt jelenti, hogy nem került sor rá."
   },
   {
@@ -1945,8 +1945,8 @@
     "difficulty": "medium",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "All statements in the expected answer are directly supported by the decision.",
+    "verification_status": "needs_review",
+    "verification_notes": "Generation-stage review: Question asks about the burden of proof; the expected answer and the decision speak of the outcome and the doctor's conduct, not of the burden.",
     "notes": "A kérdés a bizonyítási teherre vonatkozó jogi álláspontot kéri egy konkrét, bírósági ítéletben leírt peres ügyben."
   },
   {
@@ -2141,8 +2141,8 @@
     "difficulty": "medium",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "",
+    "verification_status": "needs_review",
+    "verification_notes": "Generation-stage review: Negative-existence question (was an expert appointed? no); see q0080.",
     "notes": "A kérdés a megadott eljárási témára fókuszál, és a dokumentum alapján megállapítható, hogy nem történt szakértő kirendelése."
   },
   {
@@ -2200,8 +2200,8 @@
     "difficulty": "medium",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "All statements in the expected answer are directly supported by the decision.",
+    "verification_status": "needs_review",
+    "verification_notes": "Generation-stage review: Ambiguous: the question asks for the procedural objection; the expected answer is the appeal itself while the decision also lists the grounds, and every run answered the grounds.",
     "notes": "A kérdés az alperes eljárási kifogásaira vonatkozik egy konkrét ítélőtáblai ügyben, ami a dokumentum indoklásának elején megtalálható. Az ítélet számát és a bíróság nevét pontosan a dokumentumból azonosítottam."
   },
   {
@@ -2470,8 +2470,8 @@
     "difficulty": "medium",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "The expected answer directly addresses the question about expert appointment and findings, and all statements are explicitly supported by the decision.",
+    "verification_status": "needs_review",
+    "verification_notes": "Generation-stage review: Negative-existence question (was an expert appointed? no); see q0080.",
     "notes": "A kérdés arról érdeklődik, hogy a bíróság rendelt-e ki szakértőt, és mit állapított meg. Az ítélet egyértelműen kimondja, hogy nem rendelt ki szakértőt, és elutasította a más eljárásban beszerzett szakvélemény felhasználását is, mivel nem tartotta szakkérdésnek az ügyet."
   },
   {

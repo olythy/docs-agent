@@ -100,6 +100,10 @@ not just *a* plausible one? If not, rewrite the question to include it.
 
 **Never phrase a question as if the reader can already see the document(s) you were given.** You see the source chunks/sample while drafting; a real user asking the deployed system never does. Confirmed live: a drafted `precedent_seeker` question read "...Törvényszék 2022-ben *az alábbi esetekben*..." — "the following cases" — a phrase that only makes sense if the reader is looking at the same document list you were, which no real user is. The same leak shows up as "a megadott korpuszban/dokumentumokban" ("in the given corpus/documents") or "a fentebb említett ügyekben" ("in the above-mentioned cases"). Any such phrase makes the question under-specified for retrieval (it points at "whatever I was shown," not at a findable fact) and unrealistic as a user query. Before finalizing, check the question for "alábbi", "megadott", "fenti"/"fentebb", "ezen/ezek az esetek" or any other wording that implicitly points back at your own drafting context, and rewrite using only self-contained facts (court, year, topic, outcome, etc.) that *name* what you mean instead of pointing at it.
 
+Never ask whether something happened when the true answer is that it did not (was an
+expert appointed? no): a decision that is silent cannot be shown to be silent by a quote,
+and the question cannot be graded. Ask what the decision DOES say.
+
 For the `practical_procedural` persona specifically: you are given ONE decision (its
 whole text, with the court, year and subject the metadata layer holds for it, which no
 other decision shares) and a `procedural topic`. Ask about that topic in this decision,
