@@ -2,6 +2,25 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-11 — The enlarged golden set (201 questions) and what leaving out unbacked sentences does
+
+**The set.** 68 fact_finder, 65 practical_procedural, 68 adversarial verified questions (`corpus/data/questions_v2.json`), expected answers shortened to key facts (a grader that wants every detail of a long expected answer failed concise, correct answers; 16 existing answers were shortened and re-checked, the original kept in `expected_answer_long`). Not hand-reviewed except a sample of 14 new ones, which looked sound. 2 runs per question, top_k 8, status line, any-quote pairing, one fact per sentence, `ANSWER_OMIT_UNBACKED=true`.
+
+| | retrieval | answer | citation | cite_prec | wrong citations | right in every run (lower bound) |
+|---|---|---|---|---|---|---|
+| fact_finder | 99% | 85% | 79% | 98% | 5 | 52/68 (65%) |
+| practical_procedural | 87% | 65% | 55% | 98% | 6 | 37/65 (45%) |
+| adversarial | | declined and did not assert 91% | | | | 60/68 (78%) |
+
+**A/B of the omission rule** (same questions, same code, `ANSWER_OMIT_UNBACKED` true against false, 2 runs per question):
+| | answer correct (on / off) | citation correct | wrong citations | questions right in every run |
+|---|---|---|---|---|
+| fact_finder | 115 / 136 against 121 / 136 | 108 against 114 | 5 against 4 | 52 against 57 |
+| practical_procedural | 84 / 130 against 87 / 130 | 72 against 78 | 6 against 13 | 37 against 36 |
+Leaving the unbacked sentences out costs 3 to 4 points of answer correctness (the grader wants the details that were left out) and halves the wrong citations on the practical profile (13 -> 6) while changing nothing on fact_finder. The default stays **on**, because "zero wrong citations" is a hard requirement of the brief and the correctness cost is small and visible (the answer says how many statements were left out); it is one setting if the priority changes.
+
+**Adversarial failures (8 questions, 12 runs).** Six are `missing_fact` questions ("what happened after the ruling") that the system answers with what the ruling orders, which the model grader counts as asserting; one (q0186) is an invented case number one digit away from a real one, answered about the real case with its true number named; the questions themselves were not reviewed, so some may be answerable from the decision.
+
 ## 2026-10-11 — Where the passages are lost, measured per stage; the embedding model and the rerank text are not the lever
 
 **Per-stage count (v2 set, one run, passage = the golden quote located in the chunk).** Practical (35 questions): gold document in scope 35, passage in the dense pool (40) 28, in the keyword pool (40) 30, in either 33, after fusion and rerank 33, in the final 8 chunks 26, answer not refused 27. Fact_finder (29): 29 / 28 / 29 / 29 / 29 / 28 / 28. So the first stage (vector + full text + metadata scope) finds the passage for 94% of the practical questions; **the loss is between the ranked list and the final cut (33 -> 26)**, then in generation (about a quarter of the runs with the passage in the context are refused or wrong, judge strictness and golden defects). An earlier entry's "about a quarter of the practical passages are in no candidate pool" was wrong (it is 2 of 35); corrected here.
