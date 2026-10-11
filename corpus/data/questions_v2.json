@@ -23,7 +23,7 @@
     "id": "q0002",
     "persona_id": "fact_finder",
     "question": "Mekkora összegű kártérítés megfizetésére kötelezte a Fővárosi Ítélőtábla az alperest a 14.Gf.40.123/2024/6/I. ügyszámú ítéletében?",
-    "expected_answer": "A Fővárosi Ítélőtábla a 14.Gf.40.123/2024/6/I. ügyszámú ítéletében 163.932.253 forint kártérítés és kamatai, valamint 2.100.000 forint másodfokú perköltség megfizetésére kötelezte az alperest.",
+    "expected_answer": "Az Ítélőtábla helybenhagyta az elsőfokú ítéletet, amely 163.932.253 forint és kamatai megfizetésére kötelezte az alperest; emellett 2.100.000 forint másodfokú perköltséget is fizetnie kell.",
     "citations": [
       {
         "court": "Fővárosi Ítélőtábla",
@@ -37,7 +37,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The cited case number '14.Gf.40.123/2024/6/I.' and court 'Fővárosi Ítélőtábla' appear verbatim in the document. The document states in section III. [3] that 'Az elsőfokú bíróság ítéletében kötelezte az alperest, hogy fizessen meg a felperesnek 163.932.253 forintot és annak 2019. március 23. napjától a kifizetésig számított, a késedelemmel érintett naptári félév első napján érvényes jegybanki alapkamat nyolc százalékponttal növelt értékével egyező mértékű kamatát.' It also states that 'A Fővárosi Ítélőtábla az elsőfokú bíróság ítéletének nem fellebbezett részét nem érinti, fellebbezett rendelkezéseit helybenhagyja. Kötelezi az alperest, hogy 15 napon belül fizessen meg a felperesnek 2.100.000 (kétmillió-egyszázezer) forint másodfokú perköltséget.' This fully supports the expected answer.",
-    "notes": "A kérdés a megadott ítéletből egyértelműen kiolvasható kártérítési összeget kéri."
+    "notes": "A kérdés a megadott ítéletből egyértelműen kiolvasható kártérítési összeget kéri.",
+    "expected_answer_long": "A Fővárosi Ítélőtábla a 14.Gf.40.123/2024/6/I. ügyszámú ítéletében 163.932.253 forint kártérítés és kamatai, valamint 2.100.000 forint másodfokú perköltség megfizetésére kötelezte az alperest."
   },
   {
     "id": "q0003",
@@ -2903,7 +2904,7 @@
     "id": "q0155",
     "persona_id": "fact_finder",
     "question": "A Debreceni Ítélőtábla Pkf.I.20.130/2024/2. számú végzése szerint mennyi másodfokú perköltséget kell megfizetnie a kérelmezettnek a kérelmező részére?",
-    "expected_answer": "A kérelmezettnek 15 napon belül 22 225 forint másodfokú perköltséget kell megfizetnie a kérelmezőnek.",
+    "expected_answer": "A kérelmezettnek 22 225 forint másodfokú perköltséget kell megfizetnie a kérelmezőnek.",
     "citations": [
       {
         "court": "Debreceni Ítélőtábla",
@@ -2917,7 +2918,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision.",
-    "notes": "A kérdés egy konkrét ítéletből kérdez egy pontos összeget, amely egyértelműen megtalálható a dokumentumban."
+    "notes": "A kérdés egy konkrét ítéletből kérdez egy pontos összeget, amely egyértelműen megtalálható a dokumentumban.",
+    "expected_answer_long": "A kérelmezettnek 15 napon belül 22 225 forint másodfokú perköltséget kell megfizetnie a kérelmezőnek."
   },
   {
     "id": "q0156",
@@ -3148,8 +3150,8 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "The expected answer correctly identifies the subject of the case and the costs awarded to the defendant, and all statements are directly supported by the decision.",
+    "verification_status": "needs_review",
+    "verification_notes": "Failure analysis of the 201-question eval: Confusing question (\"what damages did it award to the defendant\"); the expected answer is the costs and fee.",
     "notes": "A kérdés az ítélet per tárgyára és az alperesre megállapított költségekre vonatkozik, melyek egyértelműen szerepelnek a dokumentum elején."
   },
   {
@@ -3918,8 +3920,8 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "",
+    "verification_status": "needs_review",
+    "verification_notes": "Failure analysis of the 201-question eval: Reverse lookup (the question names amounts and asks for the court and case number), not a fact_finder question: no case number identifies the document.",
     "notes": "A kérdés egy konkrét ítélet egyedi részleteit, a perköltség módosítását emeli ki, hogy egyértelműen azonosítható legyen az adott dokumentum."
   },
   {
@@ -4660,8 +4662,8 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "",
+    "verification_status": "needs_review",
+    "verification_notes": "Failure analysis of the 201-question eval: Reverse lookup (asks which case reduced the costs to 100,000 Ft), not a fact_finder question: no case number identifies the document.",
     "notes": "A kérdés a Fővárosi Ítélőtábla egy konkrét ítéletének ügyszámát és tárgyát, valamint a perköltségre vonatkozó részleteit kérdezi, amelyek egyértelműen megtalálhatók a forrásdokumentumban."
   },
   {
@@ -4806,8 +4808,8 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "The expected answer directly addresses the question about the amount of legal costs the defendant was ordered to pay, and all statements are explicitly supported by the decision.",
+    "verification_status": "needs_review",
+    "verification_notes": "Failure analysis of the 201-question eval: Golden error: the question asks for the costs the defendant was ordered to pay; the decision orders the plaintiffs to pay the defendant 127,000 Ft costs, and the 138,717 Ft of the expected answer is the principal the defendant owes. The system answered correctly.",
     "notes": "A kérdés a megadott dokumentum alapján, a megadott ügyből vonja ki a konkrét összeget."
   },
   {
@@ -5940,5 +5942,976 @@
     "notes": "Invented case number for the adversarial persona.",
     "trap_kind": "invented_case_number",
     "trap_case_number": "6.Pf.20.123/2024/4."
+  },
+  {
+    "id": "q0322",
+    "persona_id": "practical_procedural",
+    "question": "Milyen határidőn belül kellett volna az elsőfokú bíróság ítéletének helybenhagyása esetén a felperesnek megfizetni az alperes részére a másodfokú perköltséget a Fővárosi Ítélőtábla 2023-as, tag kizárása tárgyában hozott ítélete szerint?",
+    "expected_answer": "A Fővárosi Ítélőtábla 2023-as ítélete értelmében az elsőfokú bíróság ítéletének helybenhagyása esetén a felperesnek 15 napon belül kellett megfizetnie az alperes részére a másodfokú perköltséget.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "16.Gf.40.113/2023/6-II.",
+        "source_file": "Fovarosi_Itelotabla__Gf_40113_2023_6.docx",
+        "quote": "Kötelezi a felperest, hogy fizessen meg az alperesnek 15 napon belül 381.000 (háromszáznyolcvanegyezer) forint másodfokú perköltséget."
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés az ítélet elején található, egyértelműen meghatározott határidőre vonatkozik."
+  },
+  {
+    "id": "q0323",
+    "persona_id": "practical_procedural",
+    "question": "A Fővárosi Ítélőtábla egy 2020-as szerződés létrejöttének megállapítása ügyében milyen félnek a bizonyítási kötelezettségét állapította meg a Ptk. 6. § szerinti feltételek fennállásával kapcsolatban?",
+    "expected_answer": "A Fővárosi Ítélőtábla a Ptk. 6. §-a szerinti feltételek fennállásának bizonyítási kötelezettségét a felperesnek írta elő.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "4.Pf.20.037/2021/8.",
+        "source_file": "Fovarosi_Itelotabla__Pf_20037_2021_8.docx",
+        "quote": "A Ptk. 6. § együttes feltételeket határoz meg, amelyek fennállását a Pp. 164. § (1) bekezdés alapján a felperesnek kellett bizonyítani."
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés a peres fél bizonyítási kötelezettségét firtatja egy konkrét jogszabályi helyre (Ptk. 6. §) hivatkozva, ami egy tipikus eljárásjogi kérdés."
+  },
+  {
+    "id": "q0324",
+    "persona_id": "practical_procedural",
+    "question": "Milyen bizonyítékokat fogadott el a Budapest Környéki Törvényszék a 2021-es közös tulajdon megszüntetése ügyben?",
+    "expected_answer": "A bíróság a peres felek személyes előadását, az igazságügyi szakértői véleményt, valamint a becsatolt iratokat fogadta el, és az ingatlan jelenlegi beköltözhető forgalmi értékét 179.700.000 forintban állapította meg a szakértői vélemény alapján.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "27.P.20.301/2019/41.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20301_2019_41.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 1 other document(s), e.g. Budapest_Kornyeki_Torvenyszek__P_20087_2019_82.docx.",
+    "notes": "A kérdés a megadott dokumentumban szereplő elfogadott bizonyítékokra vonatkozik, ahogyan az az indoklás részben szerepel."
+  },
+  {
+    "id": "q0325",
+    "persona_id": "practical_procedural",
+    "question": "Milyen határidőt tartott meg a Balassagyarmati Törvényszék a 2022-es, társasági határozatok hatályon kívül helyezése tárgyú ügyben a felperes keresetindítása kapcsán a II. rendű alperes vonatkozásában?",
+    "expected_answer": "A Balassagyarmati Törvényszék a II. rendű alperes esetében a Polgári Törvénykönyv 3:36. § szerinti harminc napos keresetindítási határidőt tartotta meg, a felperes tudomásszerzésének időpontjául 2021. május 27. napját elfogadva.",
+    "citations": [
+      {
+        "court": "Balassagyarmati Törvényszék",
+        "case_number": "43.G.20.232/2021/70",
+        "source_file": "Balassagyarmati_Torvenyszek__G_20232_2021_70.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 2 other document(s), e.g. Balassagyarmati_Torvenyszek__G_20338_2021_24.docx.",
+    "notes": "A kérdés egy konkrét határidőre vonatkozik, amelyet a bíróság alkalmazott egy adott ügyben, a megadott dokumentum alapján."
+  },
+  {
+    "id": "q0326",
+    "persona_id": "practical_procedural",
+    "question": "Milyen típusú bizonyítékokat vizsgált a Fővárosi Ítélőtábla a 2022-es szolgáltatási szerződésből eredő díj megfizetése ügyében az elsőfokú bíróság ítéletének felülvizsgálatakor?",
+    "expected_answer": "Az Ítélőtábla okirati bizonyítékokat, tanúvallomásokat, a felek törvényes képviselőinek nyilatkozatait, valamint igazságügyi építész, épületgépész és villamossági szakértők, továbbá egy közlekedési műszaki szakértő véleményeit, illetve az Intézet szakértői véleményét vette figyelembe.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "10.Gf.40.069/2022/11.",
+        "source_file": "Fovarosi_Itelotabla__Gf_40069_2022_11.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "answer fit: The expected answer lists 'szakértő9 igazságügyi villamossági szakértő' twice, but the decision only mentions it once. It also lists 'szakértő11 igazságügyi szakértő' and 'Intézet' as separate experts, but the decision lists them together as 'szakértő11 igazságügyi szakértő, valamint a Intézet'.",
+    "notes": "A kérdés azt járja körül, hogy milyen típusú bizonyítékokat vizsgált a bíróság egy adott ügyben, ami a 'practical_procedural' persona 'which evidence the court accepted or rejected, and why' eljárási témájához illeszkedik."
+  },
+  {
+    "id": "q0327",
+    "persona_id": "practical_procedural",
+    "question": "Ki viseli a perköltséget és milyen jogszabály alapján a Balassagyarmati Törvényszék 2022-es, közhatalom gyakorlásával kapcsolatos sérelemdíj megfizetése tárgyában hozott ítéletében?",
+    "expected_answer": "A Balassagyarmati Törvényszék az alperest kötelezte a felperes perköltségének megfizetésére a Pp. 83. § alapján, valamint a le nem rótt eljárási illetéket az állam viseli az Itv. 39. § (1) bekezdése és 42. § (1) bekezdés a) pontja alapján.",
+    "citations": [
+      {
+        "court": "Balassagyarmati Törvényszék",
+        "case_number": "27.P.20.081/2022/13.",
+        "source_file": "Balassagyarmati_Torvenyszek__P_20081_2022_13.docx",
+        "quote": "Kötelezi a törvényszék az alperest, hogy 15 napon belül fizessen meg a felperesnek 400.000.-(négyszázezer) Ft sérelemdíjat, továbbá 32.000.-(harminckettőezer) Ft perköltséget. Az alperes per megszüntetésére irányuló kérelmét elutasítja. A le nem"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés a megadott dokumentum alapján, a per költségeire vonatkozóan, a 'practical_procedural' persona 'who bears the costs of the proceedings and what the court based that on' témaköréből készült."
+  },
+  {
+    "id": "q0328",
+    "persona_id": "practical_procedural",
+    "question": "Milyen jogértelmezést fogadott el a Debreceni Ítélőtábla a 2023-as tagsági jogviszony felmondása jogellenességének megállapítása ügyben az elektronikus úton benyújtott keresetlevél határidejének számításával kapcsolatban?",
+    "expected_answer": "Az ítélőtábla szerint az elektronikus úton benyújtott keresetlevél határideje 24:00-kor jár le, így a 21:25-kor benyújtott beadvány határidőben érkezett.",
+    "citations": [
+      {
+        "court": "Debreceni Ítélőtábla",
+        "case_number": "Gf.IV.30.066/2023/6.",
+        "source_file": "Debreceni_Itelotabla__Gf_30066_2023_6.docx",
+        "quote": "Elektronikus kapcsolattartás esetén azonban – a kapcsolat jellegéből adódóan – a napokban megállapított határidő az utolsó napon nem a hivatali idő végével, hanem 24 óra 00 perckor jár le."
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés az elektronikus kapcsolattartás szabályainak értelmezésére vonatkozik egy konkrét ügyben, ahogyan azt a Debreceni Ítélőtábla 2023-ban eldöntötte."
+  },
+  {
+    "id": "q0329",
+    "persona_id": "practical_procedural",
+    "question": "Milyen határidőt szabott meg a Debreceni Törvényszék a felperes számára a 2023-as adásvételi szerződés hatósági jóváhagyása tárgyában hozott közigazgatási határozat jogszerűsége ügyben az alperesnek és az I. rendű alperesi érdekeltnek fizetendő költségek megfizetésére?",
+    "expected_answer": "A Debreceni Törvényszék 15 napos határidőt szabott meg a felperes számára az alperesnek és az I. rendű alperesi érdekeltnek fizetendő költségek megfizetésére.",
+    "citations": [
+      {
+        "court": "Debreceni Törvényszék",
+        "case_number": "103.K.702.510/2022/14.",
+        "source_file": "Debreceni_Torvenyszek__K_702510_2022_14.docx",
+        "quote": "A bíróság kötelezi a felperest, hogy 15 napon belül fizessen meg az alperes részére 30.000 (harmincezer) forint, az I. r. alperesi érdekelt részére 31.750 (harmincegyezer-hétszázötven) forint költséget."
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés a Debreceni Törvényszék ítéletében megállapított határidőre vonatkozik, amely az alperesnek és az I. rendű alperesi érdekeltnek fizetendő költségek megfizetésére vonatkozik."
+  },
+  {
+    "id": "q0330",
+    "persona_id": "practical_procedural",
+    "question": "Milyen indokkal utasította el a Debreceni Ítélőtábla a Debreceni Törvényszék 2022-es tulajdonjog megállapítása iránti ügyében az alperes fellebbezését, amelyben az elsőfokú bíróság közbenső ítéletének hatályon kívül helyezését kérte?",
+    "expected_answer": "Az ítélőtábla megállapította, hogy a közbenső ítélet hatályon kívül helyezésének indokai nem állnak fenn, mivel a házassági vagyonjogi perben az életközösség időtartamának meghatározása közbenső ítélettel lehetséges, és az elsőfokú bíróság indokolási kötelezettségének is eleget tett.",
+    "citations": [
+      {
+        "court": "Debreceni Ítélőtábla",
+        "case_number": "II.Pf.20.167/2022/6.",
+        "source_file": "Debreceni_Itelotabla__Pf_20167_2022_6.docx",
+        "quote": "Az ítélőtábla a logikai sorrendet követve elsőként az alperes által az elsőfokú közbenső ítélet hatályon kívül helyezése iránti fellebbezési kérelmet vizsgálta, és megállapította, hogy a közbenső ítélet hatályon kívül helyezésének indokai nem"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "All statements in the expected answer are directly supported by the decision and directly answer the question.",
+    "notes": "A kérdés az ítélőtábla joghatóságára vonatkozik, hogy miért nem helyezte hatályon kívül az elsőfokú ítéletet."
+  },
+  {
+    "id": "q0331",
+    "persona_id": "practical_procedural",
+    "question": "Milyen alapon és hogyan döntött a Fővárosi Ítélőtábla a perköltségek viseléséről a 2021-es, értéknövekedés megtérítése iránti perben, a felperes fellebbezése nyomán?",
+    "expected_answer": "A Fővárosi Ítélőtábla a felperest terhelő elsőfokú perköltséget 3.146.900 Ft-ra emelte, a Pp. 83. § (2) és az IM rendelet 3. § (6) bekezdése alapján, mely szerint az ügyvédi munkadíj a pertárgy értékéhez és az elvégzett tevékenységhez igazodik.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "3.Pf.20.018/2021/10/II.",
+        "source_file": "Fovarosi_Itelotabla__Pf_20018_2021_10.docx",
+        "quote": "A Fővárosi Ítélőtábla az elsőfokú bíróság ítéletét a per főtárgya tekintetében helybenhagyja, a perköltséggel kapcsolatos rendelkezését részben megváltoztatja és a felperest terhelő elsőfokú perköltség összegét 3.146.900"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés a Fővárosi Ítélőtábla egy konkrét döntését kéri a perköltségek viseléséről, az ügy típusát és évét megadva, ahogyan az a dokumentum tartalmából kiderül."
+  },
+  {
+    "id": "q0332",
+    "persona_id": "practical_procedural",
+    "question": "Milyen határidőt írt elő a Budapest Környéki Törvényszék a felperesnek a telekalakítási eljárásban hozott közigazgatási határozat megtámadásával kapcsolatos 2023-as ítéletében a perköltség megfizetésére?",
+    "expected_answer": "A bíróság kötelezte a felperest, hogy 15 napon belül fizessen meg az alperesnek 30.000 forint perköltséget.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "104.K.700.320/2022/12.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_700320_2022_12.docx",
+        "quote": "A bíróság kötelezi a felperest, hogy 15 napon belül fizessen meg az alperesnek 30.000 (harmincezer) forint perköltséget."
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "All statements in the expected answer are directly supported by the decision.",
+    "notes": "A kérdés a perköltség megfizetésére vonatkozó határidőre fókuszál egy konkrét ügyben."
+  },
+  {
+    "id": "q0333",
+    "persona_id": "practical_procedural",
+    "question": "Milyen bizonyítékot értékelt a Budapest Környéki Törvényszék a 2021-es, személyiségi jog megsértése ügyében indult perben az alperes azon hivatkozásával kapcsolatban, miszerint a felperes igénye már jogerősen elbírálásra került?",
+    "expected_answer": "A törvényszék a rendelkezésre álló iratokból megállapította, hogy a perben érintett időszak kártalanítási határozattal elbírálásra nem került, és a felperes felhívásra becsatolta álláspontja alátámasztására szolgáló iratokat.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "3.P.20.562/2020/29",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20562_2020_29.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The question's description does not fit its own document.",
+    "notes": "A kérdés azt kéri, hogy a bíróság milyen bizonyítékot fogadott el vagy utasított el, és miért, az adott esetre vonatkozóan. A válasz megadja a bíróság által figyelembe vett iratokat és a következtetését."
+  },
+  {
+    "id": "q0334",
+    "persona_id": "practical_procedural",
+    "question": "Milyen határidőt szabott meg a Budapest Környéki Törvényszék a 2020-as deviza alapú kölcsönszerződés érvénytelensége tárgyában hozott közbenső ítélete ellen fellebbezés benyújtására?",
+    "expected_answer": "A közbenső ítélet ellen a kézbesítésétől számított 15 napon belül van helye fellebbezésnek a Fővárosi Ítélőtáblához.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "20.P.20.318/2019/13",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20318_2019_13.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 7 other document(s), e.g. Budapest_Kornyeki_Torvenyszek__G_40254_2019_36.docx.",
+    "notes": "A kérdés a dokumentumban egyértelműen szereplő fellebbezési határidőre vonatkozik."
+  },
+  {
+    "id": "q0335",
+    "persona_id": "practical_procedural",
+    "question": "A Debreceni Törvényszék 2022-es, földforgalmi ügyben hozott ítéletében mit mondott ki a bíróság a bizonyítási teherről a jogi érdekeltség hiánya kapcsán?",
+    "expected_answer": "A Kúria döntésére hivatkozva a bíróság kimondta, hogy a jogi érdeksérelmet, azaz a keresetlevélben megfogalmazott igény érvényesítéséhez fűződő közvetlen jogi érintettséget a felperesnek kell bizonyítania.",
+    "citations": [
+      {
+        "court": "Debreceni Törvényszék",
+        "case_number": "104.K.700.472/2022.",
+        "source_file": "Debreceni_Torvenyszek__K_700472_2022_9.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 10 other document(s), e.g. Debreceni_Torvenyszek__K_701891_2021_24.docx.",
+    "notes": "A kérdés a 'practical_procedural' persona 'what the court said about the burden of proof' témáját követi, a megadott dokumentum [29] bekezdése alapján."
+  },
+  {
+    "id": "q0336",
+    "persona_id": "practical_procedural",
+    "question": "A Fővárosi Ítélőtábla 2022-es, tagsági jogviszonyból eredő követelés tárgyában hozott ítéletében milyen alapon ítélte meg a perköltséget?",
+    "expected_answer": "A másodfokú bíróság az alperesek fellebbezésének eredménytelensége miatt a Pp. 83. § (1) bekezdése alapján kötelezte az I., II. és III. rendű alperest a felperes ügyvédi munkadíjból eredő perköltségének megtérítésére, a 32/2003. (VIII.22.) IM rendelet 2. § (1) bekezdés a) pontja szerint felszámított összegben.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "13.Gf.40.273/2021/8-II.",
+        "source_file": "Fovarosi_Itelotabla__Gf_40273_2021_8.docx",
+        "quote": "Az alperesek fellebbezése nem volt eredményes, ezért az I. rendű, a II. rendű és a III. rendű alperes a Pp. 83. § (1) bekezdése alapján köteles a másodfokú eljárásban pernyertes felperes ügyvédi munkadíjban felmerült perköltségét megtéríteni a"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "Question asks about the basis for awarding costs, specifically in a 2022 decision from the Fővárosi Ítélőtábla concerning a claim arising from membership. The answer details the legal basis and the specific sections of the relevant laws (Pp. and IM decree)."
+  },
+  {
+    "id": "q0337",
+    "persona_id": "practical_procedural",
+    "question": "A Budapest Környéki Törvényszék 2020-as, deviza alapú kölcsönszerződés érvénytelenségének megállapítása ügyében hozott ítéletében miért nem rendelt el szakértői bizonyítást, és mit állapított meg a bíróság a felperes tájékoztatási kötelezettségével kapcsolatban?",
+    "expected_answer": "Nem rendelt el szakértői bizonyítást, mert a tényállás megállapításához elegendőnek tartotta a felek előadását és a becsatolt dokumentumokat. A bíróság szerint az írásbeli tájékoztató megfelelt a jogszabályi elvárásoknak.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "20.P.20.359/2019/16.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20359_2019_16.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 14 other document(s), e.g. Budapest_Kornyeki_Torvenyszek__G_40475_2018_52.docx.",
+    "notes": "A kérdés azt kéri, hogy miért nem történt szakértői bizonyítás, és milyen megállapításokat tett a bíróság a tájékoztatási kötelezettséggel kapcsolatban."
+  },
+  {
+    "id": "q0338",
+    "persona_id": "practical_procedural",
+    "question": "Milyen álláspontot képviselt az Egri Törvényszék a bizonyítási teherrel kapcsolatban a 2022-es szerződés érvénytelenségének megállapítása ügyében?",
+    "expected_answer": "Az Egri Törvényszék szerint a felperesnek kellett bizonyítania, hogy az I.r. alperesnek a II.r. alperessel egyező szerződési akarata volt, és esetében is eltért a befektetési célú szerződésben rögzített nyilatkozatától, ami a színlelt szerződés megállapításának alapfeltétele.",
+    "citations": [
+      {
+        "court": "Egri Törvényszék",
+        "case_number": "I.Pf.20.033/2022/9.",
+        "source_file": "Egri_Torvenyszek__Pf_20033_2022_9.docx",
+        "quote": "a felperes azt nem bizonyította, hogy a II.r. alperessel egyező szerződési akarata lett volna az I.r. alperesnek, és esetében is az eltért a befektetési célú szerződésben rögzített nyilatkozatától."
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés azt járja körül, hogy a bíróság milyen elvárásokat támasztott a felperessel szemben a bizonyítás terén egy adott érvénytelenségi ok (színlelt szerződés) kapcsán, a megadott dokumentumban szereplő konkrét rész alapján."
+  },
+  {
+    "id": "q0339",
+    "persona_id": "practical_procedural",
+    "question": "Milyen bizonyítási kötelezettsége volt a felperesnek a jogalap nélküli gazdagodás megállapítása iránti, 2020-as jogalap nélküli gazdagodás ügyben, a Budapest Környéki Törvényszék előtt?",
+    "expected_answer": "A felperest terhelte annak bizonyítása, hogy az alperes vagyoni előnyhöz jutott a felperes rovására, jogalap nélkül gazdagodott a fenti összeggel, és a felek között nincs olyan jogviszony, amely alapján a felperes a követelését más jogcímen is érvényesíthetné.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "2.G.40.127/2014/175-I",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__G_40127_2014_175.docx",
+        "quote": "A bíróság a Pp. 3. § (3) bekezdése alapján tájékoztatta a felperest, elsődleges kereseti kérelmével kapcsolatban őt terhelte annak bizonyításának kötelezettsége, hogy az alperes 40. 757.000,- Ft vagyoni előnyhöz jutott, mindezt a felperes rovására"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés a felperest terhelő bizonyítási kötelezettségre fókuszál egy konkrét jogalap nélküli gazdagodás ügyben, összhangban a 'practical_procedural' persona leírásával. A válasz közvetlenül a dokumentumból származik."
+  },
+  {
+    "id": "q0340",
+    "persona_id": "practical_procedural",
+    "question": "A Budapest Környéki Törvényszék 2024-es, szerződés érvénytelensége tárgyában hozott ítéletében kirendelt-e a bíróság szakértőt és mit állapított meg a szakértő?",
+    "expected_answer": "A bíróság nem rendelt ki szakértőt az ügyben. A bíróság az alperes indítványára tanúkat hallgatott meg, de az ő vallomásuk nem vezetett eredményre a szerződés színleltségének bizonyítására.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "7.P.20.013/2023/46.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20013_2023_46.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 4 other document(s), e.g. Budapest_Kornyeki_Torvenyszek__P_20227_2023_20.docx.",
+    "notes": "A kérdés arra vonatkozik, hogy a bíróság kirendelt-e szakértőt és mit állapított meg. A szövegben nincs szó szakértői kirendelésről, csak tanúmeghallgatásról."
+  },
+  {
+    "id": "q0341",
+    "persona_id": "practical_procedural",
+    "question": "Milyen eljárási kifogást vizsgált meg érdemben a Budapesti XX., XXI. és XXIII. Kerületi Bíróság egy 2021-es házassági vagyonközösség megosztása ügyben, annak ellenére, hogy az I. rendű alperes nem terjesztett elő ellenkérelmet?",
+    "expected_answer": "A bíróság megvizsgálta, hogy az I. rendű alperes nem terjesztett elő érdemi ellenkérelmet, de a IV. rendű alperes ellenkérelme a kényszerű pertársaság miatt az I. rendű alperesre is kihatott, így nem volt helye bírói meghagyásnak.",
+    "citations": [
+      {
+        "court": "Budapesti XX., XXI. és XXIII. Kerületi Bíróság",
+        "case_number": "11.P.XXI.20.810/2021/12/I.",
+        "source_file": "Budapesti_XX_XXI_es_XXIII_Keruleti_Birosag__P_20810_2021_12.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "answer fit: ",
+    "notes": "A kérdés az I. rendű alperes ellenkérelem elmulasztására vonatkozó eljárási kifogásra fókuszál, amelyet a bíróság a kényszerű pertársaság és a IV. rendű alperes ellenkérelme miatt másként kezelt."
+  },
+  {
+    "id": "q0342",
+    "persona_id": "practical_procedural",
+    "question": "Milyen álláspontot foglalt el a Fővárosi Ítélőtábla egy 2024-es öröklési perben a felperesek bizonyítási terhével kapcsolatban, akik az örökhagyó apjának testvérének leszármazottai voltak?",
+    "expected_answer": "A Fővárosi Ítélőtábla szerint a felpereseket nem lehet kötelezni annak bizonyítására, hogy az örökhagyónak nincs más örököse, mivel az alperesek érdemben nem vitatták a felperesek által felvázolt rokonsági kapcsolatot.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "1.Pf.20.153/2024/6",
+        "source_file": "Fovarosi_Itelotabla__Pf_20153_2024_6.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 8 other document(s), e.g. Fovarosi_Itelotabla__Pf_20105_2024_4.docx.",
+    "notes": "A kérdés az öröklési perben felmerült bizonyítási terhet firtatja, konkrétan az örökösök személyével kapcsolatban, a megadott dokumentum alapján."
+  },
+  {
+    "id": "q0343",
+    "persona_id": "practical_procedural",
+    "question": "Milyen alapon ítélte meg az Érdi Járásbíróság a perköltségeket egy 2023-as gyermektartásdíj megváltoztatása ügyben?",
+    "expected_answer": "Az Érdi Járásbíróság a Polgári Perrendtartás 83. § (1) bekezdése alapján ítélte meg a perköltségeket, mely szerint a pernyertes fél perköltségét a pervesztes fél téríti meg, és a felperest 50%-ban pervesztesnek találta.",
+    "citations": [
+      {
+        "court": "Érdi Járásbíróság",
+        "case_number": "7.P.20.666/2020/65-I.",
+        "source_file": "Erdi_Jarasbirosag__P_20666_2020_65.docx",
+        "quote": "A Pp. 83. § (1) bekezdése alapján törvény eltérő rendelkezése hiányában a pernyertes fél perköltségét a pervesztes fél téríti meg."
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "All statements in the expected answer are directly supported by the decision text.",
+    "notes": "A kérdés az ítéletben található perköltségre és az azt alátámasztó jogszabályra fókuszál, ahogyan a feladatleírás is kéri."
+  },
+  {
+    "id": "q0344",
+    "persona_id": "practical_procedural",
+    "question": "A Debreceni Ítélőtábla 2024-es, szerződés hatálytalanságának a megállapítása és jogkövetkezményei alkalmazása iránti ügyében ki viseli az eljárás költségeit, és mire alapozta a bíróság ezt a döntését?",
+    "expected_answer": "A Debreceni Ítélőtábla a felperest kötelezte a másodfokú perköltség viselésére, mivel a fellebbezése eredménytelen volt. Az ítélőtábla az alperes ügyvédi munkadíját a 32/2003. (VIII. 22.) IM rendelet alapján két munkaóra figyelembevételével 15 240 Ft-ban állapította meg.",
+    "citations": [
+      {
+        "court": "Debreceni Ítélőtábla",
+        "case_number": "Gf.III.30.140/2024/4.",
+        "source_file": "Debreceni_Itelotabla__Gf_30140_2024_4.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 1 other document(s), e.g. Debreceni_Itelotabla__Pf_20111_2024_5.docx.",
+    "notes": "A kérdés a Debreceni Ítélőtábla 2024-es ítéletében hozott költségviselési döntést és annak indokait firtatja, a megadott dokumentum tartalma alapján."
+  },
+  {
+    "id": "q0345",
+    "persona_id": "practical_procedural",
+    "question": "Milyen indokkal utasította el a Budapest Környéki Törvényszék 2022-es, tulajdonjog és szerződésszegés megállapítása tárgyú perében a felperes első kereseti kérelmét?",
+    "expected_answer": "A bíróság a felperes első kereseti kérelmét azért utasította el, mert a felperes nem jelölt meg olyan jogalapot, amely kifejezetten megengedi a megállapítási kereset előterjesztését, és nem határozta meg, hogy a kért megállapítás a jogainak megóvása érdekében miért szükséges.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "13.G.40.181/2021/20.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__G_40181_2021_20.docx",
+        "quote": "A felperes az első kereseti kérelme tekintetében nem jelölt meg olyan jogalapot, amely kifejezetten megengedi a megállapítási kereset előterjesztését, és nem tett eleget a 172. § (3) bekezdése szerinti követelménynek, nem határozta meg, hogy a kért"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés a bíróság hatáskörének vagy illetékességének elutasításának indokát firtatja a megadott dokumentum alapján."
+  },
+  {
+    "id": "q0346",
+    "persona_id": "practical_procedural",
+    "question": "Ki viseli a perköltségeket és mire alapozta azt a Fővárosi Ítélőtábla a 2021-es, biztosítási díj iránti perben?",
+    "expected_answer": "A Fővárosi Ítélőtábla a felperest kötelezte az első- és másodfokú perköltség megfizetésére, mivel ő lett a pervesztes fél. Az alperesnek 13.025.000 forintot, az alperesi beavatkozónak pedig 7.262.500 forintot kell megfizetnie a perköltség címén.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "6.Pf.20.124/2021/20-I.",
+        "source_file": "Fovarosi_Itelotabla__Pf_20124_2021_20.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "answer fit: The expected answer states specific amounts for the legal costs that the plaintiff must pay to the defendant and the intervener, but the decision only provides the components of these costs (e.g., attorney fees, expert costs, appeal fees) and not the final summed amounts as presented in the expected answer.",
+    "notes": "A kérdés a perköltségek viselőjét és az erre vonatkozó bírósági döntés indoklását firtatja a megadott dokumentumban szereplő biztosítási díj iránti per kapcsán."
+  },
+  {
+    "id": "q0347",
+    "persona_id": "practical_procedural",
+    "question": "A Balassagyarmati Törvényszék 2024-es, személyiségi jogsértés megállapítása iránti ügyében milyen határidőn belül lehetett fellebbezéssel élni az ítélet ellen?",
+    "expected_answer": "Az ítélet ellen a kézbesítéstől számított 15 napon belül lehetett fellebbezéssel élni.",
+    "citations": [
+      {
+        "court": "Balassagyarmati Törvényszék",
+        "case_number": "47.P.20.538/2023/11.",
+        "source_file": "Balassagyarmati_Torvenyszek__P_20538_2023_11.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 2 other document(s), e.g. Balassagyarmati_Torvenyszek__P_20235_2024_12.docx.",
+    "notes": "A dokumentumból kinyerhető, egyértelmű határidőre vonatkozó kérdés."
+  },
+  {
+    "id": "q0348",
+    "persona_id": "practical_procedural",
+    "question": "Milyen indokkal utasította el a Budapest Környéki Törvényszék 2023-as, öröklési szerződés és végrendelet érvénytelenségének megállapítása iránti ügyében a II. rendű alperes illetékességi kifogását?",
+    "expected_answer": "A bíróság nem osztotta a II. rendű alperes alaki védekezését, mivel ő maga is végrendeleti örökös volt, még akkor is, ha a végrendelet alapján neki juttatott haszonélvezet újbóli bejegyzésére az ingatlannyilvántartásba nincs jogi lehetőség.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "4.P.20.216/2021/60",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20216_2021_60.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "answer fit: The expected answer directly addresses the question about why the court rejected the II. rendű alperes's jurisdictional objection.",
+    "notes": "A kérdés az ügyben felmerült illetékességi kifogás elutasításának okát firtatja, ahogyan az a döntés indoklásából kiderül. Az \"öröklési szerződés és végrendelet érvénytelenségének megállapítása\" pontosan beazonosítja az ügy tárgyát."
+  },
+  {
+    "id": "q0349",
+    "persona_id": "practical_procedural",
+    "question": "A Budaörsi Járásbíróság 2021-es forint kölcsön megfizetése tárgyában hozott ítéletében milyen határidőket szabott a pénz megfizetésére és a fellebbezés benyújtására?",
+    "expected_answer": "A bíróság kötelezte az alperest, hogy 15 napon belül fizesse meg a felperesnek a tőkét, a késedelmi kamatot és a perköltséget. Az ítélet ellen a kézbesítéstől számított tizenöt napon belül lehet fellebbezést benyújtani.",
+    "citations": [
+      {
+        "court": "Budaörsi Járásbíróság",
+        "case_number": "10.P.20.374/2019/34.",
+        "source_file": "Budaorsi_Jarasbirosag__P_20374_2019_34.docx",
+        "quote": "A bíróság kötelezi az alperest, hogy fizessen meg 15 napon belül a felperesnek összeg,- (összeg betűvel) Ft tőkét, valamint ezen összeg után 2018. december 2. napjától kezdődően a megfizetésig járó, a késedelemmel érintett naptári félév első napján"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés a konkrét ítéletből kiolvasható határidőkre vonatkozik, ahogy azt a 'practical_procedural' persona igényli. A bíróság neve, az év és az ügy tárgya a kérdésben szerepel a dokumentum azonosítása érdekében."
+  },
+  {
+    "id": "q0350",
+    "persona_id": "practical_procedural",
+    "question": "A Fővárosi Ítélőtábla egy 2023-as, ingó kiadása és érvénytelen szerződés jogkövetkezménye tárgyú ügyben kinek a perköltségét állapította meg, és milyen összeget?",
+    "expected_answer": "A Fővárosi Ítélőtábla megállapította a felperes és az alperes másodfokú perköltségét is, mindkét fél esetében 20.000 forint + áfa ügyvédi munkadíjban.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "14.Gf.40.323/2022/6.",
+        "source_file": "Fovarosi_Itelotabla__Gf_40323_2022_6.docx",
+        "quote": "A felperes másodfokú perköltségét 20.000 (húszezer) forint + áfa ügyvédi munkadíjban, az alperes másodfokú perköltségét 20.000 (húszezer) forint + áfa ügyvédi munkadíjban állapítja meg."
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés a megadott dokumentumban szereplő perköltségre vonatkozó információra alapul, a 'practical_procedural' persona elvárásainak megfelelően."
+  },
+  {
+    "id": "q0351",
+    "persona_id": "practical_procedural",
+    "question": "Milyen tények és körülmények alapján állapította meg a Budapesti II. és III. Kerületi Bíróság a felperes és az I.r. alperes közötti szerződés létrejöttét a 2023-as kölcsöntartozás megfizetése ügyben?",
+    "expected_answer": "A bíróság a Ptk. 6:58. § alapján állapította meg a szerződést, mivel a felperesnek tartózkodnia kellett a felmondástól, az I.r. alperesnek pedig teljesítenie kellett a havi 3.500.000 Ft-os szolgáltatást.",
+    "citations": [
+      {
+        "court": "Budapesti II. és III. Kerületi Bíróság",
+        "case_number": "15.P.21.252/2021/62",
+        "source_file": "Budapesti_II_es_III_Keruleti_Birosag__P_21252_2021_62.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "answer fit: The expected answer states that the court found the contract based on Ptk. 6:58. §, but the decision states that the court found the contract based on Ptk. 6:58. § and Ptk. 6:63. § (1) and (2) bekezdése.",
+    "notes": "A kérdés az elfogadott bizonyítékokra vonatkozik, ahogyan az a bírósági ítélet indokolásában szerepel."
+  },
+  {
+    "id": "q0352",
+    "persona_id": "practical_procedural",
+    "question": "Milyen eljárási kifogást utasított el a Budapest Környéki Törvényszék a 2023-as személyiségi jogok megsértésének megállapítása és járulékai iránti perben a felperes kereseti kérelmeivel kapcsolatban?",
+    "expected_answer": "A bíróság elutasította azt a felperesi indítványt, hogy az alperes adott bíróságának elfogultságára való hivatkozás, ennek elbírálása más eljárásra tartozik, eziránt megállapítási kereset nem terjeszthető elő.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "20.P.20.335/2023/6",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20335_2023_6.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 10 other document(s), e.g. Budapest_Kornyeki_Torvenyszek__P_20527_2021_33.docx.",
+    "notes": "A kérdés az adott dokumentumban szereplő, bíróság által elutasított eljárási kifogásra vonatkozik, ahogyan az a dokumentum utolsó oldalán szerepel."
+  },
+  {
+    "id": "q0353",
+    "persona_id": "practical_procedural",
+    "question": "A Debreceni Törvényszék 2021-es közlekedési igazgatási ügyben hozott ítéletében milyen határidőt állapított meg a perköltség megfizetésére az alperes számára?",
+    "expected_answer": "A Debreceni Törvényszék ítélete szerint az alperesnek 15 napon belül kell megfizetnie a felperesnek a 76 200 forint perköltséget.",
+    "citations": [
+      {
+        "court": "Debreceni Törvényszék",
+        "case_number": "102.K.700.976/2021/12.",
+        "source_file": "Debreceni_Torvenyszek__K_700976_2021_12.docx",
+        "quote": "Kötelezi az alperest, hogy 15 (Tizenöt) napon belül fizessen meg a felperesnek 76.200 (Hetvenhatezer-kettőszáz) forint perköltséget."
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "All statements in the expected answer are directly supported by the decision and the question is based on facts present in the decision.",
+    "notes": "A kérdés a bíróság által megállapított perköltség-fizetési határidőre vonatkozik, amely egyértelműen szerepel a dokumentum ítéleti részében."
+  },
+  {
+    "id": "q0354",
+    "persona_id": "practical_procedural",
+    "question": "Ki viseli a másodfokú eljárásban a perköltséget és a pártfogó ügyvéd díját a Debreceni Ítélőtábla 2022-es közhatalmi jogkörrel kapcsolatos kártérítés és sérelemdíj megfizetése iránti ügyében, és mi alapján döntött erről a bíróság?",
+    "expected_answer": "A pervesztes felperes viseli az I. rendű alperes 30 000 Ft perköltségét és pártfogó ügyvédjének díját. A bíróság az 1952. évi Pp. 78. § (1) és 87. § (2) bekezdései, valamint az IM rendelet 3. § (2), (5), (6) bekezdései alapján döntött.",
+    "citations": [
+      {
+        "court": "Debreceni Ítélőtábla",
+        "case_number": "Pf.I.20.240/2022/15.",
+        "source_file": "Debreceni_Itelotabla__Pf_20240_2022_15.docx",
+        "quote": "Kötelezi a felperest, hogy 15 napon belül fizessen meg az I. rendű alperesnek 30 000 (harmincezer) forint másodfokú perköltséget. Megállapítja, hogy a másodfokú eljárásban pervesztes felperes pártfogó ügyvédjének másodfokú díját a felperes viseli."
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés a megadott dokumentumban szereplő perköltség-viselésre vonatkozó részletekre kérdez rá, a bírósági döntés indoklását is figyelembe véve. A válasz tartalmazza a konkrét összeget és a jogszabályi hivatkozásokat."
+  },
+  {
+    "id": "q0355",
+    "persona_id": "practical_procedural",
+    "question": "Milyen indokkal utasította el a Budapest Környéki Törvényszék 2023-as, végrendeletek érvénytelenségének megállapítása iránti perében a felperesnek azt az indítványát, hogy a végrendelet letétbe helyezésénél eljáró közjegyző-helyettest tanúként hallgassák meg?",
+    "expected_answer": "A bíróság megítélése szerint a közjegyző-helyettes tanúkénti kihallgatásának foganatosításához nem elegendő a \"feltételezés\", hanem konkrét felperesi tényállításra van szükség, amelyet a felperes elmulasztott.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "10. P. 20.481/2021/29.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20481_2021_29.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 3 other document(s), e.g. Budapest_Kornyeki_Torvenyszek__P_20216_2021_60.docx.",
+    "notes": "A kérdés a 'practical_procedural' persona leírásának megfelelően egy konkrét eljárási részletre fókuszál egy adott ügyben. A válasz közvetlenül a szövegből származik, a bíróság indoklásával együtt."
+  },
+  {
+    "id": "q0356",
+    "persona_id": "practical_procedural",
+    "question": "Milyen határidővel fellebbezhetők a Budapest Környéki Törvényszék 2024-es, deviza alapú kölcsönszerződés érvénytelensége iránt indított perben hozott ítéletei?",
+    "expected_answer": "Az ítélet ellen a kézbesítésétől számított 15 nap alatt van helye fellebbezésnek a Fővárosi Ítélőtáblához.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "20.P.20.450/2023/9.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20450_2023_9.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 1 other document(s), e.g. Budapest_Kornyeki_Torvenyszek__G_40227_2022_55.docx.",
+    "notes": "A kérdés a deviza alapú kölcsönszerződés érvénytelensége ügyben hozott ítéletek fellebbezési határidejére vonatkozik, amely a dokumentumban egyértelműen szerepel."
+  },
+  {
+    "id": "q0357",
+    "persona_id": "practical_procedural",
+    "question": "Milyen indokkal utasította el a Fővárosi Ítélőtábla a 2021-es, szerződés hatálytalanságának megállapítása iránti perben a másodfokú eljárás felfüggesztése iránti kérelmet?",
+    "expected_answer": "A Fővárosi Ítélőtábla elutasította a felfüggesztési kérelmet, mert a felperesi követelés összegének és a büntetőeljárás kimenetelének nincs jelentősége a kölcsönszerződés létrejöttének megítélése szempontjából.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "10.Gf.40.162/2021/5",
+        "source_file": "Fovarosi_Itelotabla__Gf_40162_2021_5.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 1 other document(s), e.g. Fovarosi_Itelotabla__Gf_40350_2020_7.docx.",
+    "notes": "A kérdés a Fővárosi Ítélőtábla egy konkrét, 2021-es ügyben hozott eljárási döntésének indokait firtatja, a joghatóság/illetékesség témakörén belül, a forrásdokumentumban megadott részletek alapján."
+  },
+  {
+    "id": "q0358",
+    "persona_id": "practical_procedural",
+    "question": "Milyen bizonyítékot nem fogadott el a Békéscsabai Járásbíróság a 2021-es kártérítési ügyben, és miért?",
+    "expected_answer": "A bíróság nem hallgatta meg tanúként az intézkedő rendőröket, mert a bizonyítás szükségtelen volt, mivel eljárásuk nem volt felróható és jogellenes.",
+    "citations": [
+      {
+        "court": "Békéscsabai Járásbíróság",
+        "case_number": "2.P.20.188/2021/13",
+        "source_file": "Bekescsabai_Jarasbirosag__P_20188_2021_13.docx",
+        "quote": "A bíróság az alperes indítványa ellenére nem foganatosította az intézkedő rendőrök tanúkénti meghallgatását, mert egyrészt úgy ítélte meg, hogy jelen időpontban már nem tárható a bíróság elé olyan új adat, mely a szabálysértési eljárásban nem"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés a 'practical_procedural' persona 'which evidence the court accepted or rejected, and why' procedurális témakörre vonatkozik, egy konkrét kártérítési ügyben a Békéscsabai Járásbíróság 2021-es ítélete alapján."
+  },
+  {
+    "id": "q0359",
+    "persona_id": "practical_procedural",
+    "question": "Ki viseli a perköltségeket egy 2021-es, testi épség és egészség megsértése tárgyú perben a Budapest Környéki Törvényszék ítélete alapján, és mire alapozta a bíróság ezt a döntését?",
+    "expected_answer": "A pervesztes felperes viseli a perköltségeket és az állam által előlegezett eljárási illetéket a Pp. 81. § (1), 83. § (1), 101. § (2) a) és az IM rendelet 2. § (1) alapján.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "15.P.20.233/2020/23",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20233_2020_23.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 1 other document(s), e.g. Budapest_Kornyeki_Torvenyszek__P_20552_2020_16.docx.",
+    "notes": "A kérdés a 'practical_procedural' persona alapján készült, a megadott dokumentumra alapozva. A dokumentum egyértelműen meghatározza, ki viseli a perköltségeket és milyen jogszabályi hivatkozásokkal."
+  },
+  {
+    "id": "q0360",
+    "persona_id": "practical_procedural",
+    "question": "Milyen alapon döntött a bíróság a perköltségek viseléséről a Budapesti IV. és XV. Kerületi Bíróság 2024-es kölcsöntartozás megfizetése iránti ügyében?",
+    "expected_answer": "A bíróság a Polgári Perrendtartás (Pp.) 80. §, 81. §, 82. § és 83. § szakaszai alapján döntött a perköltségek viseléséről, különös tekintettel arra, hogy a pernyertes fél perköltségét a pervesztes fél téríti meg.",
+    "citations": [
+      {
+        "court": "Budapesti IV. és XV. Kerületi Bíróság",
+        "case_number": "9.P.21.520/2023/8.",
+        "source_file": "Budapesti_IV_es_XV_Keruleti_Birosag__P_21520_2023_8.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "answer fit: ",
+    "notes": "A kérdés a perköltség viselésére vonatkozó jogi alapról érdeklődik egy konkrét ügyben, a válasz pedig a releváns jogszabályi hivatkozásokat tartalmazza."
+  },
+  {
+    "id": "q0361",
+    "persona_id": "practical_procedural",
+    "question": "A Debreceni Ítélőtábla 2024-es társasági szerződésmódosítás érvénytelenségének megállapítása iránti perében a bíróság rendelt-e el szakértői bizonyítást, és ha igen, mit állapított meg a szakértő?",
+    "expected_answer": "A bíróság mellőzte a II. – IV. r. alperes utólagos bizonyítási indítványa teljesítését, mivel a felperes az ügy eldöntése szempontjából lényeges tényállításait okiratokkal bizonyította, így T1 vádlotti vallomásának a beszerzése az ügy eldöntése szempontjából szükségtelen volt. Szakértői bizonyításra nem került sor.",
+    "citations": [
+      {
+        "court": "Debreceni Ítélőtábla",
+        "case_number": "Gf.III.30.104/2024/5.",
+        "source_file": "Debreceni_Itelotabla__Gf_30104_2024_5.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "answer fit: ",
+    "notes": "A dokumentum egyértelműen kimondja, hogy a bíróság mellőzte a bizonyítási indítványt és nem rendelt el szakértői bizonyítást."
+  },
+  {
+    "id": "q0362",
+    "persona_id": "practical_procedural",
+    "question": "Milyen indokkal utasította vissza az elsőfokú bíróság az alperes beszámítási kifogását a Debreceni Ítélőtábla 2022-es, vállalkozói díj megfizetése iránti perében?",
+    "expected_answer": "Az elsőfokú bíróság azért utasította vissza az alperes hibás teljesítésre alapított beszámítását, mert az alperes elmulasztotta a jogszabályban előírt határidőt a Pp. 209. §-ának (1) és (6) bekezdése alapján.",
+    "citations": [
+      {
+        "court": "Debreceni Ítélőtábla",
+        "case_number": "Gf.IV.30.032/2022/14.",
+        "source_file": "Debreceni_Itelotabla__Gf_30032_2022_14.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 1 other document(s), e.g. Debreceni_Itelotabla__Pf_20537_2021_7.docx.",
+    "notes": "A kérdés az adott dokumentumból származó, bírósági eljárásra vonatkozó részletre fókuszál, egyértelműen azonosítható bírósági döntéssel és üggyel."
+  },
+  {
+    "id": "q0363",
+    "persona_id": "practical_procedural",
+    "question": "Milyen eljárási kifogást emelt az alperes a Fővárosi Ítélőtábla 2021-es, közösséghez tartozással összefüggő személyiségi jog megsértése tárgyú ügyében?",
+    "expected_answer": "Az alperes az elsőfokú ítélet helybenhagyását kérte, mivel a fellebbezés indokai helytelenek, és a felperes meghallgatásának elutasítása indokolt volt.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "1.Pf.20.273/2021/4.",
+        "source_file": "Fovarosi_Itelotabla__Pf_20273_2021_4.docx",
+        "quote": "Az elsőfokú ítélet hatályon kívül helyezésének fellebbezésben megjelölt indokai helytelenek. A felperes személyes meghallgatására irányuló indítvány elutasítását az elsőfokú bíróság kielégítően megindokolta, az szükségtelen volt."
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "The expected answer accurately reflects the procedural objection raised by the defendant as stated in the decision.",
+    "notes": "A kérdés az alperes fellebbezésében szereplő eljárási kifogására vonatkozik, amely a dokumentum [36]-[37] bekezdéseiben található."
+  },
+  {
+    "id": "q0364",
+    "persona_id": "practical_procedural",
+    "question": "Milyen határidőt szabott a Budapest Környéki Törvényszék a 2021-es, közigazgatási jogkörben okozott kár megfizetése ügyben az alperesnek a felperesek részére történő fizetésre?",
+    "expected_answer": "A törvényszék az alperest 15 napon belüli fizetésre kötelezte az I.-II. rendű felperesek, mint egyetemleges jogosultak részére.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "20.P.20.115/2018/86.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20115_2018_86.docx"
+      }
+    ],
+    "difficulty": "easy",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 2 other document(s), e.g. Budapest_Kornyeki_Torvenyszek__P_20169_2020_75.docx.",
+    "notes": "A kérdés a megadott dokumentumban szereplő fizetési határidőre vonatkozik, amely egyértelműen megtalálható a szövegben."
+  },
+  {
+    "id": "q0365",
+    "persona_id": "practical_procedural",
+    "question": "Milyen eljárási kifogást emeltek a felperesek a Debreceni Törvényszék 2022-es kisajátítási kártalanítási ügyében az előzetes szakvélemény elkészítésével kapcsolatban?",
+    "expected_answer": "A felperesek kifogásolták, hogy az előzetes szakvélemény két verziót tartalmazott, nem felelt meg a protokollnak, és feltételezték, hogy a kisajátítást kérő befolyásolta a szakértőt, sértve a pártatlanságot.",
+    "citations": [
+      {
+        "court": "Debreceni Törvényszék",
+        "case_number": "101.K.701.564/2020.",
+        "source_file": "Debreceni_Torvenyszek__K_701564_2020_54.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 6 other document(s), e.g. Debreceni_Torvenyszek__K_702440_2021_22.docx.",
+    "notes": "A kérdés a felpereseknek az előzetes szakvélemény elkészítésével kapcsolatos eljárási kifogására vonatkozik, amely egy konkrét eljárási részletet érint a kisajátítási ügyben."
+  },
+  {
+    "id": "q0366",
+    "persona_id": "practical_procedural",
+    "question": "A Budapest Környéki Törvényszék 2024-es jogsértés megállapítása tárgyú ügyében a bíróság rendelt-e ki szakértőt, és ha igen, milyen megállapításokat tett a szakértő?",
+    "expected_answer": "Igen, a GVH szerint a Tpvt. hatálya nem terjed ki a börtönboltokra, mert hiányzik az üzleti kockázat vállalása, és nem minősül piaci magatartásnak.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "21.P.20.015/2023/40.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__P_20015_2023_40.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The question's description does not fit its own document.",
+    "notes": "A kérdés arra fókuszál, hogy a bíróság rendelt-e ki szakértőt, és ha igen, mit állapított meg. A dokumentumban a GVH megkeresése és annak megállapításai szakértői véleménynek tekinthetők."
+  },
+  {
+    "id": "q0367",
+    "persona_id": "practical_procedural",
+    "question": "Milyen dokumentumokat nem csatolt a felperes a Debreceni Törvényszék 2024-es ingatlan-nyilvántartási ügyében a tulajdonjog-fenntartással történt eladás tényének törlése iránti kérelméhez, és miért utasította el a bíróság emiatt a keresetet?",
+    "expected_answer": "Nem csatolta a lízingszerződés felmondását igazoló dokumentumot, sem a társaság törléshez hozzájáruló nyilatkozatát, sem az ezt pótló jogerős bírósági döntést. Ezért a bíróság elutasította a keresetet.",
+    "citations": [
+      {
+        "court": "Debreceni Törvényszék",
+        "case_number": "18.K.702.080/2023/9.",
+        "source_file": "Debreceni_Torvenyszek__K_702080_2023_9.docx",
+        "quote": "melyhez csatolnia kell az Inytv. 29.§-a szerinti okiratokat, köztük az elállási nyilatkozat hatályosságát igazoló dokumentumot, ami vagy a gazdasági társaság törléshez hozzájáruló nyilatkozata, vagy az ezt pótló jogerős bírósági döntés."
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés az ügyben hiányzó dokumentumokra és az elutasítás okára fókuszál, ahogy az a szövegben szerepel."
+  },
+  {
+    "id": "q0368",
+    "persona_id": "practical_procedural",
+    "question": "Milyen eljárásjogi kifogást terjesztett elő az alperes a Budapest Környéki Törvényszék 2022-es kölcsöntartozás ügyében, amit a másodfokú bíróság vizsgált?",
+    "expected_answer": "Az alperes arra hivatkozott, hogy a szerződés megkötésekor kényszerhelyzetben volt, azonban a másodfokú bíróság ezt az állítást nem vizsgálta, mert az a Pp. 373. § (1) bekezdése szerinti keresetváltoztatási tilalomba ütközik.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "7.Pf.20.239/2022/12",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__Pf_20239_2022_12.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "answer fit: ",
+    "notes": "A kérdés az alperes fellebbezésében szereplő eljárásjogi kifogásra vonatkozik, amelyet a bíróság elutasított."
+  },
+  {
+    "id": "q0369",
+    "persona_id": "practical_procedural",
+    "question": "Milyen kifogással élt a felperes a Budapest Környéki Törvényszék 2023-as korlátozási kártalanítási ügyében a szakértői véleménnyel kapcsolatban?",
+    "expected_answer": "A felperes vitatta a szakértői véleményt, mert az nem idézte teljeskörűen az ÁRT-t, nem vette figyelembe a közművesítettség hiányát, és külterületi ingatlanokkal hasonlította össze a perbelit.",
+    "citations": [
+      {
+        "court": "Budapest Környéki Törvényszék",
+        "case_number": "104.K.701.895/2021/51.",
+        "source_file": "Budapest_Kornyeki_Torvenyszek__K_701895_2021_51.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "answer fit: ",
+    "notes": "A kérdés a felperes által a szakértői véleményre tett konkrét kifogásokra vonatkozik, ahogyan az a dokumentum 8. és 12. pontjában szerepel, megjelölve a bíróságot, az évet és az ügy típusát, de nem a hivatkozási számot."
+  },
+  {
+    "id": "q0370",
+    "persona_id": "practical_procedural",
+    "question": "A Balassagyarmati Törvényszék 2019-es, vételár megfizetése iránti ügyében mi alapján döntöttek a perköltség viseléséről?",
+    "expected_answer": "A törvényszék a perköltséget a pernyertesség-pervesztesség aránya és a szakértői bizonyítás költségének alperest terhelő volta alapján módosította.",
+    "citations": [
+      {
+        "court": "Balassagyarmati Törvényszék",
+        "case_number": "21.Pf.20.328/2019/10-II",
+        "source_file": "Balassagyarmati_Torvenyszek__Pf_20328_2019_10.docx",
+        "quote": "A fentiekre tekintettel a törvényszék a perköltség viselése tárgyában az elsőfokú ítéletet az rPp. 253. § (2) és (3) bekezdései alapján a rendelkező részben foglaltak szerint részben megváltoztatta, egyebekben helyes indokainál fogva helybenhagyta."
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "verified",
+    "verification_notes": "",
+    "notes": "A kérdés a Balassagyarmati Törvényszék 2019-es vételár megfizetése iránti ügyének perköltség viseléséről szóló döntésének alapjaira vonatkozik, amely a megadott dokumentum tartalmából van kinyerve."
+  },
+  {
+    "id": "q0371",
+    "persona_id": "practical_procedural",
+    "question": "Milyen eljárásjogi kifogást vizsgált a Fővárosi Ítélőtábla a 2021-es adásvételi szerződés érvénytelensége megállapítása ügyében, melyben a felperes az elsőfokú bíróság eljárását sérelmezte?",
+    "expected_answer": "A Fővárosi Ítélőtábla azt vizsgálta, hogy az elsőfokú bíróság eljárási szabálysértést vétett-e, mert nem hívta fel a feleket a tényállítások kiegészítésére. Az ítélőtábla szerint az elsőfokú bíróság eljárása nem sértette meg a Pp. vonatkozó paragrafusait.",
+    "citations": [
+      {
+        "court": "Fővárosi Ítélőtábla",
+        "case_number": "11.Gf.40.091/2021/7.",
+        "source_file": "Fovarosi_Itelotabla__Gf_40091_2021_7.docx"
+      }
+    ],
+    "difficulty": "medium",
+    "is_answerable": true,
+    "reviewed": false,
+    "verification_status": "needs_review",
+    "verification_notes": "The description also fits 3 other document(s), e.g. Fovarosi_Itelotabla__Gf_40229_2021_7.docx.",
+    "notes": "A kérdés az \"adásvételi szerződés érvénytelensége megállapítása\" ügyben egy konkrét eljárásjogi kifogásra fókuszál, amelyet a felperes sérelmezett az elsőfokú bíróság eljárásával kapcsolatban. A válasz pontosan megnevezi a vizsgált kifogásokat és a bíróság álláspontját, kizárólag a dokumentumban szereplő információk alapján."
   }
 ]
