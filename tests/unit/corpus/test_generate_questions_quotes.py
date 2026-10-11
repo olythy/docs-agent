@@ -188,3 +188,27 @@ def test_an_expected_answer_must_be_key_facts_only():
     assert answer_too_long("x" * MAX_ANSWER_CHARS) is None
     problem = answer_too_long("x" * (MAX_ANSWER_CHARS + 1))
     assert problem and str(MAX_ANSWER_CHARS + 1) in problem
+
+
+def test_a_too_long_expected_answer_is_shortened_by_one_model_call():
+    from corpus.commands.generate_questions import MAX_ANSWER_CHARS, condense_answer
+
+    prompts = []
+
+    def ask(prompt):
+        prompts.append(prompt)
+        return ' "A keresetet elutasították." '
+
+    short = condense_answer("Mi lett?", "x" * (MAX_ANSWER_CHARS + 50), ask)
+
+    assert short == "A keresetet elutasították."
+    assert len(prompts) == 1 and "Mi lett?" in prompts[0]
+
+
+def test_a_shortening_that_is_empty_or_still_too_long_gives_nothing():
+    from corpus.commands.generate_questions import MAX_ANSWER_CHARS, condense_answer
+
+    assert condense_answer("q", "x" * 400, lambda p: "") is None
+    assert (
+        condense_answer("q", "x" * 400, lambda p: "y" * (MAX_ANSWER_CHARS + 1)) is None
+    )

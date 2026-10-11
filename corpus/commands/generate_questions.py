@@ -27,6 +27,7 @@ import json
 import random
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
@@ -231,6 +232,48 @@ def sample_identifiable_documents(count: int = 1) -> list[dict]:
         }
         for source_file, court, year, subject in rows
     ]
+
+
+def condense_answer(
+    question: str, answer: str, ask: Callable[[str], str] | None = None
+) -> str | None:
+    """The expected answer shortened to the key facts the question asks for, or ``None``.
+
+    The drafting model keeps writing background and commentary past the length it is
+    given (28 of 85 practical drafts), and a rejected draft is a wasted draft. The
+    shortened answer is checked like any other afterwards (grounded, answers the question).
+
+    Args:
+        question: The drafted question.
+        answer: The drafted, too long expected answer.
+        ask: Takes a prompt and returns the model's reply (default: the answer driver).
+
+    Returns:
+        The shortened answer, or ``None`` when the reply is empty or still too long.
+    """
+    if ask is None:
+        from drivers.llm import get_answer_driver
+
+        def ask(prompt: str) -> str:
+            reply = get_answer_driver().run_tool_calling_turn(
+                [{"role": "user", "content": prompt}], temperature=0.0
+            )
+            return reply.content or ""
+
+    short = (
+        ask(
+            "Shorten the EXPECTED ANSWER to the key facts the QUESTION asks for: one or two "
+            f"sentences, at most {MAX_ANSWER_CHARS - 40} characters, in the same language. Use "
+            "only facts already in the expected answer; add nothing; drop background and "
+            f"commentary.\n\nQUESTION: {question}\n\nEXPECTED ANSWER: {answer}\n\n"
+            "Output only the shortened answer."
+        )
+        .strip()
+        .strip('"')
+    )
+    if not short or answer_too_long(short):
+        return None
+    return short
 
 
 def answer_too_long(expected_answer: str) -> str | None:
@@ -588,6 +631,12 @@ def generate_one(persona_id: str, personas: dict[str, dict]) -> dict:
         samples[0]["content"] = fetch_full_content(samples[0]["source_file"])
 
     drafted = draft_question(persona, samples, trap_kind, topic)
+
+    if persona_id != "adversarial" and answer_too_long(drafted["expected_answer"]):
+        shortened = condense_answer(drafted["question"], drafted["expected_answer"])
+        if shortened:
+            drafted["expected_answer_long"] = drafted["expected_answer"]
+            drafted["expected_answer"] = shortened
 
     missing = [c for c in drafted.get("citations", []) if not verify_citation_exists(c)]
     if trap_kind:
