@@ -180,3 +180,11 @@ def test_a_description_that_fits_other_documents_is_ambiguous():
     assert only_own is None
     assert shared and "b.docx" in shared
     assert lost and "own document" in lost
+
+
+def test_an_expected_answer_must_be_key_facts_only():
+    from corpus.commands.generate_questions import MAX_ANSWER_CHARS, answer_too_long
+
+    assert answer_too_long("x" * MAX_ANSWER_CHARS) is None
+    problem = answer_too_long("x" * (MAX_ANSWER_CHARS + 1))
+    assert problem and str(MAX_ANSWER_CHARS + 1) in problem

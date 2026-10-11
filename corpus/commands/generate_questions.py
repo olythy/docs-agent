@@ -63,6 +63,9 @@ PROCEDURAL_TOPICS = (
     "what the court said about the burden of proof",
 )
 
+#: The longest expected answer a generated question may have (key facts only).
+MAX_ANSWER_CHARS = 320
+
 #: Plausible traps for the adversarial persona; the right behaviour is to decline.
 TRAP_KINDS = ("invented_case_number", "missing_fact")
 
@@ -228,6 +231,16 @@ def sample_identifiable_documents(count: int = 1) -> list[dict]:
         }
         for source_file, court, year, subject in rows
     ]
+
+
+def answer_too_long(expected_answer: str) -> str | None:
+    """Why an expected answer is not "key facts only", or ``None`` if it is short enough."""
+    if len(expected_answer) <= MAX_ANSWER_CHARS:
+        return None
+    return (
+        f"The expected answer has {len(expected_answer)} characters; key facts only, "
+        f"at most {MAX_ANSWER_CHARS}."
+    )
 
 
 def names_another_document(
@@ -584,6 +597,10 @@ def generate_one(persona_id: str, personas: dict[str, dict]) -> dict:
             "NOT_SUPPORTED",
             f"Citation(s) not found in document_chunks: {[c['source_file'] for c in missing]}",
         )
+    elif persona_id != "adversarial" and (
+        too_long := answer_too_long(drafted["expected_answer"])
+    ):
+        verdict, reason = "NOT_SUPPORTED", too_long
     elif persona_id != "adversarial" and (
         other := names_another_document(
             drafted["question"], drafted.get("citations", [])
