@@ -251,17 +251,17 @@ def condense_answer(
     Returns:
         The shortened answer, or ``None`` when the reply is empty or still too long.
     """
-    if ask is None:
+
+    def driver_ask(prompt: str) -> str:
         from drivers.llm import get_answer_driver
 
-        def ask(prompt: str) -> str:
-            reply = get_answer_driver().run_tool_calling_turn(
-                [{"role": "user", "content": prompt}], temperature=0.0
-            )
-            return reply.content or ""
+        reply = get_answer_driver().run_tool_calling_turn(
+            [{"role": "user", "content": prompt}], temperature=0.0
+        )
+        return reply.content or ""
 
     short = (
-        ask(
+        (ask or driver_ask)(
             "Shorten the EXPECTED ANSWER to the key facts the QUESTION asks for: one or two "
             f"sentences, at most {MAX_ANSWER_CHARS - 40} characters, in the same language. Use "
             "only facts already in the expected answer; add nothing; drop background and "
