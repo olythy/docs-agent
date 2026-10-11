@@ -2,6 +2,14 @@
 
 A dated, reverse-chronological log of what was tried, what broke, and why the current defaults in `README.md` are what they are. `README.md` describes the system as it stands today; this file is the running "why," kept out of the README so reference and history don't keep drifting into one document. Newest entries first. Each entry names the commit(s) it came from.
 
+## 2026-10-11 — Two query-side fixes for the lost passages, both rejected on the numbers
+
+**Rewriting the question as a hypothetical answer (HyDE).** A model call writes a 2-3 sentence passage in the register of a Hungarian decision that would answer the question; the retrieval searches with that passage (same scope as the original). Passage within the final 8 chunks, 29 fact_finder / 35 practical: original 24 / 24, hypothetical passage alone 23 / 12, question plus passage 22 / 12, original and passage interleaved 24 / 20. The invented wording does not look like the decisions' wording, so it pulls the search away; for the described-by-content questions it halves the hits. Not adopted, nothing built.
+
+**A larger candidate pool (40 -> 100).** Passage within the first 8 / 12 chunks, practical: reranker order 26 / 27 at pool 40 became 22 / 24 at pool 100 (more candidates give the reranker more chances to bury the passage); RRF-only 22 / 25 unchanged; rerank and RRF rank fused 24 / 26 became 24 / 27. No gain worth the extra rerank cost; the pool stays at 40.
+
+**What is left.** Roughly a quarter of the practical passages are in no candidate pool of either search, and the rest are ranked by a reranker that helps the described questions and hurts the case-number ones. Both point at the index (what is embedded and how the text is cut), not at the query: the summary is embedded into every chunk, chunks are cut by size, and the embedding is the one that was already measured as language-sensitive (the `text-embedding-005` incident in `AGENTS.md`). That needs a re-embedding on a copy of the data, so it is the next experiment, not part of this change.
+
 ## 2026-10-11 — Where the supporting passage is lost in retrieval (stage trace of the v2 questions)
 
 **Method.** For every verified fact_finder/practical question the retrieval records give the ranked list after each step; the golden passage (located by its quote) is looked for in the dense pool, the keyword pool, after RRF fusion, after the reranker and in the final cut. Retrieval only, so the orderings can be compared offline on one run.
