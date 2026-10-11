@@ -121,7 +121,10 @@ def build_query_service(settings: Settings) -> QueryService:
         exact_answerer,
         GroundedAnswerer(
             llm,
-            AnswerPolicy(expose_document_date=settings.EXPOSE_DOCUMENT_DATE),
+            AnswerPolicy(
+                expose_document_date=settings.EXPOSE_DOCUMENT_DATE,
+                omit_unbacked=settings.ANSWER_OMIT_UNBACKED,
+            ),
             observers=(
                 AnswerAuditObserver(
                     get_logger(), settings.LLM_DRIVER, settings.LLM_MODEL

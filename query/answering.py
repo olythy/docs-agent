@@ -57,9 +57,12 @@ class AnswerPolicy:
 
     Attributes:
         expose_document_date: Show each excerpt's document date.
+        omit_unbacked: Leave out of the visible answer a sentence all of whose citations
+            failed. Off, the sentence stays without its labels (an uncited claim).
     """
 
     expose_document_date: bool
+    omit_unbacked: bool = True
 
 
 #: The line before the quotes of an answer, and one quote line: ``[2] "a passage"``.
@@ -220,7 +223,9 @@ class GroundedAnswerer:
             text = REFUSAL_SENTENCE
         answer = GroundedAnswer(text, refused, status=status)
         if not refused:
-            answer = self._with_citations(answer, chunks, self._judge)
+            answer = self._with_citations(
+                answer, chunks, self._judge, self._policy.omit_unbacked
+            )
             if not answer.citations:
                 # Nothing the model said is backed by a passage of an excerpt: the refusal
                 # is the system's, not a reply that looks like an answer but rests on nothing.
@@ -236,6 +241,7 @@ class GroundedAnswerer:
         answer: GroundedAnswer,
         chunks: tuple[RetrievedChunk, ...],
         judge: ClaimJudge | None = None,
+        omit_unbacked: bool = True,
     ) -> GroundedAnswer:
         """``answer`` with each citation resolved, its quote found in the chunk and judged.
 
@@ -324,7 +330,11 @@ class GroundedAnswerer:
         held = {index for index, _, _, _ in kept}
         # A sentence that cited excerpts and none of its citations held states something
         # nothing backs: it is left out, not shown with its labels removed.
-        dropped = {index for index in removed if index not in held}
+        dropped = (
+            {index for index in removed if index not in held}
+            if omit_unbacked
+            else set()
+        )
         pieces: list[str] = []
         cursor = 0
         for index, (start, end) in enumerate(spans):

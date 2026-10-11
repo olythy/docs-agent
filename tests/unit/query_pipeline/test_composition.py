@@ -211,6 +211,16 @@ class TestQueryService:
 
         assert service._grounded._policy.expose_document_date is expose  # type: ignore[attr-defined]
 
+    @pytest.mark.parametrize("omit", [False, True])
+    def test_the_omission_of_unbacked_sentences_comes_from_the_settings(
+        self, wired, omit
+    ):
+        env = wired(ANSWER_OMIT_UNBACKED=omit)
+
+        service = build_query_service(env.settings)
+
+        assert service._grounded._policy.omit_unbacked is omit  # type: ignore[attr-defined]
+
     def test_a_question_in_a_fixed_scope_is_read_and_answered(self, wired, monkeypatch):
         env = wired()
         driver = FakeAnswerDriver()

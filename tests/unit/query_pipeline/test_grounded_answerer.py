@@ -720,3 +720,14 @@ def test_a_quote_the_model_repeats_for_a_label_is_asked_about_once():
     judged(text, judge)
 
     assert judge.asked == [[("First claim is made here.", "said text 10 about")]]
+
+
+def test_with_omission_off_a_sentence_whose_citation_failed_stays_without_its_label():
+    reply_text = reply("Claim one [3]. Claim two [2].", 3)  # no quote for label 2
+
+    answer = GroundedAnswerer(
+        FakeDriver(reply_text), AnswerPolicy(False, omit_unbacked=False)
+    ).answer("Q?", RANKED)
+
+    assert answer.visible == "Claim one [3]. Claim two." and answer.omitted == 0
+    assert [c.label for c in answer.citations] == [3]

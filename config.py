@@ -240,6 +240,10 @@ class Settings:
                               labels on different runs (12 of 82 documents
                               changed between two runs, only 3 of them
                               because the key description had changed).
+        ANSWER_OMIT_UNBACKED  ``true`` (default) leaves out of the visible answer a
+                              sentence all of whose citations failed the quote and
+                              judge checks, and says how many were left out;
+                              ``false`` keeps it without its labels.
         ANSWER_MAX_TOKENS     Most tokens the model may write for one answer to a
                               question that is read from documents (default:
                               2048). The answer is followed by a quote for every
@@ -500,6 +504,9 @@ class Settings:
     )
     LLM_THINKING_BUDGET: int = int(os.getenv("LLM_THINKING_BUDGET", "0"))
     ANSWER_MAX_TOKENS: int = int(os.getenv("ANSWER_MAX_TOKENS", "2048"))
+    ANSWER_OMIT_UNBACKED: bool = (
+        os.getenv("ANSWER_OMIT_UNBACKED", "true").lower() == "true"
+    )
     META_EXTRACTION_TEMPERATURE: float = float(
         os.getenv("META_EXTRACTION_TEMPERATURE", "0.0")
     )
