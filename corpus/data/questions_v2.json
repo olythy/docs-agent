@@ -223,7 +223,7 @@
     "id": "q0012",
     "persona_id": "fact_finder",
     "question": "A Fővárosi Ítélőtábla 2.Pf.20.212/2022/4. számú ügyben hozott ítéletében milyen helyreigazító közlemény közzétételére kötelezte az alperest?",
-    "expected_answer": "A Fővárosi Ítélőtábla arra kötelezte az alperest, hogy a TV csatornán közölje a következő helyreigazító közleményt: „dátum napján a műsor címe című műsorunkban valótlanul állítottuk, hogy bérbeadásra került a felperes felperes település2i strandja. A valóság ezzel szemben az, hogy a strandnak csak egy része került bérbeadásra.”",
+    "expected_answer": "A Fővárosi Ítélőtábla arra kötelezte az alperest, hogy a TV csatornán közölje: \"dátum napján a műsor címe című műsorunkban valótlanul állítottuk, hogy bérbeadásra került a felperes felperes település2i strandja. A valóság ezzel szemben az, hogy a strandnak csak egy része került bérbeadásra.",
     "citations": [
       {
         "court": "Fővárosi Ítélőtábla",
@@ -237,7 +237,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The cited court 'Fővárosi Ítélőtábla' and case number '2.Pf.20.212/2022/4.' appear verbatim in the document. The document clearly states the exact content of the corrective statement the defendant was ordered to publish, matching the 'expected_answer' almost perfectly, with only minor formatting differences in the date and program title placeholders.",
-    "notes": "A kérdés a Fővárosi Ítélőtábla egy konkrét ügyében hozott helyreigazító közlemény pontos tartalmára vonatkozik, amely egyértelműen megtalálható a dokumentumban."
+    "notes": "A kérdés a Fővárosi Ítélőtábla egy konkrét ügyében hozott helyreigazító közlemény pontos tartalmára vonatkozik, amely egyértelműen megtalálható a dokumentumban.",
+    "expected_answer_long": "A Fővárosi Ítélőtábla arra kötelezte az alperest, hogy a TV csatornán közölje a következő helyreigazító közleményt: „dátum napján a műsor címe című műsorunkban valótlanul állítottuk, hogy bérbeadásra került a felperes felperes település2i strandja. A valóság ezzel szemben az, hogy a strandnak csak egy része került bérbeadásra.”"
   },
   {
     "id": "q0013",
@@ -403,7 +404,7 @@
     "id": "q0021",
     "persona_id": "fact_finder",
     "question": "Milyen döntést hozott a Budapest Környéki Törvényszék a 4.P.20.296/2019/144 ügyszámú ítéletében a szerződés hatálytalansága tárgyában?",
-    "expected_answer": "A Budapest Környéki Törvényszék megállapította, hogy a II. és III. rendű alperes között 2019. február 11-én kelt ajándékozási és haszonélvezeti jogot alapító szerződés fedezetelvonó és a felperessel szemben hatálytalan. Kötelezte a II. rendű alperest 27.974.606 forintig teljes vagyonával helytállni, továbbá a II. és III. rendű alpereseket egyetemlegesen 3.112.300 forint részperköltség megfizetésére.",
+    "expected_answer": "A Budapest Környéki Törvényszék megállapította, hogy az ajándékozási és haszonélvezeti jogot alapító szerződés fedezetelvonó és a felperessel szemben hatálytalan. Kötelezte a II. rendű alperest 27.974.606 Ft-ig helytállni, és a II-III. rendű alpereseket 3.112.300 Ft perköltség megfizetésére.",
     "citations": [
       {
         "court": "Budapest Környéki Törvényszék",
@@ -417,7 +418,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The case number '4.P.20.296/2019/144' and court name 'Budapest Környéki Törvényszék' are present verbatim in the document. The document states that the court found the gift and usufruct agreement between the second and third defendants to be fraudulent and ineffective against the plaintiff, ordered the second defendant to pay up to 27,974,606 Forints with all their assets, and jointly ordered the second and third defendants to pay 3,112,300 Forints in partial litigation costs, which fully supports the expected answer.",
-    "notes": "A kérdés a megadott ügyszámú ítélet konkrét döntését kéri számszerűsített adatokkal."
+    "notes": "A kérdés a megadott ügyszámú ítélet konkrét döntését kéri számszerűsített adatokkal.",
+    "expected_answer_long": "A Budapest Környéki Törvényszék megállapította, hogy a II. és III. rendű alperes között 2019. február 11-én kelt ajándékozási és haszonélvezeti jogot alapító szerződés fedezetelvonó és a felperessel szemben hatálytalan. Kötelezte a II. rendű alperest 27.974.606 forintig teljes vagyonával helytállni, továbbá a II. és III. rendű alpereseket egyetemlegesen 3.112.300 forint részperköltség megfizetésére."
   },
   {
     "id": "q0022",
@@ -1136,7 +1138,7 @@
     "id": "q0066",
     "persona_id": "practical_procedural",
     "question": "A Fővárosi Ítélőtábla 2024-es, adásvételi szerződés hatálytalanságának megállapítása és ingatlan tulajdonjogának ingatlan-nyilvántartásba történő bejegyzése tárgyában hozott ítéletében miért volt alaptalan a felperes azon állítása, hogy a jogi képviselő meghatalmazása nem volt szabályszerű?",
-    "expected_answer": "A másodfokú bíróság maradéktalanul egyetértett az elsőfokú bírósággal abban a kérdésben, hogy a kulturális örökség védelméről szóló 2001. évi LXIV. törvény és a kormány tagjainak feladat és hatásköréről szóló 94/2018. (V.22.) Korm. rendelet rendelkezései alapján a jogi képviselő meghatalmazásának az államot jogosító hatályához nem fűződik kétség. Az elsőfokú bíróság helyesen állapította meg, hogy a Kötv. 86. § (3) bekezdés b) pont alapján a jog gyakorlására jogosító rendelkezés nyilvánvalóan felhatalmazást keletkeztet a jog érvényesítésével kapcsolatos törvényes képviselet ellátására is. Ezen felül az elsődleges, a per megszüntetésére irányuló fellebbezési kérelem azért sem volt teljesíthető, mert a törvényes képviselő mellőzésének hiányában csak abban az esetben szüntethető meg a per, ha a fél felhívás ellenére sem küszöböli ki az eljárási akadályt. Mivel a törvényes képviselő személyében fennálló eljárási akadály nem állt fenn, az elsőfokú bíróságnak ilyen eljárási kötelezettsége nem volt.",
+    "expected_answer": "A jogi képviselő meghatalmazása szabályszerű volt, mert a Kötv. 86. § (3) bekezdés b) pontja alapján felhatalmazást keletkeztet a törvényes képviselet ellátására.",
     "citations": [
       {
         "court": "Fővárosi Ítélőtábla",
@@ -1150,7 +1152,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The cited case number and court name appear verbatim in the document. The content of the document in paragraph [9] directly supports the expected answer regarding why the plaintiff's claim about the legal representative's authorization was unfounded, stating that the appellate court fully agreed with the first instance court that the authorization was valid based on relevant laws and that the lower court correctly found that the law grants authorization for legal representation. Furthermore, it explains that the request to terminate the lawsuit was not possible because there was no procedural impediment concerning the legal representative.",
-    "notes": "A kérdés arra vonatkozik, hogy az ítélőtábla miért tartotta fenn az elsőfokú bíróság döntését a jogi képviselet jogszerűségével kapcsolatban, és miért utasította el az alperesek ezzel ellentétes fellebbezési kérelmét."
+    "notes": "A kérdés arra vonatkozik, hogy az ítélőtábla miért tartotta fenn az elsőfokú bíróság döntését a jogi képviselet jogszerűségével kapcsolatban, és miért utasította el az alperesek ezzel ellentétes fellebbezési kérelmét.",
+    "expected_answer_long": "A másodfokú bíróság maradéktalanul egyetértett az elsőfokú bírósággal abban a kérdésben, hogy a kulturális örökség védelméről szóló 2001. évi LXIV. törvény és a kormány tagjainak feladat és hatásköréről szóló 94/2018. (V.22.) Korm. rendelet rendelkezései alapján a jogi képviselő meghatalmazásának az államot jogosító hatályához nem fűződik kétség. Az elsőfokú bíróság helyesen állapította meg, hogy a Kötv. 86. § (3) bekezdés b) pont alapján a jog gyakorlására jogosító rendelkezés nyilvánvalóan felhatalmazást keletkeztet a jog érvényesítésével kapcsolatos törvényes képviselet ellátására is. Ezen felül az elsődleges, a per megszüntetésére irányuló fellebbezési kérelem azért sem volt teljesíthető, mert a törvényes képviselő mellőzésének hiányában csak abban az esetben szüntethető meg a per, ha a fél felhívás ellenére sem küszöböli ki az eljárási akadályt. Mivel a törvényes képviselő személyében fennálló eljárási akadály nem állt fenn, az elsőfokú bíróságnak ilyen eljárási kötelezettsége nem volt."
   },
   {
     "id": "q0067",
@@ -1295,7 +1298,7 @@
     "id": "q0074",
     "persona_id": "practical_procedural",
     "question": "Milyen alapon kötelezte a Budapest Környéki Törvényszék 2023-as, bűncselekménnyel okozott kár megtérítése iránt indított perében az alpereseket a perköltség megfizetésére?",
-    "expected_answer": "A Budapest Környéki Törvényszék a pervesztes alpereseket a Polgári perrendtartásról szóló törvény (Pp.) 83. § (1) bekezdése alapján kötelezte a perköltség megfizetésére, mivel pervesztesek lettek. Emellett a felperest az Itv. 62. § (1) bekezdés c.) pontja alapján tárgyi illetékfeljegyzési jog illette meg, így az alperesek az állam javára kötelesek megfizetni a feljegyzett eljárási illetéket. A bíróság a felperes javára az ügyvédi munkadíjat a 32/2003. (VIII. 22.) IM rendelet 3.§ (2) bekezdés b.) pontja alapján állapította meg.",
+    "expected_answer": "A pervesztes alpereseket a Pp. 83. § (1) bekezdése alapján kötelezte a perköltség megfizetésére. Az alperesek az állam javára kötelesek megfizetni az eljárási illetéket, az ügyvédi munkadíjat az IM rendelet alapján állapították meg.",
     "citations": [
       {
         "court": "Budapest Környéki Törvényszék",
@@ -1309,7 +1312,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The case number and court name match verbatim. The cited content clearly states that the defendants were ordered to pay court costs based on Pp. 83. § (1) due to being the losing party, were obligated to pay recorded procedural fees to the state based on Itv. 62. § (1) bekezdés c.), and the attorney's fee was determined based on 32/2003. (VIII. 22.) IM rendelet 3.§ (2) bekezdés b.), which directly supports the expected answer.",
-    "notes": "A kérdés arra fókuszál, hogy mi az alapja a perköltség megfizetésére való kötelezésnek egy bűncselekménnyel okozott kár megtérítése iránti perben, a megadott dokumentum alapján."
+    "notes": "A kérdés arra fókuszál, hogy mi az alapja a perköltség megfizetésére való kötelezésnek egy bűncselekménnyel okozott kár megtérítése iránti perben, a megadott dokumentum alapján.",
+    "expected_answer_long": "A Budapest Környéki Törvényszék a pervesztes alpereseket a Polgári perrendtartásról szóló törvény (Pp.) 83. § (1) bekezdése alapján kötelezte a perköltség megfizetésére, mivel pervesztesek lettek. Emellett a felperest az Itv. 62. § (1) bekezdés c.) pontja alapján tárgyi illetékfeljegyzési jog illette meg, így az alperesek az állam javára kötelesek megfizetni a feljegyzett eljárási illetéket. A bíróság a felperes javára az ügyvédi munkadíjat a 32/2003. (VIII. 22.) IM rendelet 3.§ (2) bekezdés b.) pontja alapján állapította meg."
   },
   {
     "id": "q0075",
@@ -1335,7 +1339,7 @@
     "id": "q0076",
     "persona_id": "practical_procedural",
     "question": "A Debreceni Járásbíróság 2022-es haszonbérleti szerződés felmondása érvényességének megállapítása ügyben ki viseli a perköltséget és mire alapozta ezt a bíróság?",
-    "expected_answer": "A Debreceni Járásbíróság a II. rendű alperest kötelezte a felperes perköltségének megfizetésére, mert a II. rendű alperes pervesztesnek bizonyult. A bíróság a költségek összegét a felperes által becsatolt költségjegyzék alapján állapította meg, figyelembe véve a felperes által megfizetett 21.000,- forint kereseti illetéket és a felperest képviselő ügyvédi iroda bruttó 15.240,- forintos munkadíját, melyet a bírósági eljárásban megállapítható ügyvédi költségekről szóló 32/2003. (VIII. 22.) IM rendelet alapján számoltak ki.",
+    "expected_answer": "A Debreceni Járásbíróság a II. rendű alperest kötelezte a felperes perköltségének megfizetésére, mert pervesztes volt. A költségeket a felperes költségjegyzéke alapján, az IM rendelet szerint állapították meg.",
     "citations": [
       {
         "court": "Debreceni Járásbíróság",
@@ -1349,7 +1353,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The cited case number and court name appear verbatim in the document. The document explicitly states that the II. rendű alperes (second defendant) was ordered to pay the plaintiff's legal costs because they lost the case. It further details how the court determined the amount of costs, including the 21,000 HUF court fee and the 15,240 HUF gross attorney's fee, calculated according to the relevant IM regulation, which aligns perfectly with the expected answer.",
-    "notes": "A kérdés a Debreceni Járásbíróság egy 2022-es ügyének perköltségviselésére és annak indoklására vonatkozik, a dokumentum 'Indokolás' részéből származó információk alapján."
+    "notes": "A kérdés a Debreceni Járásbíróság egy 2022-es ügyének perköltségviselésére és annak indoklására vonatkozik, a dokumentum 'Indokolás' részéből származó információk alapján.",
+    "expected_answer_long": "A Debreceni Járásbíróság a II. rendű alperest kötelezte a felperes perköltségének megfizetésére, mert a II. rendű alperes pervesztesnek bizonyult. A bíróság a költségek összegét a felperes által becsatolt költségjegyzék alapján állapította meg, figyelembe véve a felperes által megfizetett 21.000,- forint kereseti illetéket és a felperest képviselő ügyvédi iroda bruttó 15.240,- forintos munkadíját, melyet a bírósági eljárásban megállapítható ügyvédi költségekről szóló 32/2003. (VIII. 22.) IM rendelet alapján számoltak ki."
   },
   {
     "id": "q0077",
@@ -1455,7 +1460,7 @@
     "id": "q0082",
     "persona_id": "practical_procedural",
     "question": "Milyen alapon döntött a Budapest Környéki Törvényszék a perköltség viseléséről a 2022-es bizományi szerződésből eredő követelés ügyében, amelyben zongorák értékesítéséről volt szó?",
-    "expected_answer": "A Budapest Környéki Törvényszék a perköltség viseléséről az 1952. évi III. törvény (Pp.) 81. § (1) bekezdése alapján döntött, figyelemmel az 1990. évi XCIII. tv. (Itv.) 59. § (1) bekezdésére, mivel a II. rendű felperes kereseti kérelmét leszállította. A tolmácsdíj viseléséről a Pp. 78. § (4) bekezdése alapján született döntés.",
+    "expected_answer": "A Törvényszék a perköltségről a Pp. 81. § (1) bekezdése és az Itv. 59. § (1) bekezdése alapján döntött, mivel a II. rendű felperes kereseti kérelmét leszállította. A tolmácsdíjról a Pp. 78. § (4) bekezdése alapján született döntés.",
     "citations": [
       {
         "court": "Budapest Környéki Törvényszék",
@@ -1469,7 +1474,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The cited document's content explicitly states: \"A bíróság a perköltségről az 1952. évi III. törvény (Pp.) 81. § (1) bekezdése alapján, mivel a II. r. felperes kereseti kérelmét leszállította, figyelemmel az 1990. évi XCIII. tv. (Itv.) 59. § (1) bekezdésére, a tolmács díjának viseléséről a Pp. 78. § (4) bekezdése alapján döntött.\", which directly supports the expected answer regarding the legal basis for the cost decision.",
-    "notes": "Question grounded in a single document from Budapest Környéki Törvényszék regarding a claim arising from a commission contract, specifically about the legal basis for cost allocation."
+    "notes": "Question grounded in a single document from Budapest Környéki Törvényszék regarding a claim arising from a commission contract, specifically about the legal basis for cost allocation.",
+    "expected_answer_long": "A Budapest Környéki Törvényszék a perköltség viseléséről az 1952. évi III. törvény (Pp.) 81. § (1) bekezdése alapján döntött, figyelemmel az 1990. évi XCIII. tv. (Itv.) 59. § (1) bekezdésére, mivel a II. rendű felperes kereseti kérelmét leszállította. A tolmácsdíj viseléséről a Pp. 78. § (4) bekezdése alapján született döntés."
   },
   {
     "id": "q0083",
@@ -1495,7 +1501,7 @@
     "id": "q0084",
     "persona_id": "practical_procedural",
     "question": "Milyen eljárási kifogással élt az alperes a Debreceni Ítélőtábla 2024-es szolgáltatási díj és kártérítés megfizetése tárgyú ügyében?",
-    "expected_answer": "Az alperes az elsőfokú közbenső ítéletet azzal sérelmezte, hogy a lehetetlenülés oka kizárólag az ő érdekkörében keletkezett, és nem tartozott a felperes érdekkörébe is. Ezt az elsőfokú bíróság mérlegelését támadó kifogást terjesztett elő, iratellenességre és okszerűtlen következtetésre hivatkozva a tényállás megállapításában.",
+    "expected_answer": "Az alperes az elsőfokú közbenső ítéletet iratellenességre és okszerűtlen következtetésre hivatkozva támadta, mivel szerinte a lehetetlenülés oka kizárólag az ő érdekkörében keletkezett.",
     "citations": [
       {
         "court": "Debreceni Ítélőtábla",
@@ -1509,13 +1515,14 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The cited case number Gf.III.30.140/2023/19. and court name Debreceni Ítélőtábla appear verbatim in the document. The expected answer accurately summarizes the defendant's procedural objection mentioned in paragraph [8] and further elaborated in paragraph [21] of the document, which states that the defendant complained that the reason for the impossibility arose solely within their sphere of interest, and not that of the plaintiff, and attacked the first-instance court's assessment, citing inconsistency with the records and illogical conclusions in establishing the facts.",
-    "notes": "A kérdés az alperes fellebbezésében megfogalmazott eljárási kifogásra vonatkozik, ahogyan azt a dokumentum részletesen tárgyalja."
+    "notes": "A kérdés az alperes fellebbezésében megfogalmazott eljárási kifogásra vonatkozik, ahogyan azt a dokumentum részletesen tárgyalja.",
+    "expected_answer_long": "Az alperes az elsőfokú közbenső ítéletet azzal sérelmezte, hogy a lehetetlenülés oka kizárólag az ő érdekkörében keletkezett, és nem tartozott a felperes érdekkörébe is. Ezt az elsőfokú bíróság mérlegelését támadó kifogást terjesztett elő, iratellenességre és okszerűtlen következtetésre hivatkozva a tényállás megállapításában."
   },
   {
     "id": "q0085",
     "persona_id": "practical_procedural",
     "question": "Milyen indokkal utasította el a Budapesti II. és III. Kerületi Bíróság 2024-es kölcsön megfizetése ügyében az alperes eljárás megszüntetése iránti kérelmét?",
-    "expected_answer": "A bíróság azzal az indokkal utasította el az alperes eljárás megszüntetése iránti kérelmét, hogy a felperes a jelen perben más ténybeli alapon terjesztette elő a keresetét, mint az előzményi perben. Míg az előzményi perben a kölcsönszerződés felmondással történt megszűnésére hivatkozott, addig a jelen perben a kölcsönszerződés futamidejének lejártára. Az előzményi perben azért utasították el a keresetet, mert a felmondás jogkövetkezményei nem voltak alkalmazhatók, és nem volt megállapítható, hogy a felmondás hiányában milyen összeg vált esedékessé. Az eljárás megszüntetésének elfogadása azt jelentené, hogy egy jogszerűtlen felmondás esetén a hitelező a futamidő lejártát követően már nem követelhetné a tartozást.",
+    "expected_answer": "A bíróság elutasította az alperes kérelmét, mert a felperes más ténybeli alapon (futamidő lejártára) terjesztette elő keresetét, mint az előzményi perben (felmondás).",
     "citations": [
       {
         "court": "Budapesti II. és III. Kerületi Bíróság",
@@ -1529,13 +1536,14 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The case number '12.P.20.784/2024/16/I' appears verbatim in the document. The court name 'Budapesti II. és III. Kerületi Bíróság' also matches the accented name in the document. The content in paragraph [30] directly supports the expected answer, explaining that the court rejected the defendant's request to terminate the proceedings because the plaintiff based their claim on different factual grounds in the current case (expiration of the loan term) compared to the previous case (termination of the loan agreement). It also states that accepting the termination would mean a creditor could not claim the debt after the loan term expires if an unlawful termination occurred.",
-    "notes": "A kérdés a Budapesti II. és III. Kerületi Bíróság 2024-es kölcsön megfizetése ügyében az alperes eljárás megszüntetése iránti kérelmének elutasításának indokára vonatkozott, ahogy az a dokumentumban szerepel."
+    "notes": "A kérdés a Budapesti II. és III. Kerületi Bíróság 2024-es kölcsön megfizetése ügyében az alperes eljárás megszüntetése iránti kérelmének elutasításának indokára vonatkozott, ahogy az a dokumentumban szerepel.",
+    "expected_answer_long": "A bíróság azzal az indokkal utasította el az alperes eljárás megszüntetése iránti kérelmét, hogy a felperes a jelen perben más ténybeli alapon terjesztette elő a keresetét, mint az előzményi perben. Míg az előzményi perben a kölcsönszerződés felmondással történt megszűnésére hivatkozott, addig a jelen perben a kölcsönszerződés futamidejének lejártára. Az előzményi perben azért utasították el a keresetet, mert a felmondás jogkövetkezményei nem voltak alkalmazhatók, és nem volt megállapítható, hogy a felmondás hiányában milyen összeg vált esedékessé. Az eljárás megszüntetésének elfogadása azt jelentené, hogy egy jogszerűtlen felmondás esetén a hitelező a futamidő lejártát követően már nem követelhetné a tartozást."
   },
   {
     "id": "q0086",
     "persona_id": "practical_procedural",
     "question": "Milyen indokok alapján állapította meg a Balassagyarmati Törvényszék a 2021-es, személyiségi jog megsértésével és sérelemdíj megfizetésével kapcsolatos ügyben, hogy az alperes a felperessel szemben az elvárható gondossággal járt el?",
-    "expected_answer": "A törvényszék álláspontja szerint a felperes nem tudta bizonyítani, hogy az alperesi kezelés során okozati összefüggésben kára keletkezett volna, azaz az általa állított megsemmisítő jellegű fájdalom kialakulását és az abból fakadó mozgáskorlátozottságot. Ezzel szemben az alperes alátámasztotta, hogy a felperes kezelése során a szakmai szabályok betartásával, az elvárható gondossággal járt el. A bíróság a második szakértői véleményt fogadta el aggálytalannak, amely szerint az alperes a felperest a szakmai szabályoknak megfelelően, kellő körültekintéssel kezelte, a rehabilitációs kezelés hozhat állapotrosszabbodást, és a betegnél olyan mértékű degeneratív gerinckárosodás történt, amit a korrektül elvégzett kezelések sem tudtak megállítani. Továbbá megállapították, hogy a fémanyag jelenléte nem jelent egyértelmű ellenjavallatot az alkalmazott kezelésnél, és a felperes tájékoztatása megfelelően részletes volt.",
+    "expected_answer": "A törvényszék szerint a felperes nem bizonyította kárát, az alperes pedig szakmai szabályok szerint, elvárható gondossággal járt el. A második szakértői vélemény szerint a kezelés korrekt volt, a degeneratív gerinckárosodás megállíthatatlan.",
     "citations": [
       {
         "court": "Balassagyarmati Törvényszék",
@@ -1549,13 +1557,14 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The cited case number and court name appear verbatim in the document. The document explicitly states that the court accepted the second expert opinion, which concluded that the defendant treated the plaintiff in accordance with professional rules and due diligence, and that the rehabilitation treatment could lead to a worsening of the condition, and that the patient's degenerative spinal damage was so severe that even correctly performed treatments could not stop it. It also noted that the presence of metal material does not constitute a clear contraindication for the applied treatment and that the plaintiff's information was sufficiently detailed, directly supporting the expected answer.",
-    "notes": "A kérdés arra fókuszál, hogy a bíróság miért ítélte úgy, hogy az alperes eljárása megfelelő volt, ami a \"why the court had (or did not have) jurisdiction or competence\" téma egy speciális alkalmazása a felelősség megállapításának szempontjából."
+    "notes": "A kérdés arra fókuszál, hogy a bíróság miért ítélte úgy, hogy az alperes eljárása megfelelő volt, ami a \"why the court had (or did not have) jurisdiction or competence\" téma egy speciális alkalmazása a felelősség megállapításának szempontjából.",
+    "expected_answer_long": "A törvényszék álláspontja szerint a felperes nem tudta bizonyítani, hogy az alperesi kezelés során okozati összefüggésben kára keletkezett volna, azaz az általa állított megsemmisítő jellegű fájdalom kialakulását és az abból fakadó mozgáskorlátozottságot. Ezzel szemben az alperes alátámasztotta, hogy a felperes kezelése során a szakmai szabályok betartásával, az elvárható gondossággal járt el. A bíróság a második szakértői véleményt fogadta el aggálytalannak, amely szerint az alperes a felperest a szakmai szabályoknak megfelelően, kellő körültekintéssel kezelte, a rehabilitációs kezelés hozhat állapotrosszabbodást, és a betegnél olyan mértékű degeneratív gerinckárosodás történt, amit a korrektül elvégzett kezelések sem tudtak megállítani. Továbbá megállapították, hogy a fémanyag jelenléte nem jelent egyértelmű ellenjavallatot az alkalmazott kezelésnél, és a felperes tájékoztatása megfelelően részletes volt."
   },
   {
     "id": "q0087",
     "persona_id": "practical_procedural",
     "question": "Milyen bizonyítékokat vizsgált az Egri Törvényszék a 2021-es ajándék visszakövetelése iránti perben, és miért nem fogadta el a felperes állítását az ajándékozási feltétel kinyilvánításáról?",
-    "expected_answer": "Az Egri Törvényszék a lefolytatott bizonyítás eredményeként (félnyilatkozatok, tanúvallomások, becsatolt nyomozati iratok) azt állapította meg, hogy a felperes nem tudta bizonyítani, hogy az ajándékozásra okot adó feltevését egyértelműen kinyilvánította volna az I. rendű alperes felé. A tanúk vallomásukkal nem igazolták, hogy a felperesi feltevés egyértelműen kinyilvánításra került volna, sőt, a tanúk többsége arról is csak hallomásból tudott, hogy az I. rendű alperes nevén voltak a termőföldek. A bíróság szerint a felperes maga sem nyilatkozott úgy, hogy egyértelműen az I. rendű alperes tudomására hozta volna, hogy az ajándékozások feltétellel történtek, és azt sem nyilvánította ki, hogy a feltevés meghiúsulása esetén visszakövetelheti az ajándékot.",
+    "expected_answer": "Az Egri Törvényszék félnyilatkozatok, tanúvallomások és nyomozati iratok alapján megállapította, hogy a felperes nem bizonyította az ajándékozási feltétel egyértelmű kinyilvánítását.",
     "citations": [
       {
         "court": "Egri Törvényszék",
@@ -1569,7 +1578,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The cited court name 'Egri Törvényszék' and case number '27.P.20.227/2020/37.' appear verbatim in the document. The document explicitly states that the Egri Törvényszék, based on the evidence (félnyilatkozatok, tanúvallomások, becsatolt nyomozati iratok), found that the plaintiff (felperes) failed to prove that the assumption for the gift was clearly communicated to the first defendant (I. rendű alperes). The witnesses did not confirm this communication, and most only heard about the land being in the first defendant's name. The court also noted that the plaintiff himself did not state that he clearly informed the first defendant about the conditional nature of the gifts or that he could reclaim them if the condition failed, which directly supports the expected answer.",
-    "notes": "A kérdés az Egri Törvényszék 2021-es ajándék visszakövetelése ügyében vizsgált bizonyítékokra és azok értékelésére fókuszál, különös tekintettel a feltevés kinyilvánításának hiányára, mely a dokumentumban részletesen kifejtésre kerül."
+    "notes": "A kérdés az Egri Törvényszék 2021-es ajándék visszakövetelése ügyében vizsgált bizonyítékokra és azok értékelésére fókuszál, különös tekintettel a feltevés kinyilvánításának hiányára, mely a dokumentumban részletesen kifejtésre kerül.",
+    "expected_answer_long": "Az Egri Törvényszék a lefolytatott bizonyítás eredményeként (félnyilatkozatok, tanúvallomások, becsatolt nyomozati iratok) azt állapította meg, hogy a felperes nem tudta bizonyítani, hogy az ajándékozásra okot adó feltevését egyértelműen kinyilvánította volna az I. rendű alperes felé. A tanúk vallomásukkal nem igazolták, hogy a felperesi feltevés egyértelműen kinyilvánításra került volna, sőt, a tanúk többsége arról is csak hallomásból tudott, hogy az I. rendű alperes nevén voltak a termőföldek. A bíróság szerint a felperes maga sem nyilatkozott úgy, hogy egyértelműen az I. rendű alperes tudomására hozta volna, hogy az ajándékozások feltétellel történtek, és azt sem nyilvánította ki, hogy a feltevés meghiúsulása esetén visszakövetelheti az ajándékot."
   },
   {
     "id": "q0088",
@@ -1655,7 +1665,7 @@
     "id": "q0092",
     "persona_id": "fact_finder",
     "question": "Milyen ügyben semmisítette meg a Budapest Környéki Törvényszék a Pest Vármegyei Kormányhivatal ...1 számú végzését az 5.K.701.188/2024/2. számú ítéletében, és milyen összegű szakértői díjról volt szó?",
-    "expected_answer": "A Budapest Környéki Törvényszék az 5.K.701.188/2024/2. számú ítéletében egy Pest Vármegyei Kormányhivatal által hozott kisajátítási ügyben született közigazgatási végzést semmisített meg. A végzés bruttó 160.449,- Ft szakértői díjat állapított meg egy 214 m2 alapterületű, legelő művelési ágban nyilvántartott ingatlan kisajátítási eljárásában.",
+    "expected_answer": "A Törvényszék egy kisajátítási ügyben hozott közigazgatási végzést semmisített meg, mely bruttó 160.449 Ft szakértői díjat állapított meg egy 214 m2-es legelő kisajátítására.",
     "citations": [
       {
         "court": "Budapest Környéki Törvényszék",
@@ -1669,13 +1679,14 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a megadott bíróság, ügyszám és ügytípus alapján kéri a döntés részleteit, konkrétan a megsemmisített végzés tárgyát és az abban szereplő szakértői díj összegét, amelyek a dokumentumban egyértelműen megtalálhatók."
+    "notes": "A kérdés a megadott bíróság, ügyszám és ügytípus alapján kéri a döntés részleteit, konkrétan a megsemmisített végzés tárgyát és az abban szereplő szakértői díj összegét, amelyek a dokumentumban egyértelműen megtalálhatók.",
+    "expected_answer_long": "A Budapest Környéki Törvényszék az 5.K.701.188/2024/2. számú ítéletében egy Pest Vármegyei Kormányhivatal által hozott kisajátítási ügyben született közigazgatási végzést semmisített meg. A végzés bruttó 160.449,- Ft szakértői díjat állapított meg egy 214 m2 alapterületű, legelő művelési ágban nyilvántartott ingatlan kisajátítási eljárásában."
   },
   {
     "id": "q0093",
     "persona_id": "fact_finder",
     "question": "Melyik ügyben semmisítette meg a Budapest Környéki Törvényszék a Pest Megyei Kormányhivatal PE/048/00761-31/2019. számú határozatát a 104.K.703.457/2020/12. számú ítéletében, és mi volt ennek az oka?",
-    "expected_answer": "A Budapest Környéki Törvényszék a 104.K.703.457/2020/12. számú ítéletében megsemmisítette a Pest Megyei Kormányhivatal PE/048/00761-31/2019. számú határozatát, amely a „Budapest-Balaton kerékpárút, Budapest-Etyek szakasz” projekthez kapcsolódó ingatlan kisajátításáról szólt. Az ítélet indoka az volt, hogy a felperesek kifogásolták a kártalanítás összegét, részben a szakértő kompetenciáját és a tényállás tisztázatlanságát vitatva.",
+    "expected_answer": "A Törvényszék a Pest Megyei Kormányhivatal PE/048/00761-31/2019. sz. határozatát a \"Budapest-Balaton kerékpárút\" kisajátításáról semmisítette meg, mert a kártalanítás összege, a szakértő kompetenciája és a tényállás tisztázatlansága vitatott volt.",
     "citations": [
       {
         "court": "Budapest Környéki Törvényszék",
@@ -1689,7 +1700,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés egy konkrét ítéletből származó tényt kérdez, amely az ítélet tárgyát és az indoklását öleli fel. Az ügyszám és a bíróság neve egyértelműen azonosítható a forrásból."
+    "notes": "A kérdés egy konkrét ítéletből származó tényt kérdez, amely az ítélet tárgyát és az indoklását öleli fel. Az ügyszám és a bíróság neve egyértelműen azonosítható a forrásból.",
+    "expected_answer_long": "A Budapest Környéki Törvényszék a 104.K.703.457/2020/12. számú ítéletében megsemmisítette a Pest Megyei Kormányhivatal PE/048/00761-31/2019. számú határozatát, amely a „Budapest-Balaton kerékpárút, Budapest-Etyek szakasz” projekthez kapcsolódó ingatlan kisajátításáról szólt. Az ítélet indoka az volt, hogy a felperesek kifogásolták a kártalanítás összegét, részben a szakértő kompetenciáját és a tényállás tisztázatlanságát vitatva."
   },
   {
     "id": "q0094",
@@ -1754,7 +1766,7 @@
     "id": "q0097",
     "persona_id": "practical_procedural",
     "question": "Az Egri Törvényszék 2021-es, devizaszerződés részleges érvénytelenségének megállapítása tárgyában hozott ítéletében milyen bizonyítékok alapján vizsgálta az alperes tájékoztatási kötelezettségét?",
-    "expected_answer": "Az Egri Törvényszék az alperes tájékoztatási kötelezettségét a kölcsönszerződés VII. 2. pontja, valamint a külön íven szövegezett „Tájékoztató” alapján vizsgálta, melyek világos és érthető felvilágosítást tartalmaztak arról, hogy a törlesztőrészletek a piaci mozgások hatására emelkedhetnek. Emellett a felperes által aláírt kockázatfeltáró nyilatkozatot is figyelembe vette, melyben a felperes elismerte, hogy a szükséges tájékoztatás ismeretében vette igénybe a kölcsönt és hogy a jelentős árfolyamkockázat reális.",
+    "expected_answer": "Az Egri Törvényszék a kölcsönszerződés VII. 2. pontja, a „Tájékoztató” és a felperes által aláírt kockázatfeltáró nyilatkozat alapján vizsgálta az alperes tájékoztatási kötelezettségét.",
     "citations": [
       {
         "court": "Egri Törvényszék",
@@ -1768,7 +1780,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés az Egri Törvényszék egy konkrét ítéletében elfogadott bizonyítékokra vonatkozik a tájékoztatási kötelezettség vizsgálata kapcsán, közvetlenül a dokumentum tartalmából kinyerve."
+    "notes": "A kérdés az Egri Törvényszék egy konkrét ítéletében elfogadott bizonyítékokra vonatkozik a tájékoztatási kötelezettség vizsgálata kapcsán, közvetlenül a dokumentum tartalmából kinyerve.",
+    "expected_answer_long": "Az Egri Törvényszék az alperes tájékoztatási kötelezettségét a kölcsönszerződés VII. 2. pontja, valamint a külön íven szövegezett „Tájékoztató” alapján vizsgálta, melyek világos és érthető felvilágosítást tartalmaztak arról, hogy a törlesztőrészletek a piaci mozgások hatására emelkedhetnek. Emellett a felperes által aláírt kockázatfeltáró nyilatkozatot is figyelembe vette, melyben a felperes elismerte, hogy a szükséges tájékoztatás ismeretében vette igénybe a kölcsönt és hogy a jelentős árfolyamkockázat reális."
   },
   {
     "id": "q0098",
@@ -1953,7 +1966,7 @@
     "id": "q0107",
     "persona_id": "practical_procedural",
     "question": "Milyen álláspontot képviselt a Fővárosi Ítélőtábla egy 2024-es, jogosulatlan finanszírozás visszafizetésével kapcsolatos ügyben a bizonyítási teherre vonatkozóan, különös tekintettel a keresettől való eltérés tilalmára?",
-    "expected_answer": "A Fővárosi Ítélőtábla szerint az elsőfokú bíróság megsértette a Polgári Perrendtartás 342. § (1) és (3) bekezdéseit, mivel túlterjeszkedett a kereseti kérelmen, amikor a jogosulatlan forrásfelhasználást és az alperes marasztalását arra alapozta, hogy egy kedvezményezett kétszer részesült hiteltámogatásban. Az alperes helytállóan hivatkozott arra, hogy a felperes a keresetét nem erre a körülményre alapozta, hanem a projekt feldarabolására. A bíróság érdemi döntése nem terjedhet ki olyan jogra, amelyet a fél a perben nem állított, és nem hozhat döntést a fél jogállításától eltérő jogalapon.",
+    "expected_answer": "A Fővárosi Ítélőtábla szerint az elsőfokú bíróság megsértette a Pp. 342. § (1) és (3) bekezdéseit, túlterjeszkedve a kereseti kérelmen, mivel a döntés eltért a felperes jogállításától.",
     "citations": [
       {
         "court": "Fővárosi Ítélőtábla",
@@ -1967,7 +1980,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a Fővárosi Ítélőtábla 2024-es, jogosulatlan finanszírozás visszafizetéséről szóló ítéletének bizonyítási teherre vonatkozó megállapításait kéri, különös tekintettel a keresettől való eltérés tilalmára. Az ítélet részletesen tárgyalja, hogy az elsőfokú bíróság túlterjeszkedett a kereseti kérelmen, és eltérő jogalapon marasztalta el az alperest, mint amit a felperes állított. Ez a téma jól illeszkedik a 'practical_procedural' persona leírásához, mivel eljárási szabálysértésre vonatkozó állásfoglalást fogalmaz meg."
+    "notes": "A kérdés a Fővárosi Ítélőtábla 2024-es, jogosulatlan finanszírozás visszafizetéséről szóló ítéletének bizonyítási teherre vonatkozó megállapításait kéri, különös tekintettel a keresettől való eltérés tilalmára. Az ítélet részletesen tárgyalja, hogy az elsőfokú bíróság túlterjeszkedett a kereseti kérelmen, és eltérő jogalapon marasztalta el az alperest, mint amit a felperes állított. Ez a téma jól illeszkedik a 'practical_procedural' persona leírásához, mivel eljárási szabálysértésre vonatkozó állásfoglalást fogalmaz meg.",
+    "expected_answer_long": "A Fővárosi Ítélőtábla szerint az elsőfokú bíróság megsértette a Polgári Perrendtartás 342. § (1) és (3) bekezdéseit, mivel túlterjeszkedett a kereseti kérelmen, amikor a jogosulatlan forrásfelhasználást és az alperes marasztalását arra alapozta, hogy egy kedvezményezett kétszer részesült hiteltámogatásban. Az alperes helytállóan hivatkozott arra, hogy a felperes a keresetét nem erre a körülményre alapozta, hanem a projekt feldarabolására. A bíróság érdemi döntése nem terjedhet ki olyan jogra, amelyet a fél a perben nem állított, és nem hozhat döntést a fél jogállításától eltérő jogalapon."
   },
   {
     "id": "q0108",
@@ -2012,7 +2026,7 @@
     "id": "q0110",
     "persona_id": "practical_procedural",
     "question": "Milyen eljárási szabályokat alkalmazott a Debreceni Ítélőtábla a 2023-as, használati díj megfizetése iránti perben a bizonyítékok értékelése során?",
-    "expected_answer": "Az ítélőtábla rámutatott, hogy a Polgári Perrendtartás szabályozási rendszerében az elsőfokú bíróság bizonyítékértékelő munkáját a másodfokú bíróság csak kivételesen – a Pp. 369. §-a (3) bekezdésének a) és b) pontjaiban nevesített esetekben – bírálhatja felül. Amennyiben a bizonyítékok mérlegelése az elsőfokú ítéletben írtak szerint nem tekinthető okszerűtlennek, vagyis a bizonyítékokból nem volt kizárt az elsőfokú ítéletben írt tényállás megállapítása, úgy a megállapított tényállástól a másodfokú bíróság sem térhet el, illetve csak annyiban, amit az általa foganatosított további bizonyítás megenged.",
+    "expected_answer": "Az ítélőtábla a Pp. 369. § (3) bekezdés a) és b) pontjai alapján bírálhatja felül az elsőfokú bíróság bizonyítékértékelését, ha az okszerűtlen.",
     "citations": [
       {
         "court": "Debreceni Ítélőtábla",
@@ -2026,7 +2040,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision.",
-    "notes": "A kérdés az ítéletben foglalt, a bizonyítékok értékelésére vonatkozó eljárási szabályokat firtatja, pontosan megjelölve a bíróságot, az évet és az ügy típusát, de a konkrét ügyszám elhagyásával."
+    "notes": "A kérdés az ítéletben foglalt, a bizonyítékok értékelésére vonatkozó eljárási szabályokat firtatja, pontosan megjelölve a bíróságot, az évet és az ügy típusát, de a konkrét ügyszám elhagyásával.",
+    "expected_answer_long": "Az ítélőtábla rámutatott, hogy a Polgári Perrendtartás szabályozási rendszerében az elsőfokú bíróság bizonyítékértékelő munkáját a másodfokú bíróság csak kivételesen – a Pp. 369. §-a (3) bekezdésének a) és b) pontjaiban nevesített esetekben – bírálhatja felül. Amennyiben a bizonyítékok mérlegelése az elsőfokú ítéletben írtak szerint nem tekinthető okszerűtlennek, vagyis a bizonyítékokból nem volt kizárt az elsőfokú ítéletben írt tényállás megállapítása, úgy a megállapított tényállástól a másodfokú bíróság sem térhet el, illetve csak annyiban, amit az általa foganatosított további bizonyítás megenged."
   },
   {
     "id": "q0111",
@@ -2109,7 +2124,7 @@
     "id": "q0115",
     "persona_id": "practical_procedural",
     "question": "Milyen bizonyítékok alapján állapította meg a Debreceni Ítélőtábla a 2023-as, tisztességtelen piaci magatartás megállapítása ügyében, hogy a \"K\" üzletjelző használata megtévesztő lehet a fogyasztók számára?",
-    "expected_answer": "A Debreceni Ítélőtábla a perben meghallgatott tanúk vallomásai és a felperes által csatolt okirati bizonyítékok alapján állapította meg, hogy a \"K\" üzletjelző használata megtévesztő lehet a fogyasztók számára. A tanúk vallomásai alátámasztották a felperes azon állítását, miszerint több mint 25 éves működése során olyan ismertségre tett szert, hogy az általa használt \"K\" üzletjelzőt a fogyasztók vele azonosítják.",
+    "expected_answer": "A Debreceni Ítélőtábla tanúvallomások és okirati bizonyítékok alapján állapította meg, hogy a \"K\" üzletjelző megtévesztő lehet, mivel a fogyasztók a felperessel azonosítják.",
     "citations": [
       {
         "court": "Debreceni Ítélőtábla",
@@ -2123,7 +2138,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision.",
-    "notes": "A kérdés a 'practical_procedural' persona és 'which evidence the court accepted or rejected' téma alapján készült. A válasz a megadott dokumentum (48-49. bekezdés) alapján került megfogalmazásra, a bíróság által elfogadott bizonyítékokat és az indoklást emelve ki."
+    "notes": "A kérdés a 'practical_procedural' persona és 'which evidence the court accepted or rejected' téma alapján készült. A válasz a megadott dokumentum (48-49. bekezdés) alapján került megfogalmazásra, a bíróság által elfogadott bizonyítékokat és az indoklást emelve ki.",
+    "expected_answer_long": "A Debreceni Ítélőtábla a perben meghallgatott tanúk vallomásai és a felperes által csatolt okirati bizonyítékok alapján állapította meg, hogy a \"K\" üzletjelző használata megtévesztő lehet a fogyasztók számára. A tanúk vallomásai alátámasztották a felperes azon állítását, miszerint több mint 25 éves működése során olyan ismertségre tett szert, hogy az általa használt \"K\" üzletjelzőt a fogyasztók vele azonosítják."
   },
   {
     "id": "q0116",
