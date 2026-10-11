@@ -157,14 +157,24 @@ def test_search_fulltext_returns_empty_when_no_keyword_match(db_conn):
 
 
 class _StubAnswerDriver:
-    """Avoids a real LLM API call — records what it was asked, returns a canned reply."""
+    """Avoids a real LLM API call — records what it was asked, returns a canned reply.
+
+    The reply cites the excerpt with a quote from it: an answer no citation backs is refused
+    by the system, so a bare canned sentence would no longer come back as the answer.
+    """
 
     def __init__(self):
         self.user_message = None
 
     def generate(self, system_prompt, user_message, max_tokens=1024):
         self.user_message = user_message
-        return "STUBBED ANSWER"
+        return 'STATUS: answered\nSTUBBED ANSWER [1]\n\nQUOTES:\n[1] "The sky is blue."'
+
+    def run_tool_calling_turn(self, messages, *args, **kwargs):
+        """The claim judge's call: the quoted passage states the sentence."""
+        from types import SimpleNamespace
+
+        return SimpleNamespace(content='{"supported": [true]}')
 
 
 def test_query_knowledge_base_end_to_end_with_stubbed_llm(db_conn, monkeypatch):
@@ -178,7 +188,8 @@ def test_query_knowledge_base_end_to_end_with_stubbed_llm(db_conn, monkeypatch):
         "What color is the sky?", min_score=0.0, source_file="t.pdf"
     )
 
-    assert answer == "STUBBED ANSWER"
+    assert answer.startswith("STUBBED ANSWER [1]")
+    assert "Sources:" in answer and "The sky is blue." in answer
     assert stub.user_message is not None
     assert "The sky is blue." in stub.user_message
 
