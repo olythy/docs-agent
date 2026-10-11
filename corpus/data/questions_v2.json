@@ -1091,9 +1091,10 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "The cited document clearly states: 'Az ítélet ellen a kézbesítésétől számított 15 napon belül a név Ítélőtáblához címzett, de a név Törvényszéken elektronikus úton benyújtandó fellebbezésnek van helye.' This directly supports the expected answer regarding the 15-day appeal period and the Debreceni Törvényszék as the issuing court, with the correct case number.",
-    "notes": "A kérdés egy konkrét határidőre vonatkozik a megadott bírósági ítéletben, amely világosan szerepel a szövegben. Az ítélet kézbesítésétől számított 15 napos határidő egyértelműen azonosítható."
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document ranks 2. among the candidate documents.",
+    "notes": "A kérdés egy konkrét határidőre vonatkozik a megadott bírósági ítéletben, amely világosan szerepel a szövegben. Az ítélet kézbesítésétől számított 15 napos határidő egyértelműen azonosítható.",
+    "gold_document_position": 1
   },
   {
     "id": "q0064",
@@ -1154,7 +1155,8 @@
     "verification_status": "verified",
     "verification_notes": "The cited case number and court name appear verbatim in the document. The content of the document in paragraph [9] directly supports the expected answer regarding why the plaintiff's claim about the legal representative's authorization was unfounded, stating that the appellate court fully agreed with the first instance court that the authorization was valid based on relevant laws and that the lower court correctly found that the law grants authorization for legal representation. Furthermore, it explains that the request to terminate the lawsuit was not possible because there was no procedural impediment concerning the legal representative.",
     "notes": "A kérdés arra vonatkozik, hogy az ítélőtábla miért tartotta fenn az elsőfokú bíróság döntését a jogi képviselet jogszerűségével kapcsolatban, és miért utasította el az alperesek ezzel ellentétes fellebbezési kérelmét.",
-    "expected_answer_long": "A másodfokú bíróság maradéktalanul egyetértett az elsőfokú bírósággal abban a kérdésben, hogy a kulturális örökség védelméről szóló 2001. évi LXIV. törvény és a kormány tagjainak feladat és hatásköréről szóló 94/2018. (V.22.) Korm. rendelet rendelkezései alapján a jogi képviselő meghatalmazásának az államot jogosító hatályához nem fűződik kétség. Az elsőfokú bíróság helyesen állapította meg, hogy a Kötv. 86. § (3) bekezdés b) pont alapján a jog gyakorlására jogosító rendelkezés nyilvánvalóan felhatalmazást keletkeztet a jog érvényesítésével kapcsolatos törvényes képviselet ellátására is. Ezen felül az elsődleges, a per megszüntetésére irányuló fellebbezési kérelem azért sem volt teljesíthető, mert a törvényes képviselő mellőzésének hiányában csak abban az esetben szüntethető meg a per, ha a fél felhívás ellenére sem küszöböli ki az eljárási akadályt. Mivel a törvényes képviselő személyében fennálló eljárási akadály nem állt fenn, az elsőfokú bíróságnak ilyen eljárási kötelezettsége nem volt."
+    "expected_answer_long": "A másodfokú bíróság maradéktalanul egyetértett az elsőfokú bírósággal abban a kérdésben, hogy a kulturális örökség védelméről szóló 2001. évi LXIV. törvény és a kormány tagjainak feladat és hatásköréről szóló 94/2018. (V.22.) Korm. rendelet rendelkezései alapján a jogi képviselő meghatalmazásának az államot jogosító hatályához nem fűződik kétség. Az elsőfokú bíróság helyesen állapította meg, hogy a Kötv. 86. § (3) bekezdés b) pont alapján a jog gyakorlására jogosító rendelkezés nyilvánvalóan felhatalmazást keletkeztet a jog érvényesítésével kapcsolatos törvényes képviselet ellátására is. Ezen felül az elsődleges, a per megszüntetésére irányuló fellebbezési kérelem azért sem volt teljesíthető, mert a törvényes képviselő mellőzésének hiányában csak abban az esetben szüntethető meg a per, ha a fél felhívás ellenére sem küszöböli ki az eljárási akadályt. Mivel a törvényes képviselő személyében fennálló eljárási akadály nem állt fenn, az elsőfokú bíróságnak ilyen eljárási kötelezettsége nem volt.",
+    "gold_document_position": 0
   },
   {
     "id": "q0067",
@@ -1194,7 +1196,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The cited case number '6.K.701.892/2022/17.' and court 'Debreceni Törvényszék' appear verbatim in the document. The content of the document, specifically paragraphs [42] and [43], clearly states that the Debreceni Törvényszék investigated the procedural objection that the real estate authority could only examine whether the plaintiff attached a document or request issued by an executor or court that met the formal and substantive requirements, and that the request for cancellation must be rejected if submitted by an unauthorized person according to Inytv. 39. § (4) d) point, meaning the defendant could only act based on an executor's or court's request for deletion, which fully supports the expected answer.",
-    "notes": "A kérdés az Inytv. 39. § (4) bekezdés d) pontjára vonatkozó eljárási kifogásra és annak bírósági vizsgálatára fókuszál az adott ügyben."
+    "notes": "A kérdés az Inytv. 39. § (4) bekezdés d) pontjára vonatkozó eljárási kifogásra és annak bírósági vizsgálatára fókuszál az adott ügyben.",
+    "gold_document_position": 0
   },
   {
     "id": "q0069",
@@ -1274,7 +1277,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The cited document explicitly states that the court examined the 5-year statute of limitations, which ran between May 7, 2013, and May 7, 2018, for the claim arising from the loan agreement, and the case number and court name are accurately cited.",
-    "notes": "A kérdés a megadott döntésben alkalmazott elévülési időre vonatkozik, amely egy eljárási részlet. A válasz és a citáció is a dokumentumból származik."
+    "notes": "A kérdés a megadott döntésben alkalmazott elévülési időre vonatkozik, amely egy eljárási részlet. A válasz és a citáció is a dokumentumból származik.",
+    "gold_document_position": 0
   },
   {
     "id": "q0073",
@@ -1311,10 +1315,11 @@
     "difficulty": "medium",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "The case number and court name match verbatim. The cited content clearly states that the defendants were ordered to pay court costs based on Pp. 83. § (1) due to being the losing party, were obligated to pay recorded procedural fees to the state based on Itv. 62. § (1) bekezdés c.), and the attorney's fee was determined based on 32/2003. (VIII. 22.) IM rendelet 3.§ (2) bekezdés b.), which directly supports the expected answer.",
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document ranks 2. among the candidate documents.",
     "notes": "A kérdés arra fókuszál, hogy mi az alapja a perköltség megfizetésére való kötelezésnek egy bűncselekménnyel okozott kár megtérítése iránti perben, a megadott dokumentum alapján.",
-    "expected_answer_long": "A Budapest Környéki Törvényszék a pervesztes alpereseket a Polgári perrendtartásról szóló törvény (Pp.) 83. § (1) bekezdése alapján kötelezte a perköltség megfizetésére, mivel pervesztesek lettek. Emellett a felperest az Itv. 62. § (1) bekezdés c.) pontja alapján tárgyi illetékfeljegyzési jog illette meg, így az alperesek az állam javára kötelesek megfizetni a feljegyzett eljárási illetéket. A bíróság a felperes javára az ügyvédi munkadíjat a 32/2003. (VIII. 22.) IM rendelet 3.§ (2) bekezdés b.) pontja alapján állapította meg."
+    "expected_answer_long": "A Budapest Környéki Törvényszék a pervesztes alpereseket a Polgári perrendtartásról szóló törvény (Pp.) 83. § (1) bekezdése alapján kötelezte a perköltség megfizetésére, mivel pervesztesek lettek. Emellett a felperest az Itv. 62. § (1) bekezdés c.) pontja alapján tárgyi illetékfeljegyzési jog illette meg, így az alperesek az állam javára kötelesek megfizetni a feljegyzett eljárási illetéket. A bíróság a felperes javára az ügyvédi munkadíjat a 32/2003. (VIII. 22.) IM rendelet 3.§ (2) bekezdés b.) pontja alapján állapította meg.",
+    "gold_document_position": 1
   },
   {
     "id": "q0075",
@@ -1355,7 +1360,8 @@
     "verification_status": "verified",
     "verification_notes": "The cited case number and court name appear verbatim in the document. The document explicitly states that the II. rendű alperes (second defendant) was ordered to pay the plaintiff's legal costs because they lost the case. It further details how the court determined the amount of costs, including the 21,000 HUF court fee and the 15,240 HUF gross attorney's fee, calculated according to the relevant IM regulation, which aligns perfectly with the expected answer.",
     "notes": "A kérdés a Debreceni Járásbíróság egy 2022-es ügyének perköltségviselésére és annak indoklására vonatkozik, a dokumentum 'Indokolás' részéből származó információk alapján.",
-    "expected_answer_long": "A Debreceni Járásbíróság a II. rendű alperest kötelezte a felperes perköltségének megfizetésére, mert a II. rendű alperes pervesztesnek bizonyult. A bíróság a költségek összegét a felperes által becsatolt költségjegyzék alapján állapította meg, figyelembe véve a felperes által megfizetett 21.000,- forint kereseti illetéket és a felperest képviselő ügyvédi iroda bruttó 15.240,- forintos munkadíját, melyet a bírósági eljárásban megállapítható ügyvédi költségekről szóló 32/2003. (VIII. 22.) IM rendelet alapján számoltak ki."
+    "expected_answer_long": "A Debreceni Járásbíróság a II. rendű alperest kötelezte a felperes perköltségének megfizetésére, mert a II. rendű alperes pervesztesnek bizonyult. A bíróság a költségek összegét a felperes által becsatolt költségjegyzék alapján állapította meg, figyelembe véve a felperes által megfizetett 21.000,- forint kereseti illetéket és a felperest képviselő ügyvédi iroda bruttó 15.240,- forintos munkadíját, melyet a bírósági eljárásban megállapítható ügyvédi költségekről szóló 32/2003. (VIII. 22.) IM rendelet alapján számoltak ki.",
+    "gold_document_position": 0
   },
   {
     "id": "q0077",
@@ -1373,9 +1379,10 @@
     "difficulty": "medium",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "The cited `case_number` '27.P.20.139/2020/75.' appears verbatim in the document, and the `court` name 'Budapest Környéki Törvényszék' matches the accented name in the content. The `expected_answer` accurately reflects the principle applied by the court regarding the burden of proof, as stated in point [10] of the document: 'A Pp. 265. § (1) bekezdése szerint a törvény eltérő rendelkezése hiányában a perben jelentős tényeket annak a félnek kell bizonyítania, akinek érdekében áll, hogy azokat a bíróság valónak fogadja el (a továbbiakban: bizonyítási érdek), továbbá a bizonyítás elmaradásának vagy sikertelenségének a következményeit is ez a fél viseli.'",
-    "notes": "A kérdés a 'practical_procedural' persona 'what the court said about the burden of proof' témájára fókuszálva készült, a dokumentumban egyértelműen meghatározott eljárási szabály alapján."
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document ranks 3. among the candidate documents.",
+    "notes": "A kérdés a 'practical_procedural' persona 'what the court said about the burden of proof' témájára fókuszálva készült, a dokumentumban egyértelműen meghatározott eljárási szabály alapján.",
+    "gold_document_position": 2
   },
   {
     "id": "q0078",
@@ -1395,7 +1402,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The case number 'Pf.II.20.375/2024/4.' and court name 'Debreceni Ítélőtábla' are found verbatim in the document. The content explicitly states in paragraph [37] that 'az ítélőtábla mindenekelőtt rámutat, hogy a Pp. 265. § (1) bekezdése szerint a kimentés körében hivatkozottakat az alperes köteles bizonyítani; azaz alperesnek kellett volna bizonyítania, hogy a rendes üzleti kockázatot meghaladó mértékű, előre nem látható okból eredő áremelkedés vagy munkaerőhiány következett be. Az alperes az általa hivatkozott mértékű áremelkedésre, munkaerőhiányra vonatkozóan azonban bizonyítási indítványt egyáltalán nem tett; az bizonyítást nem igénylő köztudomású ténynek [Pp. 266. § (2) bekezdés] sem tekinthető.', which directly supports the expected answer regarding the burden of proof for exculpation.",
-    "notes": "A kérdés a Debreceni Ítélőtábla 2024-es, megszűnt szerződésből eredő követelés megfizetése ügyében hozott ítéletében a kimentés körében alkalmazott bizonyítási teherre vonatkozóan, a dokumentumban foglaltak alapján lett megfogalmazva."
+    "notes": "A kérdés a Debreceni Ítélőtábla 2024-es, megszűnt szerződésből eredő követelés megfizetése ügyében hozott ítéletében a kimentés körében alkalmazott bizonyítási teherre vonatkozóan, a dokumentumban foglaltak alapján lett megfogalmazva.",
+    "gold_document_position": 0
   },
   {
     "id": "q0079",
@@ -1476,7 +1484,8 @@
     "verification_status": "verified",
     "verification_notes": "The cited document's content explicitly states: \"A bíróság a perköltségről az 1952. évi III. törvény (Pp.) 81. § (1) bekezdése alapján, mivel a II. r. felperes kereseti kérelmét leszállította, figyelemmel az 1990. évi XCIII. tv. (Itv.) 59. § (1) bekezdésére, a tolmács díjának viseléséről a Pp. 78. § (4) bekezdése alapján döntött.\", which directly supports the expected answer regarding the legal basis for the cost decision.",
     "notes": "Question grounded in a single document from Budapest Környéki Törvényszék regarding a claim arising from a commission contract, specifically about the legal basis for cost allocation.",
-    "expected_answer_long": "A Budapest Környéki Törvényszék a perköltség viseléséről az 1952. évi III. törvény (Pp.) 81. § (1) bekezdése alapján döntött, figyelemmel az 1990. évi XCIII. tv. (Itv.) 59. § (1) bekezdésére, mivel a II. rendű felperes kereseti kérelmét leszállította. A tolmácsdíj viseléséről a Pp. 78. § (4) bekezdése alapján született döntés."
+    "expected_answer_long": "A Budapest Környéki Törvényszék a perköltség viseléséről az 1952. évi III. törvény (Pp.) 81. § (1) bekezdése alapján döntött, figyelemmel az 1990. évi XCIII. tv. (Itv.) 59. § (1) bekezdésére, mivel a II. rendű felperes kereseti kérelmét leszállította. A tolmácsdíj viseléséről a Pp. 78. § (4) bekezdése alapján született döntés.",
+    "gold_document_position": 0
   },
   {
     "id": "q0083",
@@ -1517,7 +1526,8 @@
     "verification_status": "verified",
     "verification_notes": "The cited case number Gf.III.30.140/2023/19. and court name Debreceni Ítélőtábla appear verbatim in the document. The expected answer accurately summarizes the defendant's procedural objection mentioned in paragraph [8] and further elaborated in paragraph [21] of the document, which states that the defendant complained that the reason for the impossibility arose solely within their sphere of interest, and not that of the plaintiff, and attacked the first-instance court's assessment, citing inconsistency with the records and illogical conclusions in establishing the facts.",
     "notes": "A kérdés az alperes fellebbezésében megfogalmazott eljárási kifogásra vonatkozik, ahogyan azt a dokumentum részletesen tárgyalja.",
-    "expected_answer_long": "Az alperes az elsőfokú közbenső ítéletet azzal sérelmezte, hogy a lehetetlenülés oka kizárólag az ő érdekkörében keletkezett, és nem tartozott a felperes érdekkörébe is. Ezt az elsőfokú bíróság mérlegelését támadó kifogást terjesztett elő, iratellenességre és okszerűtlen következtetésre hivatkozva a tényállás megállapításában."
+    "expected_answer_long": "Az alperes az elsőfokú közbenső ítéletet azzal sérelmezte, hogy a lehetetlenülés oka kizárólag az ő érdekkörében keletkezett, és nem tartozott a felperes érdekkörébe is. Ezt az elsőfokú bíróság mérlegelését támadó kifogást terjesztett elő, iratellenességre és okszerűtlen következtetésre hivatkozva a tényállás megállapításában.",
+    "gold_document_position": 0
   },
   {
     "id": "q0085",
@@ -1538,7 +1548,8 @@
     "verification_status": "verified",
     "verification_notes": "The case number '12.P.20.784/2024/16/I' appears verbatim in the document. The court name 'Budapesti II. és III. Kerületi Bíróság' also matches the accented name in the document. The content in paragraph [30] directly supports the expected answer, explaining that the court rejected the defendant's request to terminate the proceedings because the plaintiff based their claim on different factual grounds in the current case (expiration of the loan term) compared to the previous case (termination of the loan agreement). It also states that accepting the termination would mean a creditor could not claim the debt after the loan term expires if an unlawful termination occurred.",
     "notes": "A kérdés a Budapesti II. és III. Kerületi Bíróság 2024-es kölcsön megfizetése ügyében az alperes eljárás megszüntetése iránti kérelmének elutasításának indokára vonatkozott, ahogy az a dokumentumban szerepel.",
-    "expected_answer_long": "A bíróság azzal az indokkal utasította el az alperes eljárás megszüntetése iránti kérelmét, hogy a felperes a jelen perben más ténybeli alapon terjesztette elő a keresetét, mint az előzményi perben. Míg az előzményi perben a kölcsönszerződés felmondással történt megszűnésére hivatkozott, addig a jelen perben a kölcsönszerződés futamidejének lejártára. Az előzményi perben azért utasították el a keresetet, mert a felmondás jogkövetkezményei nem voltak alkalmazhatók, és nem volt megállapítható, hogy a felmondás hiányában milyen összeg vált esedékessé. Az eljárás megszüntetésének elfogadása azt jelentené, hogy egy jogszerűtlen felmondás esetén a hitelező a futamidő lejártát követően már nem követelhetné a tartozást."
+    "expected_answer_long": "A bíróság azzal az indokkal utasította el az alperes eljárás megszüntetése iránti kérelmét, hogy a felperes a jelen perben más ténybeli alapon terjesztette elő a keresetét, mint az előzményi perben. Míg az előzményi perben a kölcsönszerződés felmondással történt megszűnésére hivatkozott, addig a jelen perben a kölcsönszerződés futamidejének lejártára. Az előzményi perben azért utasították el a keresetet, mert a felmondás jogkövetkezményei nem voltak alkalmazhatók, és nem volt megállapítható, hogy a felmondás hiányában milyen összeg vált esedékessé. Az eljárás megszüntetésének elfogadása azt jelentené, hogy egy jogszerűtlen felmondás esetén a hitelező a futamidő lejártát követően már nem követelhetné a tartozást.",
+    "gold_document_position": 0
   },
   {
     "id": "q0086",
@@ -1559,7 +1570,8 @@
     "verification_status": "verified",
     "verification_notes": "The cited case number and court name appear verbatim in the document. The document explicitly states that the court accepted the second expert opinion, which concluded that the defendant treated the plaintiff in accordance with professional rules and due diligence, and that the rehabilitation treatment could lead to a worsening of the condition, and that the patient's degenerative spinal damage was so severe that even correctly performed treatments could not stop it. It also noted that the presence of metal material does not constitute a clear contraindication for the applied treatment and that the plaintiff's information was sufficiently detailed, directly supporting the expected answer.",
     "notes": "A kérdés arra fókuszál, hogy a bíróság miért ítélte úgy, hogy az alperes eljárása megfelelő volt, ami a \"why the court had (or did not have) jurisdiction or competence\" téma egy speciális alkalmazása a felelősség megállapításának szempontjából.",
-    "expected_answer_long": "A törvényszék álláspontja szerint a felperes nem tudta bizonyítani, hogy az alperesi kezelés során okozati összefüggésben kára keletkezett volna, azaz az általa állított megsemmisítő jellegű fájdalom kialakulását és az abból fakadó mozgáskorlátozottságot. Ezzel szemben az alperes alátámasztotta, hogy a felperes kezelése során a szakmai szabályok betartásával, az elvárható gondossággal járt el. A bíróság a második szakértői véleményt fogadta el aggálytalannak, amely szerint az alperes a felperest a szakmai szabályoknak megfelelően, kellő körültekintéssel kezelte, a rehabilitációs kezelés hozhat állapotrosszabbodást, és a betegnél olyan mértékű degeneratív gerinckárosodás történt, amit a korrektül elvégzett kezelések sem tudtak megállítani. Továbbá megállapították, hogy a fémanyag jelenléte nem jelent egyértelmű ellenjavallatot az alkalmazott kezelésnél, és a felperes tájékoztatása megfelelően részletes volt."
+    "expected_answer_long": "A törvényszék álláspontja szerint a felperes nem tudta bizonyítani, hogy az alperesi kezelés során okozati összefüggésben kára keletkezett volna, azaz az általa állított megsemmisítő jellegű fájdalom kialakulását és az abból fakadó mozgáskorlátozottságot. Ezzel szemben az alperes alátámasztotta, hogy a felperes kezelése során a szakmai szabályok betartásával, az elvárható gondossággal járt el. A bíróság a második szakértői véleményt fogadta el aggálytalannak, amely szerint az alperes a felperest a szakmai szabályoknak megfelelően, kellő körültekintéssel kezelte, a rehabilitációs kezelés hozhat állapotrosszabbodást, és a betegnél olyan mértékű degeneratív gerinckárosodás történt, amit a korrektül elvégzett kezelések sem tudtak megállítani. Továbbá megállapították, hogy a fémanyag jelenléte nem jelent egyértelmű ellenjavallatot az alkalmazott kezelésnél, és a felperes tájékoztatása megfelelően részletes volt.",
+    "gold_document_position": 0
   },
   {
     "id": "q0087",
@@ -1580,7 +1592,8 @@
     "verification_status": "verified",
     "verification_notes": "The cited court name 'Egri Törvényszék' and case number '27.P.20.227/2020/37.' appear verbatim in the document. The document explicitly states that the Egri Törvényszék, based on the evidence (félnyilatkozatok, tanúvallomások, becsatolt nyomozati iratok), found that the plaintiff (felperes) failed to prove that the assumption for the gift was clearly communicated to the first defendant (I. rendű alperes). The witnesses did not confirm this communication, and most only heard about the land being in the first defendant's name. The court also noted that the plaintiff himself did not state that he clearly informed the first defendant about the conditional nature of the gifts or that he could reclaim them if the condition failed, which directly supports the expected answer.",
     "notes": "A kérdés az Egri Törvényszék 2021-es ajándék visszakövetelése ügyében vizsgált bizonyítékokra és azok értékelésére fókuszál, különös tekintettel a feltevés kinyilvánításának hiányára, mely a dokumentumban részletesen kifejtésre kerül.",
-    "expected_answer_long": "Az Egri Törvényszék a lefolytatott bizonyítás eredményeként (félnyilatkozatok, tanúvallomások, becsatolt nyomozati iratok) azt állapította meg, hogy a felperes nem tudta bizonyítani, hogy az ajándékozásra okot adó feltevését egyértelműen kinyilvánította volna az I. rendű alperes felé. A tanúk vallomásukkal nem igazolták, hogy a felperesi feltevés egyértelműen kinyilvánításra került volna, sőt, a tanúk többsége arról is csak hallomásból tudott, hogy az I. rendű alperes nevén voltak a termőföldek. A bíróság szerint a felperes maga sem nyilatkozott úgy, hogy egyértelműen az I. rendű alperes tudomására hozta volna, hogy az ajándékozások feltétellel történtek, és azt sem nyilvánította ki, hogy a feltevés meghiúsulása esetén visszakövetelheti az ajándékot."
+    "expected_answer_long": "Az Egri Törvényszék a lefolytatott bizonyítás eredményeként (félnyilatkozatok, tanúvallomások, becsatolt nyomozati iratok) azt állapította meg, hogy a felperes nem tudta bizonyítani, hogy az ajándékozásra okot adó feltevését egyértelműen kinyilvánította volna az I. rendű alperes felé. A tanúk vallomásukkal nem igazolták, hogy a felperesi feltevés egyértelműen kinyilvánításra került volna, sőt, a tanúk többsége arról is csak hallomásból tudott, hogy az I. rendű alperes nevén voltak a termőföldek. A bíróság szerint a felperes maga sem nyilatkozott úgy, hogy egyértelműen az I. rendű alperes tudomására hozta volna, hogy az ajándékozások feltétellel történtek, és azt sem nyilvánította ki, hogy a feltevés meghiúsulása esetén visszakövetelheti az ajándékot.",
+    "gold_document_position": 0
   },
   {
     "id": "q0088",
@@ -1779,10 +1792,11 @@
     "difficulty": "medium",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "",
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document ranks 2. among the candidate documents.",
     "notes": "A kérdés az Egri Törvényszék egy konkrét ítéletében elfogadott bizonyítékokra vonatkozik a tájékoztatási kötelezettség vizsgálata kapcsán, közvetlenül a dokumentum tartalmából kinyerve.",
-    "expected_answer_long": "Az Egri Törvényszék az alperes tájékoztatási kötelezettségét a kölcsönszerződés VII. 2. pontja, valamint a külön íven szövegezett „Tájékoztató” alapján vizsgálta, melyek világos és érthető felvilágosítást tartalmaztak arról, hogy a törlesztőrészletek a piaci mozgások hatására emelkedhetnek. Emellett a felperes által aláírt kockázatfeltáró nyilatkozatot is figyelembe vette, melyben a felperes elismerte, hogy a szükséges tájékoztatás ismeretében vette igénybe a kölcsönt és hogy a jelentős árfolyamkockázat reális."
+    "expected_answer_long": "Az Egri Törvényszék az alperes tájékoztatási kötelezettségét a kölcsönszerződés VII. 2. pontja, valamint a külön íven szövegezett „Tájékoztató” alapján vizsgálta, melyek világos és érthető felvilágosítást tartalmaztak arról, hogy a törlesztőrészletek a piaci mozgások hatására emelkedhetnek. Emellett a felperes által aláírt kockázatfeltáró nyilatkozatot is figyelembe vette, melyben a felperes elismerte, hogy a szükséges tájékoztatás ismeretében vette igénybe a kölcsönt és hogy a jelentős árfolyamkockázat reális.",
+    "gold_document_position": 1
   },
   {
     "id": "q0098",
@@ -1882,7 +1896,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The expected answer directly addresses the question by listing the accepted evidence and explaining why it was accepted, and every statement in the expected answer is explicitly stated in the decision.",
-    "notes": "A kérdés a 'bírósági jogkörben okozott kártérítés és egyéb' tárgyú ítéletre vonatkozik, amely egyértelműen azonosítja a dokumentumot, és a válasz közvetlenül a dokumentum tényállás megállapítási részéből származik, felsorolva az elfogadott bizonyítékokat."
+    "notes": "A kérdés a 'bírósági jogkörben okozott kártérítés és egyéb' tárgyú ítéletre vonatkozik, amely egyértelműen azonosítja a dokumentumot, és a válasz közvetlenül a dokumentum tényállás megállapítási részéből származik, felsorolva az elfogadott bizonyítékokat.",
+    "gold_document_position": 0
   },
   {
     "id": "q0103",
@@ -1941,7 +1956,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a 'practical_procedural' persona elvárásainak megfelelően egy konkrét eljárási részletre, a bizonyítási teherre fókuszál egy meghatározott ügytípusban és évben. Az `expected_answer` a bíróság által megfogalmazott indoklást tartalmazza, különös tekintettel a bizonyítási teherre vonatkozó megállapításokra és a Ptk. releváns paragrafusaira. A `citations` mező a dokumentumban szereplő pontos bírósági és ügyszám adatokat használja, elkerülve a találgatásokat, és a `source_file` pontosan megegyezik a forrással."
+    "notes": "A kérdés a 'practical_procedural' persona elvárásainak megfelelően egy konkrét eljárási részletre, a bizonyítási teherre fókuszál egy meghatározott ügytípusban és évben. Az `expected_answer` a bíróság által megfogalmazott indoklást tartalmazza, különös tekintettel a bizonyítási teherre vonatkozó megállapításokra és a Ptk. releváns paragrafusaira. A `citations` mező a dokumentumban szereplő pontos bírósági és ügyszám adatokat használja, elkerülve a találgatásokat, és a `source_file` pontosan megegyezik a forrással.",
+    "gold_document_position": 0
   },
   {
     "id": "q0106",
@@ -1982,7 +1998,8 @@
     "verification_status": "verified",
     "verification_notes": "",
     "notes": "A kérdés a Fővárosi Ítélőtábla 2024-es, jogosulatlan finanszírozás visszafizetéséről szóló ítéletének bizonyítási teherre vonatkozó megállapításait kéri, különös tekintettel a keresettől való eltérés tilalmára. Az ítélet részletesen tárgyalja, hogy az elsőfokú bíróság túlterjeszkedett a kereseti kérelmen, és eltérő jogalapon marasztalta el az alperest, mint amit a felperes állított. Ez a téma jól illeszkedik a 'practical_procedural' persona leírásához, mivel eljárási szabálysértésre vonatkozó állásfoglalást fogalmaz meg.",
-    "expected_answer_long": "A Fővárosi Ítélőtábla szerint az elsőfokú bíróság megsértette a Polgári Perrendtartás 342. § (1) és (3) bekezdéseit, mivel túlterjeszkedett a kereseti kérelmen, amikor a jogosulatlan forrásfelhasználást és az alperes marasztalását arra alapozta, hogy egy kedvezményezett kétszer részesült hiteltámogatásban. Az alperes helytállóan hivatkozott arra, hogy a felperes a keresetét nem erre a körülményre alapozta, hanem a projekt feldarabolására. A bíróság érdemi döntése nem terjedhet ki olyan jogra, amelyet a fél a perben nem állított, és nem hozhat döntést a fél jogállításától eltérő jogalapon."
+    "expected_answer_long": "A Fővárosi Ítélőtábla szerint az elsőfokú bíróság megsértette a Polgári Perrendtartás 342. § (1) és (3) bekezdéseit, mivel túlterjeszkedett a kereseti kérelmen, amikor a jogosulatlan forrásfelhasználást és az alperes marasztalását arra alapozta, hogy egy kedvezményezett kétszer részesült hiteltámogatásban. Az alperes helytállóan hivatkozott arra, hogy a felperes a keresetét nem erre a körülményre alapozta, hanem a projekt feldarabolására. A bíróság érdemi döntése nem terjedhet ki olyan jogra, amelyet a fél a perben nem állított, és nem hozhat döntést a fél jogállításától eltérő jogalapon.",
+    "gold_document_position": 0
   },
   {
     "id": "q0108",
@@ -2021,7 +2038,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés az Egri Törvényszék 2020-as vállalkozói díj megfizetése ügyében hozott ítélet fellebbezési határidejére vonatkozik, mely explicit módon szerepel a dokumentumban."
+    "notes": "A kérdés az Egri Törvényszék 2020-as vállalkozói díj megfizetése ügyében hozott ítélet fellebbezési határidejére vonatkozik, mely explicit módon szerepel a dokumentumban.",
+    "gold_document_position": 0
   },
   {
     "id": "q0110",
@@ -2039,10 +2057,11 @@
     "difficulty": "medium",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "All statements in the expected answer are directly supported by the decision.",
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document ranks 2. among the candidate documents.",
     "notes": "A kérdés az ítéletben foglalt, a bizonyítékok értékelésére vonatkozó eljárási szabályokat firtatja, pontosan megjelölve a bíróságot, az évet és az ügy típusát, de a konkrét ügyszám elhagyásával.",
-    "expected_answer_long": "Az ítélőtábla rámutatott, hogy a Polgári Perrendtartás szabályozási rendszerében az elsőfokú bíróság bizonyítékértékelő munkáját a másodfokú bíróság csak kivételesen – a Pp. 369. §-a (3) bekezdésének a) és b) pontjaiban nevesített esetekben – bírálhatja felül. Amennyiben a bizonyítékok mérlegelése az elsőfokú ítéletben írtak szerint nem tekinthető okszerűtlennek, vagyis a bizonyítékokból nem volt kizárt az elsőfokú ítéletben írt tényállás megállapítása, úgy a megállapított tényállástól a másodfokú bíróság sem térhet el, illetve csak annyiban, amit az általa foganatosított további bizonyítás megenged."
+    "expected_answer_long": "Az ítélőtábla rámutatott, hogy a Polgári Perrendtartás szabályozási rendszerében az elsőfokú bíróság bizonyítékértékelő munkáját a másodfokú bíróság csak kivételesen – a Pp. 369. §-a (3) bekezdésének a) és b) pontjaiban nevesített esetekben – bírálhatja felül. Amennyiben a bizonyítékok mérlegelése az elsőfokú ítéletben írtak szerint nem tekinthető okszerűtlennek, vagyis a bizonyítékokból nem volt kizárt az elsőfokú ítéletben írt tényállás megállapítása, úgy a megállapított tényállástól a másodfokú bíróság sem térhet el, illetve csak annyiban, amit az általa foganatosított további bizonyítás megenged.",
+    "gold_document_position": 1
   },
   {
     "id": "q0111",
@@ -2081,7 +2100,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The expected answer correctly states that the decision does not detail the court's jurisdiction or competence, and that the court heard and decided the case as a child support determination lawsuit. This is consistent with the decision, which focuses on the merits of the child support claim without discussing jurisdictional grounds.",
-    "notes": "A dokumentum nem tartalmazza a bíróság hatáskörének vagy illetékességének indoklását."
+    "notes": "A dokumentum nem tartalmazza a bíróság hatáskörének vagy illetékességének indoklását.",
+    "gold_document_position": 0
   },
   {
     "id": "q0113",
@@ -2140,7 +2160,8 @@
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision.",
     "notes": "A kérdés a 'practical_procedural' persona és 'which evidence the court accepted or rejected' téma alapján készült. A válasz a megadott dokumentum (48-49. bekezdés) alapján került megfogalmazásra, a bíróság által elfogadott bizonyítékokat és az indoklást emelve ki.",
-    "expected_answer_long": "A Debreceni Ítélőtábla a perben meghallgatott tanúk vallomásai és a felperes által csatolt okirati bizonyítékok alapján állapította meg, hogy a \"K\" üzletjelző használata megtévesztő lehet a fogyasztók számára. A tanúk vallomásai alátámasztották a felperes azon állítását, miszerint több mint 25 éves működése során olyan ismertségre tett szert, hogy az általa használt \"K\" üzletjelzőt a fogyasztók vele azonosítják."
+    "expected_answer_long": "A Debreceni Ítélőtábla a perben meghallgatott tanúk vallomásai és a felperes által csatolt okirati bizonyítékok alapján állapította meg, hogy a \"K\" üzletjelző használata megtévesztő lehet a fogyasztók számára. A tanúk vallomásai alátámasztották a felperes azon állítását, miszerint több mint 25 éves működése során olyan ismertségre tett szert, hogy az általa használt \"K\" üzletjelzőt a fogyasztók vele azonosítják.",
+    "gold_document_position": 0
   },
   {
     "id": "q0116",
@@ -2199,7 +2220,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The expected answer directly addresses the question about the deadline for cost payment and all its statements are explicitly found in the decision. The question does not presuppose anything not mentioned in the decision.",
-    "notes": "A kérdés a Debreceni Törvényszék 2022-es mezőgazdasági ügyben hozott ítéletében szereplő perköltség megfizetésére vonatkozó határidőre fókuszál."
+    "notes": "A kérdés a Debreceni Törvényszék 2022-es mezőgazdasági ügyben hozott ítéletében szereplő perköltség megfizetésére vonatkozó határidőre fókuszál.",
+    "gold_document_position": 0
   },
   {
     "id": "q0119",
@@ -2277,7 +2299,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision, and the question does not introduce any unstated premises.",
-    "notes": "A kérdés a 'practical_procedural' persona 'which evidence the court accepted or rejected, and why' témakörére fókuszál. A válasz a megadott dokumentumban szereplő konkrét, mellőzött bizonyítékokat és azok mellőzésének okait részletezi."
+    "notes": "A kérdés a 'practical_procedural' persona 'which evidence the court accepted or rejected, and why' témakörére fókuszál. A válasz a megadott dokumentumban szereplő konkrét, mellőzött bizonyítékokat és azok mellőzésének okait részletezi.",
+    "gold_document_position": 0
   },
   {
     "id": "q0123",
@@ -2297,7 +2320,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The expected answer directly addresses the question and all its statements are explicitly supported by the decision. The question does not presuppose anything not mentioned in the decision.",
-    "notes": "A kérdés a 'practical_procedural' persona 'deadline, time limit or limitation period the court applied' témára készült. A bíróság által előírt határidőre fókuszál a perköltség megfizetésével kapcsolatban."
+    "notes": "A kérdés a 'practical_procedural' persona 'deadline, time limit or limitation period the court applied' témára készült. A bíróság által előírt határidőre fókuszál a perköltség megfizetésével kapcsolatban.",
+    "gold_document_position": 0
   },
   {
     "id": "q0124",
@@ -2412,7 +2436,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision.",
-    "notes": "A kérdés a döntésben konkrétan megemlített, elfogadott bizonyítékokra vonatkozik, melyek az 'iratok' és a 'felek nyilatkozatai'."
+    "notes": "A kérdés a döntésben konkrétan megemlített, elfogadott bizonyítékokra vonatkozik, melyek az 'iratok' és a 'felek nyilatkozatai'.",
+    "gold_document_position": 0
   },
   {
     "id": "q0130",
@@ -2509,7 +2534,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision.",
-    "notes": "A kérdés a bíróság által a bizonyítási teherre vonatkozó álláspontjára irányul, ami egyértelműen megtalálható a \"Bíróság döntése és jogi indokai Kártérítés iránti kereset\" című részben."
+    "notes": "A kérdés a bíróság által a bizonyítási teherre vonatkozó álláspontjára irányul, ami egyértelműen megtalálható a \"Bíróság döntése és jogi indokai Kártérítés iránti kereset\" című részben.",
+    "gold_document_position": 0
   },
   {
     "id": "q0135",
@@ -2548,7 +2574,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a megadott dokumentum alapján, a fellebbezésre vonatkozó határidőről szól."
+    "notes": "A kérdés a megadott dokumentum alapján, a fellebbezésre vonatkozó határidőről szól.",
+    "gold_document_position": 0
   },
   {
     "id": "q0137",
@@ -2568,7 +2595,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A perköltség viselésének jogi alapjára vonatkozóan a dokumentum végén található bekezdésben van releváns információ."
+    "notes": "A perköltség viselésének jogi alapjára vonatkozóan a dokumentum végén található bekezdésben van releváns információ.",
+    "gold_document_position": 0
   },
   {
     "id": "q0138",
@@ -2664,7 +2692,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision.",
-    "notes": "A kérdés a Békéscsabai Járásbíróság 2022-es gondnokság alá helyezési ügyében lefolytatott bizonyítási eljárás részleteire fókuszál. A válasz a bíróság által meghallgatott tanúról és a szakértői bizonyításról szóló részeket emeli ki, megerősítve, hogy a bíróság elfogadta a szakértői véleményt. A citáció a forrásdokumentumra mutat, amely tartalmazza ezeket az információkat."
+    "notes": "A kérdés a Békéscsabai Járásbíróság 2022-es gondnokság alá helyezési ügyében lefolytatott bizonyítási eljárás részleteire fókuszál. A válasz a bíróság által meghallgatott tanúról és a szakértői bizonyításról szóló részeket emeli ki, megerősítve, hogy a bíróság elfogadta a szakértői véleményt. A citáció a forrásdokumentumra mutat, amely tartalmazza ezeket az információkat.",
+    "gold_document_position": 0
   },
   {
     "id": "q0143",
@@ -3019,7 +3048,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a 'practical_procedural' persona 'what the court said about the burden of proof' témáját követi, és a forrásdokumentumban megadott eljárási szabályra vonatkozó tényre alapszik. A válasz a dokumentum 16. bekezdésében található."
+    "notes": "A kérdés a 'practical_procedural' persona 'what the court said about the burden of proof' témáját követi, és a forrásdokumentumban megadott eljárási szabályra vonatkozó tényre alapszik. A válasz a dokumentum 16. bekezdésében található.",
+    "gold_document_position": 0
   },
   {
     "id": "q0161",
@@ -3113,7 +3143,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a 'practical_procedural' persona 'who bears the costs of the proceedings and what the court based that on' témájára fókuszálva készült, egy valós bírósági döntés alapján."
+    "notes": "A kérdés a 'practical_procedural' persona 'who bears the costs of the proceedings and what the court based that on' témájára fókuszálva készült, egy valós bírósági döntés alapján.",
+    "gold_document_position": 0
   },
   {
     "id": "q0166",
@@ -3282,9 +3313,10 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "",
-    "notes": "A kérdés egy konkrét határidőre vonatkozik a megadott dokumentumban."
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document ranks 3. among the candidate documents.",
+    "notes": "A kérdés egy konkrét határidőre vonatkozik a megadott dokumentumban.",
+    "gold_document_position": 2
   },
   {
     "id": "q0175",
@@ -3734,7 +3766,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés az alperes által előterjesztett és később visszavont eljárási kifogásra vonatkozik, amely egyértelműen megtalálható a dokumentum szövegében."
+    "notes": "A kérdés az alperes által előterjesztett és később visszavont eljárási kifogásra vonatkozik, amely egyértelműen megtalálható a dokumentum szövegében.",
+    "gold_document_position": 0
   },
   {
     "id": "q0199",
@@ -3975,9 +4008,10 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "All statements in the expected answer are directly supported by the decision.",
-    "notes": "A kérdés a 'practical_procedural' persona 'a deadline, a time limit or a limitation period the court applied' témájú eljárási kérdését követi, konkrét határidőt kérve a megadott dokumentumból."
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document ranks 2. among the candidate documents.",
+    "notes": "A kérdés a 'practical_procedural' persona 'a deadline, a time limit or a limitation period the court applied' témájú eljárási kérdését követi, konkrét határidőt kérve a megadott dokumentumból.",
+    "gold_document_position": 1
   },
   {
     "id": "q0212",
@@ -4048,9 +4082,10 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "The expected answer directly addresses the question about the evidence examined by the court, and all statements in the expected answer are explicitly found in the decision.",
-    "notes": "A kérdés azt kéri, milyen bizonyítékok alapján hozta meg döntését a bíróság, a válasz a dokumentum 'Indokolás' részéből származik."
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document ranks 3. among the candidate documents.",
+    "notes": "A kérdés azt kéri, milyen bizonyítékok alapján hozta meg döntését a bíróság, a válasz a dokumentum 'Indokolás' részéből származik.",
+    "gold_document_position": 2
   },
   {
     "id": "q0216",
@@ -4162,7 +4197,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A dokumentum áttekintése alapján a bíróság nem rendelt ki szakértőt, és szakértői véleményre nem hivatkozik."
+    "notes": "A dokumentum áttekintése alapján a bíróság nem rendelt ki szakértőt, és szakértői véleményre nem hivatkozik.",
+    "gold_document_position": 0
   },
   {
     "id": "q0222",
@@ -4342,7 +4378,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision.",
-    "notes": "A kérdés a Debreceni Törvényszék 2021-es közlekedési igazgatási ügyében a hatáskör vizsgálatának okára fókuszál, a válasz a megadott dokumentum [75] bekezdése alapján készült."
+    "notes": "A kérdés a Debreceni Törvényszék 2021-es közlekedési igazgatási ügyében a hatáskör vizsgálatának okára fókuszál, a válasz a megadott dokumentum [75] bekezdése alapján készült.",
+    "gold_document_position": 0
   },
   {
     "id": "q0232",
@@ -4644,7 +4681,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The expected answer directly addresses the question about the appeal deadline and all its statements are explicitly present in the decision.",
-    "notes": "A kérdés egy konkrét határidőre vonatkozik, amely egyértelműen megtalálható a dokumentumban."
+    "notes": "A kérdés egy konkrét határidőre vonatkozik, amely egyértelműen megtalálható a dokumentumban.",
+    "gold_document_position": 0
   },
   {
     "id": "q0249",
@@ -4790,7 +4828,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A dokumentum átolvasása után megállapítható, hogy nincs említés szakértő kirendeléséről. A kérdés arra irányul, hogy megtörtént-e, és ha igen, mi volt az eredménye."
+    "notes": "A dokumentum átolvasása után megállapítható, hogy nincs említés szakértő kirendeléséről. A kérdés arra irányul, hogy megtörtént-e, és ha igen, mi volt az eredménye.",
+    "gold_document_position": 0
   },
   {
     "id": "q0257",
@@ -4830,7 +4869,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The expected answer directly addresses the question about the procedural irregularity complained of by the plaintiff in their secondary appeal request.",
-    "notes": "A felperes egy eljárásjogi hibára hivatkozott az elsőfokú ítélet hatályon kívül helyezése érdekében, anélkül, hogy azt pontosan megnevezte volna."
+    "notes": "A felperes egy eljárásjogi hibára hivatkozott az elsőfokú ítélet hatályon kívül helyezése érdekében, anélkül, hogy azt pontosan megnevezte volna.",
+    "gold_document_position": 0
   },
   {
     "id": "q0259",
@@ -5196,7 +5236,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision text, specifically in paragraph [15].",
-    "notes": "A kérdés a 'practical_procedural' persona 'what the court said about the burden of proof' témáját dolgozza fel egy valós döntés alapján, a kérdésben évszám és a per tárgya is szerepel, de az ügyszám nem. Az elvárásnak megfelelően az 'expected_answer' az adott részletre fókuszál."
+    "notes": "A kérdés a 'practical_procedural' persona 'what the court said about the burden of proof' témáját dolgozza fel egy valós döntés alapján, a kérdésben évszám és a per tárgya is szerepel, de az ügyszám nem. Az elvárásnak megfelelően az 'expected_answer' az adott részletre fókuszál.",
+    "gold_document_position": 0
   },
   {
     "id": "q0279",
@@ -5216,7 +5257,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés az okirati bizonyítékok típusaira vonatkozik, ahogy azt a bíróság megállapította."
+    "notes": "A kérdés az okirati bizonyítékok típusaira vonatkozik, ahogy azt a bíróság megállapította.",
+    "gold_document_position": 0
   },
   {
     "id": "q0280",
@@ -5327,7 +5369,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A dokumentum áttekintése során nem található utalás szakértői bizonyításra, a bíróság a per irataira, a felek nyilatkozataira és a Cégnyilvántartás adataira alapozta döntését."
+    "notes": "A dokumentum áttekintése során nem található utalás szakértői bizonyításra, a bíróság a per irataira, a felek nyilatkozataira és a Cégnyilvántartás adataira alapozta döntését.",
+    "gold_document_position": 0
   },
   {
     "id": "q0286",
@@ -5720,7 +5763,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a bíróság által megállapított fizetési határidőre vonatkozik, amely egyértelműen szerepel a dokumentum elején."
+    "notes": "A kérdés a bíróság által megállapított fizetési határidőre vonatkozik, amely egyértelműen szerepel a dokumentum elején.",
+    "gold_document_position": 0
   },
   {
     "id": "q0308",
@@ -5959,9 +6003,10 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "",
-    "notes": "A kérdés az ítélet elején található, egyértelműen meghatározott határidőre vonatkozik."
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document ranks 19. among the candidate documents.",
+    "notes": "A kérdés az ítélet elején található, egyértelműen meghatározott határidőre vonatkozik.",
+    "gold_document_position": 18
   },
   {
     "id": "q0323",
@@ -5981,7 +6026,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a peres fél bizonyítási kötelezettségét firtatja egy konkrét jogszabályi helyre (Ptk. 6. §) hivatkozva, ami egy tipikus eljárásjogi kérdés."
+    "notes": "A kérdés a peres fél bizonyítási kötelezettségét firtatja egy konkrét jogszabályi helyre (Ptk. 6. §) hivatkozva, ami egy tipikus eljárásjogi kérdés.",
+    "gold_document_position": 0
   },
   {
     "id": "q0324",
@@ -6056,9 +6102,10 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "",
-    "notes": "A kérdés a megadott dokumentum alapján, a per költségeire vonatkozóan, a 'practical_procedural' persona 'who bears the costs of the proceedings and what the court based that on' témaköréből készült."
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document is not among the candidates.",
+    "notes": "A kérdés a megadott dokumentum alapján, a per költségeire vonatkozóan, a 'practical_procedural' persona 'who bears the costs of the proceedings and what the court based that on' témaköréből készült.",
+    "gold_document_position": null
   },
   {
     "id": "q0328",
@@ -6078,7 +6125,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés az elektronikus kapcsolattartás szabályainak értelmezésére vonatkozik egy konkrét ügyben, ahogyan azt a Debreceni Ítélőtábla 2023-ban eldöntötte."
+    "notes": "A kérdés az elektronikus kapcsolattartás szabályainak értelmezésére vonatkozik egy konkrét ügyben, ahogyan azt a Debreceni Ítélőtábla 2023-ban eldöntötte.",
+    "gold_document_position": 0
   },
   {
     "id": "q0329",
@@ -6096,9 +6144,10 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "",
-    "notes": "A kérdés a Debreceni Törvényszék ítéletében megállapított határidőre vonatkozik, amely az alperesnek és az I. rendű alperesi érdekeltnek fizetendő költségek megfizetésére vonatkozik."
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document ranks 10. among the candidate documents.",
+    "notes": "A kérdés a Debreceni Törvényszék ítéletében megállapított határidőre vonatkozik, amely az alperesnek és az I. rendű alperesi érdekeltnek fizetendő költségek megfizetésére vonatkozik.",
+    "gold_document_position": 9
   },
   {
     "id": "q0330",
@@ -6118,7 +6167,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision and directly answer the question.",
-    "notes": "A kérdés az ítélőtábla joghatóságára vonatkozik, hogy miért nem helyezte hatályon kívül az elsőfokú ítéletet."
+    "notes": "A kérdés az ítélőtábla joghatóságára vonatkozik, hogy miért nem helyezte hatályon kívül az elsőfokú ítéletet.",
+    "gold_document_position": 0
   },
   {
     "id": "q0331",
@@ -6138,7 +6188,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a Fővárosi Ítélőtábla egy konkrét döntését kéri a perköltségek viseléséről, az ügy típusát és évét megadva, ahogyan az a dokumentum tartalmából kiderül."
+    "notes": "A kérdés a Fővárosi Ítélőtábla egy konkrét döntését kéri a perköltségek viseléséről, az ügy típusát és évét megadva, ahogyan az a dokumentum tartalmából kiderül.",
+    "gold_document_position": 0
   },
   {
     "id": "q0332",
@@ -6156,9 +6207,10 @@
     "difficulty": "easy",
     "is_answerable": true,
     "reviewed": false,
-    "verification_status": "verified",
-    "verification_notes": "All statements in the expected answer are directly supported by the decision.",
-    "notes": "A kérdés a perköltség megfizetésére vonatkozó határidőre fókuszál egy konkrét ügyben."
+    "verification_status": "ambiguous",
+    "verification_notes": "The description fits other decisions at least as well: the golden document ranks 7. among the candidate documents.",
+    "notes": "A kérdés a perköltség megfizetésére vonatkozó határidőre fókuszál egy konkrét ügyben.",
+    "gold_document_position": 6
   },
   {
     "id": "q0333",
@@ -6235,7 +6287,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "Question asks about the basis for awarding costs, specifically in a 2022 decision from the Fővárosi Ítélőtábla concerning a claim arising from membership. The answer details the legal basis and the specific sections of the relevant laws (Pp. and IM decree)."
+    "notes": "Question asks about the basis for awarding costs, specifically in a 2022 decision from the Fővárosi Ítélőtábla concerning a claim arising from membership. The answer details the legal basis and the specific sections of the relevant laws (Pp. and IM decree).",
+    "gold_document_position": 0
   },
   {
     "id": "q0337",
@@ -6274,7 +6327,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés azt járja körül, hogy a bíróság milyen elvárásokat támasztott a felperessel szemben a bizonyítás terén egy adott érvénytelenségi ok (színlelt szerződés) kapcsán, a megadott dokumentumban szereplő konkrét rész alapján."
+    "notes": "A kérdés azt járja körül, hogy a bíróság milyen elvárásokat támasztott a felperessel szemben a bizonyítás terén egy adott érvénytelenségi ok (színlelt szerződés) kapcsán, a megadott dokumentumban szereplő konkrét rész alapján.",
+    "gold_document_position": 0
   },
   {
     "id": "q0339",
@@ -6294,7 +6348,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a felperest terhelő bizonyítási kötelezettségre fókuszál egy konkrét jogalap nélküli gazdagodás ügyben, összhangban a 'practical_procedural' persona leírásával. A válasz közvetlenül a dokumentumból származik."
+    "notes": "A kérdés a felperest terhelő bizonyítási kötelezettségre fókuszál egy konkrét jogalap nélküli gazdagodás ügyben, összhangban a 'practical_procedural' persona leírásával. A válasz közvetlenül a dokumentumból származik.",
+    "gold_document_position": 0
   },
   {
     "id": "q0340",
@@ -6371,7 +6426,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision text.",
-    "notes": "A kérdés az ítéletben található perköltségre és az azt alátámasztó jogszabályra fókuszál, ahogyan a feladatleírás is kéri."
+    "notes": "A kérdés az ítéletben található perköltségre és az azt alátámasztó jogszabályra fókuszál, ahogyan a feladatleírás is kéri.",
+    "gold_document_position": 0
   },
   {
     "id": "q0344",
@@ -6410,7 +6466,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a bíróság hatáskörének vagy illetékességének elutasításának indokát firtatja a megadott dokumentum alapján."
+    "notes": "A kérdés a bíróság hatáskörének vagy illetékességének elutasításának indokát firtatja a megadott dokumentum alapján.",
+    "gold_document_position": 0
   },
   {
     "id": "q0346",
@@ -6487,7 +6544,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a konkrét ítéletből kiolvasható határidőkre vonatkozik, ahogy azt a 'practical_procedural' persona igényli. A bíróság neve, az év és az ügy tárgya a kérdésben szerepel a dokumentum azonosítása érdekében."
+    "notes": "A kérdés a konkrét ítéletből kiolvasható határidőkre vonatkozik, ahogy azt a 'practical_procedural' persona igényli. A bíróság neve, az év és az ügy tárgya a kérdésben szerepel a dokumentum azonosítása érdekében.",
+    "gold_document_position": 0
   },
   {
     "id": "q0350",
@@ -6507,7 +6565,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a megadott dokumentumban szereplő perköltségre vonatkozó információra alapul, a 'practical_procedural' persona elvárásainak megfelelően."
+    "notes": "A kérdés a megadott dokumentumban szereplő perköltségre vonatkozó információra alapul, a 'practical_procedural' persona elvárásainak megfelelően.",
+    "gold_document_position": 0
   },
   {
     "id": "q0351",
@@ -6565,7 +6624,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "All statements in the expected answer are directly supported by the decision and the question is based on facts present in the decision.",
-    "notes": "A kérdés a bíróság által megállapított perköltség-fizetési határidőre vonatkozik, amely egyértelműen szerepel a dokumentum ítéleti részében."
+    "notes": "A kérdés a bíróság által megállapított perköltség-fizetési határidőre vonatkozik, amely egyértelműen szerepel a dokumentum ítéleti részében.",
+    "gold_document_position": 0
   },
   {
     "id": "q0354",
@@ -6585,7 +6645,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a megadott dokumentumban szereplő perköltség-viselésre vonatkozó részletekre kérdez rá, a bírósági döntés indoklását is figyelembe véve. A válasz tartalmazza a konkrét összeget és a jogszabályi hivatkozásokat."
+    "notes": "A kérdés a megadott dokumentumban szereplő perköltség-viselésre vonatkozó részletekre kérdez rá, a bírósági döntés indoklását is figyelembe véve. A válasz tartalmazza a konkrét összeget és a jogszabályi hivatkozásokat.",
+    "gold_document_position": 0
   },
   {
     "id": "q0355",
@@ -6662,7 +6723,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a 'practical_procedural' persona 'which evidence the court accepted or rejected, and why' procedurális témakörre vonatkozik, egy konkrét kártérítési ügyben a Békéscsabai Járásbíróság 2021-es ítélete alapján."
+    "notes": "A kérdés a 'practical_procedural' persona 'which evidence the court accepted or rejected, and why' procedurális témakörre vonatkozik, egy konkrét kártérítési ügyben a Békéscsabai Járásbíróság 2021-es ítélete alapján.",
+    "gold_document_position": 0
   },
   {
     "id": "q0359",
@@ -6758,7 +6820,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "The expected answer accurately reflects the procedural objection raised by the defendant as stated in the decision.",
-    "notes": "A kérdés az alperes fellebbezésében szereplő eljárási kifogására vonatkozik, amely a dokumentum [36]-[37] bekezdéseiben található."
+    "notes": "A kérdés az alperes fellebbezésében szereplő eljárási kifogására vonatkozik, amely a dokumentum [36]-[37] bekezdéseiben található.",
+    "gold_document_position": 0
   },
   {
     "id": "q0364",
@@ -6835,7 +6898,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés az ügyben hiányzó dokumentumokra és az elutasítás okára fókuszál, ahogy az a szövegben szerepel."
+    "notes": "A kérdés az ügyben hiányzó dokumentumokra és az elutasítás okára fókuszál, ahogy az a szövegben szerepel.",
+    "gold_document_position": 0
   },
   {
     "id": "q0368",
@@ -6893,7 +6957,8 @@
     "reviewed": false,
     "verification_status": "verified",
     "verification_notes": "",
-    "notes": "A kérdés a Balassagyarmati Törvényszék 2019-es vételár megfizetése iránti ügyének perköltség viseléséről szóló döntésének alapjaira vonatkozik, amely a megadott dokumentum tartalmából van kinyerve."
+    "notes": "A kérdés a Balassagyarmati Törvényszék 2019-es vételár megfizetése iránti ügyének perköltség viseléséről szóló döntésének alapjaira vonatkozik, amely a megadott dokumentum tartalmából van kinyerve.",
+    "gold_document_position": 0
   },
   {
     "id": "q0371",
