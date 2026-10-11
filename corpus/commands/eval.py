@@ -483,6 +483,33 @@ _QUESTION_RETRIES = 3
 _QUESTION_RETRY_WAIT_SECONDS = 45
 
 
+def load_saved_runs(path: Path | None) -> dict[tuple[str, int], dict]:
+    """The runs a previous, interrupted evaluation saved, by ``(question id, run number)``."""
+    if path is None or not path.exists():
+        return {}
+    saved: dict[tuple[str, int], dict] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            record = json.loads(line)
+            saved[(record["question_id"], record["run"])] = record["result"]
+    return saved
+
+
+def save_run(path: Path | None, question_id: str, run_no: int, result: dict) -> None:
+    """Append one finished run to the results file (no-op without a file)."""
+    if path is None:
+        return
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {"question_id": question_id, "run": run_no, "result": result},
+                ensure_ascii=False,
+                default=str,
+            )
+            + "\n"
+        )
+
+
 def _evaluate_one_with_retry(
     question: dict, profile: str | None, personas: dict[str, dict]
 ) -> dict:
@@ -1028,6 +1055,16 @@ def eval(
             help="The golden questions file (default: corpus/data/questions.json)."
         ),
     ] = QUESTIONS_PATH,
+    results_file: Annotated[
+        Path | None,
+        typer.Option(
+            help=(
+                "Append every finished run to this JSON-lines file and, if it already "
+                "holds runs of this question set, skip them: a long evaluation that "
+                "dies on a network failure is resumed instead of started again."
+            )
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -1084,10 +1121,18 @@ def eval(
     import time
 
     jobs = [q for q in questions for _ in range(repeat)]
+    saved = load_saved_runs(results_file)
     results = []
+    seen: dict[str, int] = {}
     for index, q in enumerate(jobs, start=1):
+        run_no = seen[q["id"]] = seen.get(q["id"], 0) + 1
+        if (q["id"], run_no) in saved:
+            results.append(saved[(q["id"], run_no)])
+            print(f"  [{index}/{len(jobs)}] {q['id']} run {run_no} resumed", flush=True)
+            continue
         started = time.monotonic()
         results.append(_evaluate_one_with_retry(q, profile, personas))
+        save_run(results_file, q["id"], run_no, results[-1])
         print(
             f"  [{index}/{len(jobs)}] {q['id']} done in {time.monotonic() - started:.0f}s",
             flush=True,
