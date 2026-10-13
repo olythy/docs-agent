@@ -1,11 +1,40 @@
 # docs-agent
 
-A learning project demonstrating a **RAG-based AI Agent** with tool-calling, built on top of:
+**Ask questions about your own documents and get answers that cite the exact passage they came from — or an honest "I could not find this" when the documents don't say it.**
 
-- 🗄️ **Supabase** (PostgreSQL + pgvector) — vector storage
-- 🤖 **OpenRouter / OpenAI** — pluggable LLM driver for grounded answer generation
-- 🔤 **Sentence-Transformers** — free, offline, multilingual embeddings (default)
-- 📄 **pdfplumber** — PDF text extraction
+docs-agent is a Python RAG system and tool-calling agent over PDF, Markdown, DOCX and RTF documents, built and measured on a real, non-English corpus: over 2,200 Hungarian court decisions.
+
+## What it does
+
+- **Grounded answers with verified citations.** Every sentence of an answer cites an excerpt; the code checks that the quoted text really is in that chunk, and a second model call checks that the quote supports the sentence. Unsupported sentences are dropped, and an answer with no surviving citation becomes a refusal written by the system, not by the model.
+- **Hybrid retrieval.** Vector search (pgvector) and Postgres full-text search, fused by rank (RRF), then reranked by a multilingual cross-encoder.
+- **Exact answers to counting and listing questions.** "How many decisions from 2023 were about X?" is not guessed from a few excerpts: a planner turns it into parameterised SQL over typed, evidence-backed metadata extracted from each document, and says how many documents are unknown instead of silently dropping them.
+- **An agent and an MCP server.** An LLM picks between ingesting a file, ingesting a directory and querying (`make chat`); the same knowledge base is exposed to Claude Desktop or any MCP host (`mcp_server.py`).
+- **Swappable backends.** Embeddings (local Sentence-Transformers, OpenAI, OpenRouter, Gemini, Jina, Vertex AI), LLMs (OpenRouter, OpenAI, Gemini, Vertex AI) and rerankers are each a Strategy chosen in `.env`.
+- **Measured, not assumed.** A golden set of 185 questions across three user profiles, a per-step retrieval funnel and confidence bounds. The current numbers, including where the system still falls short of its 95% target, are in [Where the system stands](#where-the-system-stands-2026-10-11).
+
+## Try it in five minutes
+
+Needs [`uv`](https://docs.astral.sh/uv/), Docker and an [OpenRouter](https://openrouter.ai) API key (any OpenAI-compatible key works; embeddings and reranking run locally by default, no key needed).
+
+```bash
+git clone https://github.com/olythy/docs-agent.git && cd docs-agent
+uv sync
+cp .env.example .env && cp .env.test.example .env.test   # then set LLM_API_KEY in .env
+make setup                                               # local Postgres + pgvector, migrations
+make add-document tests/data/sample_hu.md                # ingest a sample document
+make query "Hány nap távmunka engedélyezett hetente?"   # "How many remote-work days are allowed per week?"
+```
+
+The answer cites the paragraph it came from (`Sources:` block). Ask something the document does not contain and the system declines instead of guessing. `make chat` starts the interactive agent; `make help` lists every command. Detailed setup is in [Setup](#setup) below.
+
+## Built with
+
+- **PostgreSQL + pgvector** (local Docker, or Supabase) — vectors, full-text search and the metadata tables
+- **OpenRouter / OpenAI / Gemini / Vertex AI** — pluggable LLM driver
+- **Sentence-Transformers** — free, offline, multilingual embeddings and cross-encoder reranking (default)
+- **pdfplumber**, **python-docx**, RTF and Markdown extractors
+- **uv**, **ruff**, **pyright**, **pytest** (unit tests plus tests against a real Postgres)
 
 ## What Makes It an Agent (Not Just a RAG Pipeline)?
 
@@ -171,7 +200,7 @@ For a diagram of how the pipeline actually flows (ingestion, retrieval, which St
 ### 1. Clone and sync the environment
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/olythy/docs-agent.git
 cd docs-agent
 uv sync
 ```
